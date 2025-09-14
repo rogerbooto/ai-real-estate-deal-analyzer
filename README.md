@@ -41,21 +41,77 @@ The primary agents are:
 
 ---
 
+## System Overview
+
+```mermaid
+flowchart TD
+    subgraph Inputs
+        A[Listing Text File]
+        B[Property Photos Folder]
+        C[User Market Data]
+    end
+
+    subgraph Agents
+        D[Listing Analyst<br/>(CV + NLP)]
+        E[Financial Forecaster<br/>(Spreadsheet Logic)]
+        F[Chief Strategist<br/>(Final Thesis)]
+    end
+
+    subgraph Tools
+        G[CV Tagging Tool]
+        H[Financial Model Tool<br/>(Amortization, OPEX, IRR)]
+    end
+
+    subgraph Outputs
+        I[investment_analysis.md<br/>(Report)]
+    end
+
+    A --> D
+    B --> D
+    D --> G
+    D --> F
+    C --> E
+    G --> D
+    E --> H
+    E --> F
+    H --> E
+    F --> I
+```
+
+---
+
+## Agent Collaboration
+
+```mermaid
+sequenceDiagram
+    participant L as Listing Analyst
+    participant F as Financial Forecaster
+    participant C as Chief Strategist
+
+    Note over L,F,C: Orchestrated via CrewAI
+
+    L->>L: Parse listing text & analyze photos
+    L->>F: Send Listing Insights
+    F->>F: Run Financial Model (NOI, DSCR, CoC, IRR)
+    F->>C: Send Financial Forecast
+    L->>C: Send Listing Insights
+    C->>C: Synthesize Investment Thesis
+    C->>User: Output investment_analysis.md
+```
+
+---
+
 ## How We Model Debt Service
 
 We use a standard **loan amortization model** to compute annual debt service:
-```java
 
-    +-------------------------+
-    |   Loan Principal (P)    |
-    +-------------------------+
-               |
-               v
-r = annual_rate / 12 (monthly interest)
-n = amort_years * 12 (total payments)
-
-Monthly Payment (PMT) =
-    [ P * r * (1 + r)^n ] / [ (1 + r)^n - 1 ]
+```mermaid
+flowchart TD
+    A[Loan Principal (P)] --> B[Monthly Interest Rate (r = annual_rate / 12)]
+    B --> C[Total Payments (n = amort_years * 12)]
+    C --> D[Monthly Payment (PMT) = (P * r * (1+r)^n) / ((1+r)^n - 1)]
+    D --> E[Amortization Schedule]
+    E --> F[Annual Debt Service, DSCR, Balance]
 ```
 
 This model feeds into our per-year pro forma:
