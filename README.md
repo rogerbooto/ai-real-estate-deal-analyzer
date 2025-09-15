@@ -46,24 +46,24 @@ The primary agents are:
 ```mermaid
 flowchart TD
     subgraph Inputs
-        A[Listing Text File]
-        B[Property Photos Folder]
-        C[User Market Data]
+        A["Listing Text File"]
+        B["Property Photos Folder"]
+        C["User Market Data"]
     end
 
     subgraph Agents
-        D[Listing Analyst (CV + NLP)]
-        E[Financial Forecaster (Spreadsheet Logic)]
-        F[Chief Strategist (Final Thesis)]
+        D["Listing Analyst (CV and NLP)"]
+        E["Financial Forecaster (Spreadsheet Logic)"]
+        F["Chief Strategist (Final Thesis)"]
     end
 
     subgraph Tools
-        G[CV Tagging Tool]
-        H[Financial Model Tool (Amortization, OPEX, IRR)]
+        G["CV Tagging Tool"]
+        H["Financial Model Tool (Amortization / OPEX / IRR)"]
     end
 
     subgraph Outputs
-        I[investment_analysis.md (Report)]
+        I["investment_analysis.md (Report)"]
     end
 
     A --> D
@@ -76,7 +76,6 @@ flowchart TD
     E --> F
     H --> E
     F --> I
-
 ```
 
 ---
@@ -109,11 +108,11 @@ We use a standard **loan amortization model** to compute annual debt service:
 
 ```mermaid
 flowchart TD
-    A[Loan Principal (P)] --> B[Monthly Interest Rate (r = annual_rate / 12)]
-    B --> C[Total Payments (n = amort_years * 12)]
-    C --> D[Monthly Payment (PMT) = (P * r * (1+r)^n) / ((1+r)^n - 1)]
-    D --> E[Amortization Schedule]
-    E --> F[Annual Debt Service, DSCR, Balance]
+    A["Loan Principal (P)"] --> B["Monthly Interest Rate (r = annual_rate / 12)"]
+    B --> C["Total Payments (n = amort_years * 12)"]
+    C --> D["Monthly Payment (PMT) = (P * r * (1+r)^n) / ((1+r)^n - 1)"]
+    D --> E["Amortization Schedule"]
+    E --> F["Annual Debt Service, DSCR, Balance"]
 ```
 
 This model feeds into our per-year pro forma:
