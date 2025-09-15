@@ -9,6 +9,7 @@ from src.schemas.models import (
     YearBreakdown,
     PurchaseMetrics,
     RefiEvent,
+    InvestmentThesis,
 )
 
 
@@ -166,9 +167,27 @@ def _render_warnings(warnings: List[str]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _render_thesis(thesis: InvestmentThesis) -> str:
+    """
+    Render the Chief Strategist's verdict with rationale and levers.
+    """
+    lines = [
+        _section("Investment Thesis"),
+        f"- **Verdict:** {thesis.verdict}",
+        f"- **Rationale:**",
+    ]
+    for r in thesis.rationale:
+        lines.append(f"  - {r}")
+    if thesis.levers:
+        lines.append(f"- **Suggested Levers:**")
+        for l in thesis.levers:
+            lines.append(f"  - {l}")
+    return "\n".join(lines) + "\n"
+
 def generate_report(
     insights: Optional[ListingInsights],
     forecast: FinancialForecast,
+    thesis: Optional[InvestmentThesis] = None,
     title_override: Optional[str] = None,
 ) -> str:
     """
@@ -202,19 +221,20 @@ def generate_report(
     parts = [
         header,
         _render_purchase_metrics(forecast.purchase),
+        _render_thesis(thesis) if thesis else "",
         _render_year_table(forecast.years),
         _render_opex_details(forecast.years[0]),
         _render_refi(forecast.refi),
         _render_returns(forecast),
         _render_warnings(forecast.warnings),
     ]
-    return "\n".join(parts)
+    return "\n".join(part for part in parts if part).strip() + "\n"
 
 
-def write_report(path: str, insights: Optional[ListingInsights], forecast: FinancialForecast) -> None:
+def write_report(path: str, insights: Optional[ListingInsights], forecast: FinancialForecast, thesis: Optional[InvestmentThesis] = None) -> None:
     """
     Convenience helper to write the generated report to disk.
     """
-    md = generate_report(insights, forecast)
+    md = generate_report(insights, forecast, thesis=thesis)
     with open(path, "w", encoding="utf-8") as f:
         f.write(md)

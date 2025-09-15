@@ -107,7 +107,7 @@ def main():
     )
 
     out_file = "investment_analysis.md"
-    write_report(out_file, result.insights, result.forecast)
+    write_report(out_file, result.insights, result.forecast, result.thesis)
 
     print(f"Report written to {out_file}")
     print(f"Thesis verdict: {result.thesis.verdict}")
