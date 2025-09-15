@@ -145,9 +145,9 @@ def _inputs_poor() -> FinancialInputs:
 
 def test_thesis_buy_mixed_pass_buckets():
     for builder, expected in [
-        # (_inputs_good, "BUY"),
+        (_inputs_good, "BUY"),
         (_inputs_mixed, "CONDITIONAL"),
-        # (_inputs_poor, "PASS"),
+        (_inputs_poor, "PASS"),
     ]:
         forecast = forecast_financials(builder())
         thesis = synthesize_thesis(forecast)
