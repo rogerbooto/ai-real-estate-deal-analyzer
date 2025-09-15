@@ -151,3 +151,79 @@ This model feeds into our per-year pro forma:
   - Live market data ingestion
   - Streamlit or web UI
   - Predictive modeling for valuation and rent growth
+
+
+Here’s the updated **README.md usage section** you can drop in to close **#23** 🚀:
+
+---
+
+Great — here’s the **extended README section** with both **Usage Example** (#23) and a **Testing & Validation** section (#24):
+
+---
+
+## Usage Example
+
+The V1 demo comes with hardcoded sample inputs.
+You can run the full pipeline (Listing Analyst → Financial Forecaster → Chief Strategist) directly:
+
+```bash
+# Run demo analysis
+python main.py
+```
+
+Expected console output:
+
+```text
+Running AI Real Estate Deal Analyzer (V1 demo)...
+Report written to investment_analysis.md
+Thesis verdict: CONDITIONAL
+```
+
+This generates a Markdown report in the project root:
+
+* **`investment_analysis.md`** → Contains the financial forecast, year-by-year breakdown, and final investment thesis.
+
+### Example Report Snippet
+
+```markdown
+# Investment Analysis Report
+
+**Property Address:** 123 Main St  
+**Verdict:** CONDITIONAL  
+
+## Purchase Metrics
+- Cap Rate: 5.12%
+- DSCR: 1.05
+- CoC Return: 6.8%
+
+## 10-Year Returns
+- IRR (10yr): 11.2%
+- Equity Multiple (10yr): 2.1x
+```
+
+*(Numbers are illustrative — your run may differ depending on inputs.)*
+
+---
+
+## Testing & Validation
+
+This project is built test-first, with coverage for amortization, financial modeling, agents, and end-to-end flows.
+
+Run the test suite with:
+
+```bash
+pytest -q
+```
+
+Expected output (V1):
+
+```text
+.....................
+21 passed in 0.06s
+```
+
+All tests must pass before merging new code.
+
+---
+
+
