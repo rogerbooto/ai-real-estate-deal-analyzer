@@ -1,0 +1,10 @@
+crewai
+crewai[tools]
+python-dotenv
+beautifulsoup4
+requests
+pillow
+flask
+flask-cors
+pydantic>=2.7,<3
+pytest>=8
