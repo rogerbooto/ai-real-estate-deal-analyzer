@@ -4,7 +4,10 @@ Entry point for The AI Real Estate Deal Analyzer (V1).
 
 This script:
   1. Defines sample financial inputs (hardcoded for now).
-  2. Runs the financial forecasting engine.
+  2. Runs the full agent pipeline via the orchestrator:
+       - Listing Analyst (text + photos → insights)
+       - Financial Forecaster (spreadsheet logic)
+       - Chief Strategist (investment thesis)
   3. Generates a Markdown investment analysis report.
   4. Writes the report to investment_analysis.md in the project root.
 
@@ -14,8 +17,10 @@ Usage:
 Future V2+ will replace hardcoded inputs with:
   - File ingestion for listings (text + photos).
   - User-provided financial assumptions.
-  - Agent orchestration for automated insights.
+  - True CrewAI-based agent orchestration.
 """
+
+from pathlib import Path
 
 from src.schemas.models import (
     FinancingTerms,
@@ -24,9 +29,8 @@ from src.schemas.models import (
     RefinancePlan,
     MarketAssumptions,
     FinancialInputs,
-    ListingInsights,
 )
-from src.tools.financial_model import run
+from src.orchestrator.crew import run_orchestration
 from src.reports.generator import write_report
 
 
@@ -79,22 +83,34 @@ def build_sample_inputs() -> FinancialInputs:
 
 
 def main():
-    """Run demo analysis and write investment_analysis.md."""
+    """Run demo end-to-end analysis and write investment_analysis.md."""
     print("Running AI Real Estate Deal Analyzer (V1 demo)...")
 
     inputs = build_sample_inputs()
-    insights = ListingInsights(
-        address="123 Main St",
-        amenities=["Parking", "Laundry"],
-        notes=["Sample property for demo run"],
+
+    # For demo, create a minimal listing text file & photos folder
+    sample_dir = Path("data/sample")
+    sample_dir.mkdir(parents=True, exist_ok=True)
+    listing_txt = sample_dir / "listing.txt"
+    if not listing_txt.exists():
+        listing_txt.write_text("Charming triplex at 123 Main St. Parking and laundry.", encoding="utf-8")
+    photos_dir = sample_dir / "photos"
+    photos_dir.mkdir(exist_ok=True)
+    (photos_dir / "kitchen.jpg").write_bytes(b"")
+
+    # Run deterministic agent pipeline
+    result = run_orchestration(
+        inputs=inputs,
+        listing_txt_path=str(listing_txt),
+        photos_folder=str(photos_dir),
+        horizon_years=10,
     )
 
-    forecast = run(inputs, insights, horizon_years=10)
-
     out_file = "investment_analysis.md"
-    write_report(out_file, insights, forecast)
+    write_report(out_file, result.insights, result.forecast)
 
     print(f"Report written to {out_file}")
+    print(f"Thesis verdict: {result.thesis.verdict}")
 
 
 if __name__ == "__main__":
