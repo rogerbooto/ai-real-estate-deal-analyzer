@@ -52,18 +52,18 @@ flowchart TD
     end
 
     subgraph Agents
-        D[Listing Analyst<br/>(CV + NLP)]
-        E[Financial Forecaster<br/>(Spreadsheet Logic)]
-        F[Chief Strategist<br/>(Final Thesis)]
+        D[Listing Analyst (CV + NLP)]
+        E[Financial Forecaster (Spreadsheet Logic)]
+        F[Chief Strategist (Final Thesis)]
     end
 
     subgraph Tools
         G[CV Tagging Tool]
-        H[Financial Model Tool<br/>(Amortization, OPEX, IRR)]
+        H[Financial Model Tool (Amortization, OPEX, IRR)]
     end
 
     subgraph Outputs
-        I[investment_analysis.md<br/>(Report)]
+        I[investment_analysis.md (Report)]
     end
 
     A --> D
@@ -76,6 +76,7 @@ flowchart TD
     E --> F
     H --> E
     F --> I
+
 ```
 
 ---
@@ -88,7 +89,7 @@ sequenceDiagram
     participant F as Financial Forecaster
     participant C as Chief Strategist
 
-    Note over L,F,C: Orchestrated via CrewAI
+    Note over L F C: Orchestrated via CrewAI
 
     L->>L: Parse listing text & analyze photos
     L->>F: Send Listing Insights
@@ -97,6 +98,7 @@ sequenceDiagram
     L->>C: Send Listing Insights
     C->>C: Synthesize Investment Thesis
     C->>User: Output investment_analysis.md
+
 ```
 
 ---
