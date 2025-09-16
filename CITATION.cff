@@ -1,0 +1,22 @@
+cff-version: 1.2.0
+message: "If you use this project in research, coursework, or derivative works, please cite it as below."
+title: "The AI Real Estate Deal Analyzer"
+version: "1.0.0"
+date-released: 2025-09-15
+authors:
+  - family-names: "Booto Tokime"
+    given-names: "Roger"
+    orcid: "https://orcid.org/0000-0003-4096-7550"
+    email: "rogerbooto@gmail.com"
+abstract: >
+  An autonomous AI co-pilot that ingests real estate listings and user-provided
+  market data to perform rigorous investment analysis, generating a comprehensive
+  financial breakdown and a human-readable investment thesis.
+license: "Custom: Research and Education Only (see LICENSE file)"
+repository-code: "https://github.com/rogerbooto/ai-real-estate-deal-analyzer"
+keywords:
+  - real estate
+  - financial modeling
+  - investment analysis
+  - AI agents
+  - multi-agent systems
