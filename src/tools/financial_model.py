@@ -161,10 +161,20 @@ def run(
     mkt = inputs.market
 
     # ---- Loan sizing / acquisition cash ----
-    equity = f.purchase_price * f.down_payment_rate
-    loan_amt = max(0.0, f.purchase_price - equity)
-    acquisition_cash = equity + f.closing_costs + inputs.capex_reserve_upfront
+    down_payment = f.purchase_price * f.down_payment_rate
 
+    # Upfront mortgage insurance (applies if DP < 20%)
+    insurance_premium = f.purchase_price * f.mortgage_insurance_rate if f.down_payment_rate < 0.20 else 0.0
+
+    loan_amt = max(0.0, f.purchase_price - down_payment) + insurance_premium
+
+    acquisition_cash = down_payment + f.closing_costs + inputs.capex_reserve_upfront
+    
+    if acquisition_cash <= 0.0:
+        raise ValueError(
+            "Acquisition cash must be positive. Check purchase price, down payment rate, closing costs, and upfront reserves."
+        )
+    
     # Debt schedules
     sched_pre = generate_schedule(
         principal=loan_amt,
@@ -207,10 +217,15 @@ def run(
 
     for y in range(1, horizon_years + 1):
         # Income (monthly -> annual), with growth applied from Year 2 onward
-        rent_mo_y = _pow_growth(inc.rent_month, inc.rent_growth, y)
-        other_mo_y = _pow_growth(inc.other_income_month, inc.rent_growth, y)
+        total_rent_mo_y = sum(
+            _pow_growth(u.rent_month, inc.rent_growth, y) for u in inc.units
+        )
 
-        gsi = 12.0 * (rent_mo_y * inc.units + other_mo_y)
+        total_other_mo_y = sum(
+            _pow_growth(u.other_income_month, inc.rent_growth, y) for u in inc.units
+        )
+
+        gsi = 12.0 * (total_rent_mo_y + total_other_mo_y)
         goi = gsi * inc.occupancy * inc.bad_debt_factor
 
         total_opex, opex_break = opex_for_year(y)
@@ -355,7 +370,7 @@ def run(
         warnings.append(f"Purchase cap rate {cap_rate_purchase:.3%} below floor {mkt.cap_rate_floor:.3%}.")
     if spread_vs_rate < mkt.cap_rate_spread_target:
         warnings.append(f"Cap-rate spread {spread_vs_rate:.3%} below target {mkt.cap_rate_spread_target:.3%}.")
-    if inc.units < 4:
+    if len(inc.units) < 4:
         warnings.append("Subscale risk: fewer than 4 units.")
     if any(y.cash_flow < 0 for y in years):
         warnings.append("Negative cash flow in one or more years.")
@@ -386,9 +401,15 @@ def noi_at_year(year: int, income, opex) -> float:
     Returns:
         NOI for the requested year.
     """
-    rent_mo = _pow_growth(income.rent_month, income.rent_growth, year)
-    other_mo = _pow_growth(income.other_income_month, income.rent_growth, year)
-    gsi = 12.0 * (rent_mo * income.units + other_mo)
+    total_rent_mo = sum(
+        _pow_growth(u.rent_month, income.rent_growth, year) for u in income.units
+    )
+
+    total_other_mo = sum(
+        _pow_growth(u.other_income_month, income.rent_growth, year) for u in income.units
+    )
+
+    gsi = 12.0 * (total_rent_mo + total_other_mo)
     goi = gsi * income.occupancy * income.bad_debt_factor
     growth = opex.expense_growth
     total_opex = sum(

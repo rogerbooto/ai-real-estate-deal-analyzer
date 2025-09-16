@@ -1,9 +1,9 @@
-# tests/test_report_with_thesis.py
 from pathlib import Path
 
 from src.schemas.models import (
-    FinancingTerms, OperatingExpenses, IncomeModel, RefinancePlan, MarketAssumptions,
-    FinancialInputs, ListingInsights, InvestmentThesis
+    FinancingTerms, OperatingExpenses, IncomeModel, UnitIncome,
+    RefinancePlan, MarketAssumptions, FinancialInputs,
+    ListingInsights, InvestmentThesis
 )
 from src.tools.financial_model import run
 from src.reports.generator import write_report
@@ -21,7 +21,7 @@ def test_report_includes_thesis(tmp_path: Path):
             other=300.0, expense_growth=0.02,
         ),
         income=IncomeModel(
-            units=5, rent_month=1200.0, other_income_month=100.0,
+            units=[UnitIncome(rent_month=1200.0, other_income_month=100.0) for _ in range(5)],
             occupancy=0.95, bad_debt_factor=0.97, rent_growth=0.03
         ),
         refi=RefinancePlan(do_refi=False),

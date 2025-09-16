@@ -1,8 +1,8 @@
-# tests/test_financial_model_smoke.py
 from src.schemas.models import (
     FinancingTerms,
     OperatingExpenses,
     IncomeModel,
+    UnitIncome,
     RefinancePlan,
     MarketAssumptions,
     FinancialInputs,
@@ -35,9 +35,7 @@ def _baseline_inputs(do_refi: bool = False) -> FinancialInputs:
         expense_growth=0.02,
     )
     income = IncomeModel(
-        units=4,
-        rent_month=1200.0,          # per unit
-        other_income_month=100.0,   # laundry, parking, etc.
+        units=[UnitIncome(rent_month=1200.0, other_income_month=100.0) for _ in range(4)],
         occupancy=0.95,
         bad_debt_factor=0.97,
         rent_growth=0.03,
@@ -62,7 +60,6 @@ def _baseline_inputs(do_refi: bool = False) -> FinancialInputs:
         market=market,
         capex_reserve_upfront=0.0,
     )
-
 
 
 def _inputs_low_units_negative_cf() -> FinancialInputs:
@@ -90,11 +87,9 @@ def _inputs_low_units_negative_cf() -> FinancialInputs:
         expense_growth=0.03,
     )
     income = IncomeModel(
-        units=2,                 # intentionally subscale to trigger warning
-        rent_month=1200.0,
-        other_income_month=0.0,
-        occupancy=0.90,         # low occupancy
-        bad_debt_factor=0.92,   # higher bad debt
+        units=[UnitIncome(rent_month=1200.0, other_income_month=0.0) for _ in range(2)],  # subscale on purpose
+        occupancy=0.90,
+        bad_debt_factor=0.92,
         rent_growth=0.02,
     )
     refi = RefinancePlan(
@@ -117,6 +112,7 @@ def _inputs_low_units_negative_cf() -> FinancialInputs:
         market=market,
         capex_reserve_upfront=0.0,
     )
+
 
 def test_run_no_refi_10yr_smoke():
     inputs = _baseline_inputs(do_refi=False)
@@ -164,6 +160,7 @@ def test_run_with_refi_creates_event_and_cash_out_applies():
     # IRR/EM compute
     assert forecast.irr_10yr == forecast.irr_10yr
     assert forecast.equity_multiple_10yr > 0.0
+
 
 def test_warnings_for_subscale_and_negative_cf():
     inputs = _inputs_low_units_negative_cf()

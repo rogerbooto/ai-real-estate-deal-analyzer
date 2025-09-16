@@ -1,8 +1,8 @@
-# tests/test_report_generator.py
 from src.schemas.models import (
     FinancingTerms,
     OperatingExpenses,
     IncomeModel,
+    UnitIncome,
     RefinancePlan,
     MarketAssumptions,
     FinancialInputs,
@@ -38,9 +38,7 @@ def _inputs() -> FinancialInputs:
             expense_growth=0.02,
         ),
         income=IncomeModel(
-            units=4,
-            rent_month=1200.0,
-            other_income_month=100.0,
+            units=[UnitIncome(rent_month=1200.0, other_income_month=100.0) for _ in range(4)],
             occupancy=0.95,
             bad_debt_factor=0.97,
             rent_growth=0.03,
@@ -79,6 +77,7 @@ def test_generate_report_contains_key_sections():
 
     # If refi enabled, refi section appears
     assert "## Refinance Event" in md
+
 
 def test_write_report_creates_md_file(tmp_path):
     inputs = _inputs()

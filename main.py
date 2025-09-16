@@ -3,7 +3,7 @@
 Entry point for The AI Real Estate Deal Analyzer (V1).
 
 This script:
-  1. Defines sample financial inputs (hardcoded for now).
+  1. Loads sample financial inputs (hardcoded) or via --config JSON.
   2. Runs the full agent pipeline via the orchestrator:
        - Listing Analyst (text + photos → insights)
        - Financial Forecaster (spreadsheet logic)
@@ -13,29 +13,29 @@ This script:
 
 Usage:
     python main.py
-
-Future V2+ will replace hardcoded inputs with:
-  - File ingestion for listings (text + photos).
-  - User-provided financial assumptions.
-  - True CrewAI-based agent orchestration.
+    python main.py --config data/sample/inputs.json --out out.md --horizon 10 \
+                   --listing data/sample/listing.txt --photos data/sample/photos
 """
 
 from pathlib import Path
+import argparse
 
 from src.schemas.models import (
     FinancingTerms,
     OperatingExpenses,
     IncomeModel,
+    UnitIncome,
     RefinancePlan,
     MarketAssumptions,
     FinancialInputs,
 )
+from src.inputs.inputs import InputsLoader, AppInputs
 from src.orchestrator.crew import run_orchestration
 from src.reports.generator import write_report
 
 
 def build_sample_inputs() -> FinancialInputs:
-    """Return baseline FinancialInputs for demo purposes."""
+    """Return baseline FinancialInputs for demo purposes (per-unit income)."""
     return FinancialInputs(
         financing=FinancingTerms(
             purchase_price=500_000.0,
@@ -44,6 +44,7 @@ def build_sample_inputs() -> FinancialInputs:
             interest_rate=0.055,
             amort_years=30,
             io_years=0,
+            # mortgage_insurance_rate kept default (0.04) and won't apply since DP >= 20%
         ),
         opex=OperatingExpenses(
             insurance=2400.0,
@@ -61,9 +62,12 @@ def build_sample_inputs() -> FinancialInputs:
             expense_growth=0.02,
         ),
         income=IncomeModel(
-            units=4,
-            rent_month=1200.0,
-            other_income_month=100.0,
+            units=[
+                UnitIncome(rent_month=1200.0, other_income_month=50.0),
+                UnitIncome(rent_month=1200.0, other_income_month=50.0),
+                UnitIncome(rent_month=1200.0, other_income_month=0.0),
+                UnitIncome(rent_month=1200.0, other_income_month=0.0),
+            ],
             occupancy=0.95,
             bad_debt_factor=0.97,
             rent_growth=0.03,
@@ -82,34 +86,86 @@ def build_sample_inputs() -> FinancialInputs:
     )
 
 
-def main():
-    """Run demo end-to-end analysis and write investment_analysis.md."""
-    print("Running AI Real Estate Deal Analyzer (V1 demo)...")
+def parse_args() -> argparse.Namespace:
+    """Parse CLI arguments for configurable runs."""
+    p = argparse.ArgumentParser(description="AI Real Estate Deal Analyzer (V1)")
+    p.add_argument("--config", type=str, default=None, help="Path to JSON config (FinancialInputs or AppInputs).")
+    p.add_argument("--out", type=str, default=None, help="Output Markdown path (overrides config).")
+    p.add_argument("--horizon", type=int, default=None, help="Forecast horizon in years (overrides config).")
+    p.add_argument("--listing", type=str, default=None, help="Path to listing .txt (overrides config).")
+    p.add_argument("--photos", type=str, default=None, help="Path to photos folder (overrides config).")
+    return p.parse_args()
 
-    inputs = build_sample_inputs()
 
-    # For demo, create a minimal listing text file & photos folder
+def ensure_sample_assets(listing_txt_path: str | None, photos_dir_path: str | None) -> tuple[str, str]:
+    """
+    Ensure there are usable assets for a demo run.
+    If paths are not provided, create sample files under data/sample/.
+    """
+    if listing_txt_path and photos_dir_path:
+        return listing_txt_path, photos_dir_path
+
     sample_dir = Path("data/sample")
     sample_dir.mkdir(parents=True, exist_ok=True)
-    listing_txt = sample_dir / "listing.txt"
+
+    listing_txt = Path(listing_txt_path) if listing_txt_path else sample_dir / "listing.txt"
     if not listing_txt.exists():
-        listing_txt.write_text("Charming triplex at 123 Main St. Parking and laundry.", encoding="utf-8")
-    photos_dir = sample_dir / "photos"
+        listing_txt.write_text(
+            "Charming triplex at 123 Main St. Parking and laundry.",
+            encoding="utf-8",
+        )
+
+    photos_dir = Path(photos_dir_path) if photos_dir_path else sample_dir / "photos"
     photos_dir.mkdir(exist_ok=True)
+    # A blank file is fine; our CV stub keys off filename
     (photos_dir / "kitchen.jpg").write_bytes(b"")
+
+    return str(listing_txt), str(photos_dir)
+
+
+def main():
+    """Run end-to-end analysis and write investment_analysis.md (or chosen output)."""
+    print("Running AI Real Estate Deal Analyzer (V1 demo)...")
+    args = parse_args()
+
+    loader = InputsLoader()
+
+    if args.config:
+        # Load AppInputs (FinancialInputs + run options) and apply CLI overrides if provided
+        cfg: AppInputs = loader.load(args.config)
+        cfg = loader.with_overrides(
+            cfg,
+            out=args.out,
+            horizon=args.horizon,
+            listing=args.listing,
+            photos=args.photos,
+        )
+        inputs = cfg.inputs
+        out_path = cfg.run.out
+        horizon = cfg.run.horizon
+        listing_arg = cfg.run.listing
+        photos_arg = cfg.run.photos
+    else:
+        # No config file → use demo inputs and CLI flags (if any)
+        inputs = build_sample_inputs()
+        out_path = args.out or "investment_analysis.md"
+        horizon = args.horizon or 10
+        listing_arg = args.listing
+        photos_arg = args.photos
+
+    listing_txt, photos_dir = ensure_sample_assets(listing_arg, photos_arg)
 
     # Run deterministic agent pipeline
     result = run_orchestration(
         inputs=inputs,
-        listing_txt_path=str(listing_txt),
-        photos_folder=str(photos_dir),
-        horizon_years=10,
+        listing_txt_path=listing_txt,
+        photos_folder=photos_dir,
+        horizon_years=horizon,
     )
 
-    out_file = "investment_analysis.md"
-    write_report(out_file, result.insights, result.forecast, result.thesis)
+    write_report(out_path, result.insights, result.forecast, result.thesis)
 
-    print(f"Report written to {out_file}")
+    print(f"Report written to {out_path}")
     print(f"Thesis verdict: {result.thesis.verdict}")
 
 

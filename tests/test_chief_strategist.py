@@ -3,6 +3,7 @@ from src.schemas.models import (
     FinancingTerms,
     OperatingExpenses,
     IncomeModel,
+    UnitIncome,
     RefinancePlan,
     MarketAssumptions,
     FinancialInputs,
@@ -38,9 +39,7 @@ def _inputs_good() -> FinancialInputs:
             expense_growth=0.02,
         ),
         income=IncomeModel(
-            units=6,
-            rent_month=1300.0,
-            other_income_month=100.0,
+            units=[UnitIncome(rent_month=1300.0, other_income_month=100.0) for _ in range(6)],
             occupancy=0.96,
             bad_debt_factor=0.98,
             rent_growth=0.03,
@@ -82,9 +81,7 @@ def _inputs_mixed() -> FinancialInputs:
             expense_growth=0.02,
         ),
         income=IncomeModel(
-            units=4,
-            rent_month=1200.0,
-            other_income_month=100.0,
+            units=[UnitIncome(rent_month=1200.0, other_income_month=100.0) for _ in range(4)],
             occupancy=0.95,
             bad_debt_factor=0.97,
             rent_growth=0.04,
@@ -92,7 +89,7 @@ def _inputs_mixed() -> FinancialInputs:
         refi=RefinancePlan(do_refi=False),
         market=MarketAssumptions(
             cap_rate_purchase=None,
-            cap_rate_floor=None,
+            cap_rate_floor=None,  # let spread/coverage drive CONDITIONAL
             cap_rate_spread_target=0.015,
         ),
         capex_reserve_upfront=0.0,
@@ -126,9 +123,7 @@ def _inputs_poor() -> FinancialInputs:
             expense_growth=0.03,
         ),
         income=IncomeModel(
-            units=3,
-            rent_month=900.0,
-            other_income_month=50.0,
+            units=[UnitIncome(rent_month=900.0, other_income_month=50.0) for _ in range(3)],
             occupancy=0.90,
             bad_debt_factor=0.92,
             rent_growth=0.02,

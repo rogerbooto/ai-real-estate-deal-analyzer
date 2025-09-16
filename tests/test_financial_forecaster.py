@@ -1,8 +1,8 @@
-# tests/test_financial_forecaster.py
 from src.schemas.models import (
     FinancingTerms,
     OperatingExpenses,
     IncomeModel,
+    UnitIncome,
     RefinancePlan,
     MarketAssumptions,
     FinancialInputs,
@@ -37,9 +37,7 @@ def _valid_inputs() -> FinancialInputs:
             expense_growth=0.02,
         ),
         income=IncomeModel(
-            units=4,
-            rent_month=1200.0,
-            other_income_month=100.0,
+            units=[UnitIncome(rent_month=1200.0, other_income_month=100.0) for _ in range(4)],
             occupancy=0.95,
             bad_debt_factor=0.97,
             rent_growth=0.03,
@@ -63,10 +61,9 @@ def test_forecaster_clamps_occupancy_and_bad_debt_and_runs():
     base = _valid_inputs()
 
     # Create an INVALID IncomeModel without validation (pydantic v2 escape hatch)
+    # Keep the same unit list but break occupancy/bad_debt
     bad_income = IncomeModel.model_construct(
         units=base.income.units,
-        rent_month=base.income.rent_month,
-        other_income_month=base.income.other_income_month,
         occupancy=1.2,          # > 1 on purpose
         bad_debt_factor=-0.1,   # < 0 on purpose
         rent_growth=base.income.rent_growth,
@@ -88,9 +85,9 @@ def test_forecaster_clamps_occupancy_and_bad_debt_and_runs():
 
     assert len(forecast.years) == 10
     assert forecast.purchase.acquisition_cash > 0
-    # Cap rate may be negative if NOI < 0 (e.g., bad_debt_factor clamped to 0)
-    assert forecast.purchase.cap_rate == forecast.purchase.cap_rate  # finite (not NaN)
-    assert forecast.irr_10yr == forecast.irr_10yr  # finite (not NaN)
+    # Cap rate may be negative if NOI < 0; just ensure finiteness (not NaN)
+    assert forecast.purchase.cap_rate == forecast.purchase.cap_rate
+    assert forecast.irr_10yr == forecast.irr_10yr
     assert isinstance(forecast.warnings, list)
-    # With zero collections (bad_debt_factor→0), NOI<0 -> expect negative cash flow warning
+    # With collections crushed by clamping, negative CF is plausible → expect warning
     assert any("Negative cash flow" in w for w in forecast.warnings)

@@ -1,0 +1,54 @@
+{
+  "inputs": {
+    "financing": {
+      "purchase_price": 399900,
+      "closing_costs": 10000,
+      "down_payment_rate": 0.05,
+      "interest_rate": 0.055,
+      "amort_years": 25,
+      "io_years": 0,
+      "mortgage_insurance_rate": 0.04
+    },
+    "opex": {
+      "insurance": 1026,
+      "taxes": 4747,
+      "utilities": 0,
+      "water_sewer": 920,
+      "property_management": 0,
+      "repairs_maintenance": 0,
+      "trash": 0,
+      "landscaping": 0,
+      "snow_removal": 0,
+      "hoa_fees": 0,
+      "reserves": 0,
+      "other": 0,
+      "expense_growth": 0.02
+    },
+    "income": {
+      "units": [
+        { "rent_month": 1600, "other_income_month": 0 },
+        { "rent_month": 1300, "other_income_month": 0 }
+      ],
+      "occupancy": 0.95,
+      "bad_debt_factor": 0.97,
+      "rent_growth": 0.03
+    },
+    "refi": {
+      "do_refi": true,
+      "year_to_refi": 10,
+      "refi_ltv": 0.8
+    },
+    "market": {
+      "cap_rate_purchase": null,
+      "cap_rate_floor": 0.05,
+      "cap_rate_spread_target": 0.015
+    },
+    "capex_reserve_upfront": 0
+  },
+  "run": {
+    "out": "investment_analysis.md",
+    "horizon": 10,
+    "listing": "data/sample/listing.txt",
+    "photos": "data/sample/photos"
+  }
+}
