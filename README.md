@@ -10,10 +10,10 @@ This project is a portfolio piece designed to showcase a modern, multi-agent AI 
 
 For an aspiring real estate investor, evaluating a potential deal is a time-consuming, manual, and error-prone process. It involves:
 
-- Manually parsing property photos and descriptions.
-- Scouring multiple websites for comparable sales ("comps").
-- Plugging dozens of numbers into a complex spreadsheet.
-- Making a high-stakes financial decision based on incomplete data and gut feeling.
+* Manually parsing property photos and descriptions.
+* Scouring multiple websites for comparable sales ("comps").
+* Plugging dozens of numbers into a complex spreadsheet.
+* Making a high-stakes financial decision based on incomplete data and gut feeling.
 
 This "analysis paralysis" prevents many would-be investors from ever taking action.
 
@@ -33,9 +33,9 @@ The system is built as a **multi-agent system**, orchestrated using CrewAI. This
 
 The primary agents are:
 
-- **Listing Analyst:** A Computer Vision expert that analyzes property photos and listing text to extract key features and data points.
-- **Financial Forecaster:** A financial modeling expert that implements the core investment spreadsheet logic, calculating NOI, cash flow, and return metrics.
-- **Chief Strategist:** The final decision-maker that synthesizes all data into a clear, human-readable investment thesis.
+* **Listing Analyst:** A Computer Vision expert that analyzes property photos and listing text to extract key features and data points.
+* **Financial Forecaster:** A financial modeling expert that implements the core investment spreadsheet logic, calculating NOI, cash flow, and return metrics.
+* **Chief Strategist:** The final decision-maker that synthesizes all data into a clear, human-readable investment thesis.
 
 *(Note: In V1, market research and live data scraping are out of scope; inputs are provided locally.)*
 
@@ -97,7 +97,6 @@ sequenceDiagram
     L->>C: Send Listing Insights
     C->>C: Synthesize Investment Thesis
     C->>User: Output investment_analysis.md
-
 ```
 
 ---
@@ -116,48 +115,29 @@ flowchart TD
 ```
 
 This model feeds into our per-year pro forma:
-- **Debt Service** = principal + interest for that year
-- **DSCR** = NOI ÷ Debt Service
-- **Balance After Year N** = outstanding loan principal
+
+* **Debt Service** = principal + interest for that year
+* **DSCR** = NOI ÷ Debt Service
+* **Balance After Year N** = outstanding loan principal
 
 ---
 
 ## Tech Stack
 
-- **Language:** Python
-- **Orchestration:** CrewAI
-- **AI Models:** Computer Vision (CLIP-based tagging), LLM agents
-- **Data Modeling:** Pydantic v2
-- **Testing:** Pytest
-- **Packaging:** `pyproject.toml` with Poetry-style dependency management
+* **Language:** Python
+* **Orchestration:** CrewAI
+* **AI Models:** Computer Vision (CLIP-based tagging), LLM agents
+* **Data Modeling:** Pydantic v2
+* **Testing:** Pytest
+* **Packaging:** `pyproject.toml` with Poetry-style dependency management
 
 ---
 
 ## Project Goals
 
-- Demonstrate mastery of **agentic design patterns**.
-- Implement a **transparent and opinionated financial model**.
-- Deliver professional-quality code, tests, and documentation in a public repo.
-
----
-
-## Roadmap
-
-- **V1 (MVP):**
-  - Local text + photo ingestion
-  - Deterministic financial modeling (spreadsheet parity)
-  - Agent orchestration and thesis output
-- **V2+:**
-  - Live market data ingestion
-  - Streamlit or web UI
-  - Predictive modeling for valuation and rent growth
-
-
-Here’s the updated **README.md usage section** you can drop in to close **#23** 🚀:
-
----
-
-Great — here’s the **extended README section** with both **Usage Example** (#23) and a **Testing & Validation** section (#24):
+* Demonstrate mastery of **agentic design patterns**.
+* Implement a **transparent and opinionated financial model**.
+* Deliver professional-quality code, tests, and documentation in a public repo.
 
 ---
 
@@ -204,6 +184,36 @@ This generates a Markdown report in the project root:
 *(Numbers are illustrative — your run may differ depending on inputs.)*
 
 ---
+## Developer Setup
+To get started as a contributor:
+
+**1. Clone the repository**
+```bash
+git clone https://github.com/<your-username>/ai-real-estate-deal-analyzer.git
+cd ai-real-estate-deal-analyzer
+```
+
+**2. Create a virtual environment**
+```bash
+python -m venv .venv
+source .venv/bin/activate   # Linux/Mac
+.venv\Scripts\activate      # Windows
+```
+
+**3. Install dependencies**
+
+We use **Poetry-style dependencies via** `pyproject.toml`, but you can also install directly:
+
+```bash
+pip install -r requirements.txt
+```
+
+For development (with tests, linting, typing):
+```bash
+pip install -e .[dev]
+```
+
+---
 
 ## Testing & Validation
 
@@ -218,12 +228,25 @@ pytest -q
 Expected output (V1):
 
 ```text
-.....................
-21 passed in 0.06s
+......................
+22 passed in 0.07s
 ```
 
 All tests must pass before merging new code.
 
 ---
 
+## Roadmap
 
+* **V1 (MVP):**
+
+  * Local text + photo ingestion
+  * Deterministic financial modeling
+  * Agent orchestration and thesis output
+* **V2+:**
+
+  * Live market data ingestion
+  * Streamlit or web UI
+  * Predictive modeling for valuation and rent growth
+
+---
