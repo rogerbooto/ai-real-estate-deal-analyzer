@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Dict
 
 from src.schemas.models import (
     FinancialInputs,
@@ -108,6 +108,27 @@ def _irr(cash_flows: List[float], tol: float = 1e-6, max_iter: int = 200) -> flo
             low = mid
             npv_low = v
     return (low + high) / 2.0
+
+
+# Helpers for valuation tracks / refi heuristics
+
+def _safe_div(n: float, d: float) -> float:
+    """Safe division for LTV/value math; returns +inf if denominator is 0 and numerator > 0, else 0."""
+    if d == 0:
+        return float("inf") if n > 0 else 0.0
+    return n / d
+
+
+def _first_refi_year_at_or_below_80_ltv(ltv_by_year: List[float], seasoning_min_years: int) -> Optional[int]:
+    """
+    Return the first 1-based year where LTV ≤ 0.80, respecting seasoning_min_years.
+    """
+    eps = 1e-9
+    s = max(1, int(seasoning_min_years or 1))
+    for i, ltv in enumerate(ltv_by_year, start=1):
+        if i >= s and ltv <= 0.80 + eps:
+            return i
+    return None
 
 
 # ============================
@@ -311,6 +332,61 @@ def run(
             )
         )
 
+    # Valuation tracks & refi heuristics
+    # Pull market knobs with safe defaults to keep this block deterministic
+    baseline_appreciation = getattr(mkt, "baseline_appreciation_rate", 0.03) or 0.0
+    stress_price_adjustment = getattr(mkt, "stress_price_adjustment", 0.0) or 0.0
+    cap_rate_drift_per_year = getattr(mkt, "cap_rate_drift_per_year", 0.0) or 0.0
+    seasoning_min_years = int(getattr(mkt, "seasoning_min_years", 1) or 1)
+
+    n = len(years)
+    purchase_price = f.purchase_price
+    interest_rate = f.interest_rate
+
+    # Baseline (appreciation-based) values
+    property_value_baseline: List[float] = [
+        purchase_price * ((1.0 + baseline_appreciation) ** (y - 1)) for y in range(1, n + 1)
+    ]
+
+    # Stress (rate-anchored) values
+    stress_basis = max(0.0, purchase_price - stress_price_adjustment)
+    stress_growth = 1.0 + (interest_rate / 3.0) if interest_rate is not None else 1.0
+    property_value_stress: List[float] = [
+        stress_basis * (stress_growth ** (y - 1)) for y in range(1, n + 1)
+    ]
+
+    # NOI-based values with cap-rate drift
+    # Start cap: use purchase cap if present; else back into it via NOI_Y1 / purchase_price
+    y1_noi = years[0].noi if years else 0.0
+    cap_rate_start = getattr(mkt, "cap_rate_purchase", None)
+    if not cap_rate_start or cap_rate_start <= 0:
+        cap_rate_start = (y1_noi / purchase_price) if purchase_price > 0 else 0.0
+
+    property_value_noi: List[float] = []
+    for idx, y in enumerate(years):
+        cap_t = cap_rate_start + cap_rate_drift_per_year * idx  # linear drift per year index
+        if cap_t <= 0:
+            property_value_noi.append(0.0)
+        else:
+            property_value_noi.append(_safe_div(y.noi, cap_t))
+
+    # LTV and Equity (80% basis) for each track
+    end_balances = [y.ending_balance for y in years]
+
+    ltv_baseline = [_safe_div(end_balances[i], max(1e-12, property_value_baseline[i])) for i in range(n)]
+    equity_baseline = [max(0.0, 0.80 * property_value_baseline[i] - end_balances[i]) for i in range(n)]
+
+    ltv_stress = [_safe_div(end_balances[i], max(1e-12, property_value_stress[i])) for i in range(n)]
+    equity_stress = [max(0.0, 0.80 * property_value_stress[i] - end_balances[i]) for i in range(n)]
+
+    ltv_noi = [_safe_div(end_balances[i], max(1e-12, property_value_noi[i])) for i in range(n)]
+    equity_noi = [max(0.0, 0.80 * property_value_noi[i] - end_balances[i]) for i in range(n)]
+
+    # Suggested refi years for each track (first ≤ 80% LTV, after seasoning)
+    suggested_refi_year_baseline = _first_refi_year_at_or_below_80_ltv(ltv_baseline, seasoning_min_years)
+    suggested_refi_year_stress = _first_refi_year_at_or_below_80_ltv(ltv_stress, seasoning_min_years)
+    suggested_refi_year_noi = _first_refi_year_at_or_below_80_ltv(ltv_noi, seasoning_min_years)
+
     # ---- Purchase metrics (Year 1) ----
     y1 = years[0]
     cap_rate_purchase = (
@@ -382,6 +458,22 @@ def run(
         irr_10yr=irr_10,
         equity_multiple_10yr=em_10,
         warnings=warnings,
+
+        # valuation tracks & suggested refi years
+        property_value_baseline=property_value_baseline,
+        ltv_baseline=ltv_baseline,
+        equity_baseline=equity_baseline,
+        suggested_refi_year_baseline=suggested_refi_year_baseline,
+
+        property_value_stress=property_value_stress,
+        ltv_stress=ltv_stress,
+        equity_stress=equity_stress,
+        suggested_refi_year_stress=suggested_refi_year_stress,
+
+        property_value_noi=property_value_noi,
+        ltv_noi=ltv_noi,
+        equity_noi=equity_noi,
+        suggested_refi_year_noi=suggested_refi_year_noi,
     )
 
 

@@ -34,7 +34,7 @@
       "rent_growth": 0.03
     },
     "refi": {
-      "do_refi": true,
+      "do_refi": false,
       "year_to_refi": 10,
       "refi_ltv": 0.8
     },

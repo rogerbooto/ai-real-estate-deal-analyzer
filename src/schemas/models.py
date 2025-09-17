@@ -87,6 +87,10 @@ class MarketAssumptions(BaseModel):
     cap_rate_purchase: Optional[float] = Field(None, description="If provided, use this as the purchase cap rate; else compute NOI/P for Year 1.")
     cap_rate_floor: Optional[float] = Field(None, description="Minimum acceptable cap rate; if provided, flag deals below this threshold.")
     cap_rate_spread_target: float = Field(0.015, description="Target spread: cap_rate - interest_rate must be ≥ this value (e.g., 0.015 = 150 bps).")
+    cap_rate_drift: float = Field(
+        0.0,
+        description="Optional annual drift (absolute, e.g., 0.0025 = +25 bps/year) applied to cap rate over time."
+    )
 
 
 class FinancialInputs(BaseModel):
@@ -100,7 +104,7 @@ class FinancialInputs(BaseModel):
 
 
 # =========================
-# Listing insights (from CV + parser)
+# Listing insights
 # =========================
 
 class ListingInsights(BaseModel):
@@ -118,13 +122,13 @@ class ListingInsights(BaseModel):
 
 class YearBreakdown(BaseModel):
     """
-    One row per modeled year, after applying rent/expense growth, with detailed OPEX and debt service.
+    One row per modeled year, after applying rent/expense growth, with detailed OPEX, debt service, and valuation metrics.
     """
     year: int = Field(..., description="Year index starting at 1.")
     gsi: float = Field(..., description="Gross Scheduled Income: annualized rent + other income before vacancy/bad debt.")
     goi: float = Field(..., description="Gross Operating Income: GSI after occupancy and bad-debt factors.")
 
-    # Operating expenses (detailed, post-growth for that year)
+    # Operating expenses (post-growth for that year)
     insurance: float = Field(..., description="Insurance expense for the year after growth.")
     taxes: float = Field(..., description="Property taxes for the year after growth.")
     utilities: float = Field(..., description="Utilities for the year after growth.")
@@ -146,10 +150,16 @@ class YearBreakdown(BaseModel):
     principal_paid: float = Field(..., description="Principal component of annual debt service.")
     interest_paid: float = Field(..., description="Interest component of annual debt service.")
 
-    # Cash flow and coverage
+    # Cash flow
     cash_flow: float = Field(..., description="Levered cash flow before taxes: NOI - debt_service.")
     dscr: float = Field(..., description="Debt Service Coverage Ratio: NOI / debt_service.")
     ending_balance: float = Field(..., description="Ending loan principal balance after this year's payments.")
+
+    # Valuation/equity metrics
+    cap_rate_applied: Optional[float] = Field(None, description="Cap rate applied for valuation in this year (purchase cap ± drift if not overridden).")
+    est_value: float = Field(0.0, description="Estimated property value in this year, typically NOI / cap_rate_applied.")
+    ltv_pct: float = Field(0.0, description="Loan-to-Value ratio in percent: ending_balance / est_value.")
+    available_equity: float = Field(0.0, description="Available equity at 80% LTV: (0.8 × est_value) − ending_balance, floored at 0.")
 
     notes: List[str] = Field(default_factory=list, description="Any annotations (IO years, refi year, unusual adjustments).")
 
@@ -161,7 +171,7 @@ class PurchaseMetrics(BaseModel):
     dscr: float = Field(..., description="Year 1 DSCR: NOI_Y1 / annual_debt_service.")
     annual_debt_service: float = Field(..., description="Annual debt service in Year 1.")
     acquisition_cash: float = Field(..., description="Initial cash outlay: down payment + closing costs + upfront reserves (+ mortgage insurance if applicable).")
-    spread_vs_rate: float = Field(..., description="Cap rate minus interest rate (in fraction terms), used for Cardone-style spread checks.")
+    spread_vs_rate: float = Field(..., description="Cap rate minus interest rate (fraction terms), used for spread checks.")
 
 
 class RefiEvent(BaseModel):
@@ -178,9 +188,9 @@ class FinancialForecast(BaseModel):
     purchase: PurchaseMetrics = Field(..., description="Purchase metrics at close/Year 1.")
     years: List[YearBreakdown] = Field(..., description="Per-year detailed pro forma over the horizon.")
     refi: Optional[RefiEvent] = Field(None, description="Refi details if modeled; None otherwise.")
-    irr_10yr: float = Field(..., description="Levered IRR over the 10-year (default) horizon including refi/terminal equity.")
+    irr_10yr: float = Field(..., description="Levered IRR over the 10-year horizon including refi/terminal equity.")
     equity_multiple_10yr: float = Field(..., description="(Total distributions to equity) / (initial equity).")
-    warnings: List[str] = Field(default_factory=list, description="Validation/guardrail messages (e.g., spread shortfall, subscale risk).")
+    warnings: List[str] = Field(default_factory=list, description="Guardrail messages (spread shortfall, subscale risk, negative CF).")
 
 
 # =========================
@@ -190,5 +200,5 @@ class FinancialForecast(BaseModel):
 class InvestmentThesis(BaseModel):
     """Human-readable decision synthesized by the Chief Strategist."""
     verdict: str = Field(..., description='One of: "BUY", "CONDITIONAL", or "PASS".')
-    rationale: List[str] = Field(..., description="Bulleted reasons supporting the verdict (market fit, metrics, risks).")
-    levers: List[str] = Field(default_factory=list, description='Actions to flip/strengthen the verdict (e.g., "negotiate -$20k", "raise rent 6%").')
+    rationale: List[str] = Field(..., description="Bulleted reasons supporting the verdict.")
+    levers: List[str] = Field(default_factory=list, description="Suggested actions to strengthen the deal (e.g., negotiate, increase rents).")

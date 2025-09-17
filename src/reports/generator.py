@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from typing import List, Optional
+import os
 
 from src.schemas.models import (
     ListingInsights,
@@ -41,6 +42,49 @@ def _section(title: str) -> str:
     """
     return f"\n## {title}\n"
 
+
+# -----------------------
+# Env “knobs” for valuations
+# -----------------------
+
+def _cap_drift_per_year() -> float:
+    """
+    Cap-rate drift per year (fraction). Defaults to 0.0.
+    Override via env var AIREAL_CAP_DRIFT_BPS (integer basis points per year).
+    Example: AIREAL_CAP_DRIFT_BPS=5 -> 0.0005 drift per year.
+    """
+    try:
+        bps = int(os.getenv("AIREAL_CAP_DRIFT_BPS", "0").strip() or "0")
+    except Exception:
+        bps = 0
+    return bps / 10_000.0
+
+
+def _appreciation_rate() -> float:
+    """
+    Baseline appreciation rate (fraction). Defaults to 3%/yr.
+    Override via AIREAL_APPRECIATION_PCT (e.g., 0.03 for 3%).
+    """
+    try:
+        return float(os.getenv("AIREAL_APPRECIATION_PCT", "0.03"))
+    except Exception:
+        return 0.03
+
+
+def _stress_adj() -> float:
+    """
+    Stress “basis” adjustment subtracted from purchase price before compounding.
+    Defaults to 0.0. Override via AIREAL_STRESS_ADJ.
+    """
+    try:
+        return float(os.getenv("AIREAL_STRESS_ADJ", "0.0"))
+    except Exception:
+        return 0.0
+
+
+# -----------------------
+# Header & top sections
+# -----------------------
 
 def _render_header(insights: Optional[ListingInsights]) -> str:
     """
@@ -95,6 +139,56 @@ def _render_purchase_metrics(p: PurchaseMetrics) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _render_methodology() -> str:
+    """
+    Explain the three parallel valuation forecasts and the refi marker rule.
+    Note: purely descriptive; does not depend on extra schema fields.
+    """
+    lines = [
+        _section("Forecasting Methodology"),
+        "We produce **three parallel valuation tracks** and mark the first year where the loan-to-value (LTV) "
+        "reaches **≤ 80%** (standard refi-ready threshold). All math is deterministic.",
+        "",
+        "**1) Baseline (Appreciation-Based)**",
+        "",
+        "Property value grows at an assumed annual appreciation rate $g$:",
+        "",
+        "$$Value_t = PurchasePrice \\times (1 + g)^t$$",
+        "$$LTV_t = \\frac{MortgageBalance_t}{Value_t}$$",
+        "$$Equity_t^{(80\\%)} = 0.80 \\times Value_t - MortgageBalance_t$$",
+        "",
+        "**2) Stress-Test (Rate-Anchored, Conservative)**",
+        "",
+        "Anchors value growth to a fraction of today's debt rate $r$ (stress stance). If the model uses an adjustment "
+        "$Adj$ to reflect effective basis (e.g., subtracting certain upfronts), then:",
+        "",
+        "$$StressValue_t = (PurchasePrice - Adj) \\times (1 + \\tfrac{r}{3})^t$$",
+        "$$LTV_t = \\frac{MortgageBalance_t}{StressValue_t}$$",
+        "$$Equity_t^{(80\\%)} = 0.80 \\times StressValue_t - MortgageBalance_t$$",
+        "",
+        "**3) NOI-Based (Market-Income Approach with Cap Rate Drift)**",
+        "",
+        "Values are derived from income with a drifting market cap rate:",
+        "",
+        "$$CapRate_t = CapRate_0 + (drift_{per\\_year} \\times t)$$",
+        "$$NOIValue_t = \\frac{NOI_t}{CapRate_t}$$",
+        "$$LTV_t = \\frac{MortgageBalance_t}{NOIValue_t}$$",
+        "$$Equity_t^{(80\\%)} = 0.80 \\times NOIValue_t - MortgageBalance_t$$",
+        "",
+        "**Notes**",
+        "- *Seasoning*: refi checks typically begin at Year 1 or later (configurable).",
+        "- We use end-of-year balances and values for consistency.",
+        "- LTV comparisons use a small epsilon to avoid floating-point edge cases.",
+        "- This report shows the full horizon; refi years are marked when available.",
+    ]
+    return "\n".join(lines) + "\n"
+
+
+
+# -----------------------
+# Pro forma (horizon-aware)
+# -----------------------
+
 def _render_year_table(years: List[YearBreakdown]) -> str:
     """
     Render a compact Markdown table of key annual metrics.
@@ -102,8 +196,9 @@ def _render_year_table(years: List[YearBreakdown]) -> str:
     Columns:
       Year | GSI | GOI | Total OPEX | NOI | Debt Service | Cash Flow | DSCR | Ending Balance
     """
+    horizon = len(years)
     header = [
-        _section("10-Year Pro Forma (Summary)"),
+        _section(f"{horizon}-Year Pro Forma (Summary)"),
         "| Year | GSI | GOI | Total OPEX | NOI | Debt Service | Cash Flow | DSCR | Ending Balance |",
         "| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
@@ -122,6 +217,143 @@ def _render_year_table(years: List[YearBreakdown]) -> str:
         )
     return "\n".join(header + rows) + "\n"
 
+
+# -----------------------
+# Valuation helpers
+# -----------------------
+
+def _estimate_purchase_price_from_y1(forecast: FinancialForecast) -> float:
+    """
+    We don't carry purchase price in the forecast schema, so infer it from:
+      PurchasePrice ≈ NOI_Y1 / CapRate_Y1
+    using Year 1 NOI and purchase cap.
+    """
+    if not forecast.years:
+        return 0.0
+    y1_noi = forecast.years[0].noi
+    cap0 = max(1e-6, forecast.purchase.cap_rate)
+    return y1_noi / cap0
+
+
+def _interest_rate_from_purchase(purchase: PurchaseMetrics) -> float:
+    """
+    Recover the interest rate used at purchase from: cap = rate + spread  =>  rate = cap - spread.
+    """
+    rate = purchase.cap_rate - purchase.spread_vs_rate
+    return max(0.0, rate)
+
+
+# -----------------------
+# Three separate valuation tables
+# -----------------------
+
+def _render_valuation_table_noi(years: List[YearBreakdown], purchase: PurchaseMetrics) -> str:
+    """
+    NOI-based table with drifting cap:
+      - Cap_t = Cap_0 + drift * (t-1)
+      - Value_t = NOI_t / Cap_t
+      - LTV_t = EndingBalance_t / Value_t
+      - Equity80_t = 0.80 * Value_t - EndingBalance_t
+    """
+    if not years:
+        return ""
+
+    base_cap = max(1e-6, float(purchase.cap_rate))
+    drift = _cap_drift_per_year()
+
+    header = [
+        _section("Valuation – NOI-Based (with Cap Drift)"),
+        "| Year | Cap Rate (applied) | Estimated Value | LTV % | Available Equity @80% |",
+        "| ---: | ---: | ---: | ---: | ---: |",
+    ]
+    rows = []
+    for y in years:
+        cap_t = max(1e-6, base_cap + drift * (y.year - 1))
+        est_value = (y.noi / cap_t) if cap_t > 0 else 0.0
+        ltv = (y.ending_balance / est_value) if est_value > 0 else 0.0
+        avail_eq = 0.80 * est_value - y.ending_balance
+        rows.append(
+            f"| {y.year} "
+            f"| {_fmt_pct(cap_t)} "
+            f"| {_fmt_currency(est_value)} "
+            f"| {_fmt_pct(ltv)} "
+            f"| {_fmt_currency(avail_eq)} |"
+        )
+    return "\n".join(header + rows) + "\n"
+
+
+def _render_valuation_table_baseline(years: List[YearBreakdown], forecast: FinancialForecast) -> str:
+    """
+    Baseline appreciation table:
+      - PurchasePrice inferred from Y1 NOI / cap.
+      - Value_t = PurchasePrice * (1 + g)^t, g from env (default 3%).
+      - LTV_t = EndingBalance_t / Value_t
+      - Equity80_t = 0.80 * Value_t - EndingBalance_t
+    """
+    if not years:
+        return ""
+
+    g = _appreciation_rate()
+    p0 = _estimate_purchase_price_from_y1(forecast)
+
+    header = [
+        _section(f"Valuation – Baseline Appreciation (g = {_fmt_pct(g)})"),
+        "| Year | Estimated Value | LTV % | Available Equity @80% |",
+        "| ---: | ---: | ---: | ---: |",
+    ]
+    rows = []
+    for y in years:
+        est_value = p0 * ((1.0 + g) ** y.year)
+        ltv = (y.ending_balance / est_value) if est_value > 0 else 0.0
+        avail_eq = 0.80 * est_value - y.ending_balance
+        rows.append(
+            f"| {y.year} "
+            f"| {_fmt_currency(est_value)} "
+            f"| {_fmt_pct(ltv)} "
+            f"| {_fmt_currency(avail_eq)} |"
+        )
+    return "\n".join(header + rows) + "\n"
+
+
+def _render_valuation_table_stress(years: List[YearBreakdown], forecast: FinancialForecast) -> str:
+    """
+    Stress-test table (rate-anchored):
+      - r = interest rate ≈ purchase.cap_rate - spread
+      - basis = max(0, PurchasePrice - Adj); Adj via env AIREAL_STRESS_ADJ (default 0)
+      - Value_t = basis * (1 + r/3)^t
+      - LTV_t = EndingBalance_t / Value_t
+      - Equity80_t = 0.80 * Value_t - EndingBalance_t
+    """
+    if not years:
+        return ""
+
+    r = _interest_rate_from_purchase(forecast.purchase)
+    growth = 1.0 + (r / 3.0)
+    p0 = _estimate_purchase_price_from_y1(forecast)
+    basis = max(0.0, p0 - _stress_adj())
+
+    header = [
+        _section(f"Valuation – Stress-Test (rate-anchored: r/3 = {_fmt_pct(r/3 if r else 0.0)}, adj = {_fmt_currency(_stress_adj())})"),
+        "| Year | Estimated Value | LTV % | Available Equity @80% |",
+        "| ---: | ---: | ---: | ---: |",
+    ]
+    rows = []
+    for y in years:
+        est_value = basis * (growth ** y.year)
+        ltv = (y.ending_balance / est_value) if est_value > 0 else 0.0
+        avail_eq = 0.80 * est_value - y.ending_balance
+        rows.append(
+            f"| {y.year} "
+            f"| {_fmt_currency(est_value)} "
+            f"| {_fmt_pct(ltv)} "
+            f"| {_fmt_currency(avail_eq)} |"
+        )
+    return "\n".join(header + rows) + "\n"
+
+
+# -----------------------
+# Other sections
+# -----------------------
 
 def _render_opex_details(year1: YearBreakdown) -> str:
     """
@@ -204,6 +436,11 @@ def _render_thesis(thesis: InvestmentThesis) -> str:
             lines.append(f"  - {l}")
     return "\n".join(lines) + "\n"
 
+
+# -----------------------
+# Orchestration
+# -----------------------
+
 def generate_report(
     insights: Optional[ListingInsights],
     forecast: FinancialForecast,
@@ -216,19 +453,15 @@ def generate_report(
     Sections:
       - Header: property summary (address, amenities, notes)
       - Purchase Metrics: cap rate, CoC, DSCR, debt service, acquisition cash, spread
-      - 10-Year Pro Forma (Summary): annual table of GSI, GOI, OPEX, NOI, DS, CF, DSCR, Ending Balance
-      - OPEX Detail (Year 1): line-by-line expense transparency
-      - Refinance Event: valuation, new loan, payoff, cash-out (if present)
-      - Returns Summary: IRR and Equity Multiple
-      - Warnings: underwriting guardrails
-
-    Args:
-        insights: ListingInsights or None if not available.
-        forecast: FinancialForecast produced by the financial engine.
-        title_override: Optional heading to replace the default header title.
-
-    Returns:
-        Markdown string suitable for writing to investment_analysis.md.
+      - Forecasting Methodology: baseline, stress-test, NOI-based formulas and refi rule
+      - Pro Forma (Summary): annual table of GSI, GOI, OPEX, NOI, DS, CF, DSCR, Ending Balance (horizon-aware title)
+      - Valuation – Baseline table
+      - Valuation – Stress-Test table
+      - Valuation – NOI-Based table
+      - OPEX Detail (Year 1)
+      - Refinance Event (if present)
+      - Returns Summary
+      - Warnings
     """
     header = _render_header(insights)
     if title_override:
@@ -241,8 +474,12 @@ def generate_report(
     parts = [
         header,
         _render_purchase_metrics(forecast.purchase),
+        _render_methodology(),
         _render_thesis(thesis) if thesis else "",
         _render_year_table(forecast.years),
+        _render_valuation_table_baseline(forecast.years, forecast),
+        _render_valuation_table_stress(forecast.years, forecast),
+        _render_valuation_table_noi(forecast.years, forecast.purchase),
         _render_opex_details(forecast.years[0]),
         _render_refi(forecast.refi),
         _render_returns(forecast),
