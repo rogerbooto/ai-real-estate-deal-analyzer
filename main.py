@@ -30,7 +30,7 @@ from src.schemas.models import (
     FinancialInputs,
 )
 from src.inputs.inputs import InputsLoader, AppInputs
-from src.orchestrator.crew import run_orchestration
+from src.orchestrator import crew as deterministic_orchestrator
 from src.reports.generator import write_report
 
 
@@ -94,6 +94,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--horizon", type=int, default=None, help="Forecast horizon in years (overrides config).")
     p.add_argument("--listing", type=str, default=None, help="Path to listing .txt (overrides config).")
     p.add_argument("--photos", type=str, default=None, help="Path to photos folder (overrides config).")
+    p.add_argument("--engine", type=str, default=None, choices=["deterministic", "crewai"], help='Orchestration engine: "deterministic" or "crewai" (overrides config).')
     return p.parse_args()
 
 
@@ -139,12 +140,14 @@ def main():
             horizon=args.horizon,
             listing=args.listing,
             photos=args.photos,
+            engine=args.engine,
         )
         inputs = cfg.inputs
         out_path = cfg.run.out
         horizon = cfg.run.horizon
         listing_arg = cfg.run.listing
         photos_arg = cfg.run.photos
+        engine = (cfg.run.engine or "deterministic").strip().lower()
     else:
         # No config file → use demo inputs and CLI flags (if any)
         inputs = build_sample_inputs()
@@ -152,21 +155,39 @@ def main():
         horizon = args.horizon or 10
         listing_arg = args.listing
         photos_arg = args.photos
+        engine = (args.engine or "deterministic").strip().lower()
+
+    # Select orchestrator at runtime
+    if engine == "crewai":
+        try:
+            from src.orchestrator.crewai_runner import run_orchestration as run_selected
+        except ImportError as e:
+            raise ImportError(
+                "engine='crewai' requested but the 'crewai' package is not available. "
+                "Install it (e.g., `pip install crewai[tools]`) or use --engine deterministic."
+            ) from e
+    else:
+        run_selected = deterministic_orchestrator.run_orchestration
+    
 
     listing_txt, photos_dir = ensure_sample_assets(listing_arg, photos_arg)
 
-    # Run deterministic agent pipeline
-    result = run_orchestration(
-        inputs=inputs,
-        listing_txt_path=listing_txt,
-        photos_folder=photos_dir,
-        horizon_years=horizon,
-    )
+    # Run agent pipeline
+    try:
+        result = run_selected(
+            inputs=inputs,
+            listing_txt_path=listing_txt,
+            photos_folder=photos_dir,
+            horizon_years=horizon,
+        )
 
-    write_report(out_path, result.insights, result.forecast, result.thesis)
+        write_report(out_path, result.insights, result.forecast, result.thesis)
 
-    print(f"Report written to {out_path}")
-    print(f"Thesis verdict: {result.thesis.verdict}")
+        print(f"Report written to {out_path}")
+        print(f"Thesis verdict: {result.thesis.verdict}")
+    except Exception as e:
+        print(f"Error during orchestration: {e}")
+        raise
 
 
 if __name__ == "__main__":

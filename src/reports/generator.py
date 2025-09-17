@@ -47,15 +47,35 @@ def _render_header(insights: Optional[ListingInsights]) -> str:
     Render the report header with subject property summary.
     """
     addr = insights.address if insights and insights.address else "Subject Property"
-    amenities = ", ".join(insights.amenities) if insights and insights.amenities else "N/A"
-    notes = " ".join(insights.notes) if insights and insights.notes else ""
-    body = [
-        f"# Investment Analysis – {addr}",
-        "",
-        f"*Amenities:* {amenities}",
-    ]
-    if notes:
-        body.append(f"*Notes:* {notes}")
+
+    body = [f"# Investment Analysis – {addr}", ""]
+
+    # Amenities
+    if insights and insights.amenities:
+        body.append("**Amenities:**")
+        for item in insights.amenities:
+            body.append(f"- {item}")
+    else:
+        body.append("**Amenities:** N/A")
+
+    # Notes
+    if insights and insights.notes:
+        body.append("")
+        body.append("**Notes:**")
+        for note in insights.notes:
+            body.append(f"- {note}")
+
+    # Condition & Defects
+    if (insights and insights.condition_tags) or (insights and insights.defects):
+        body.append("")
+        body.append("**Condition & Defects:**")
+        if insights and insights.condition_tags:
+            for tag in insights.condition_tags:
+                body.append(f"- {tag}")
+        if insights and insights.defects:
+            for defect in insights.defects:
+                body.append(f"- {defect}")
+
     return "\n".join(body) + "\n"
 
 

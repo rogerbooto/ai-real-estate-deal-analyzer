@@ -72,6 +72,7 @@ class RunOptions(BaseModel):
     horizon: int = Field(10, ge=1, le=50, description="Forecast horizon in years.")
     listing: Optional[str] = Field(None, description="Path to listing .txt (optional).")
     photos: Optional[str] = Field(None, description="Path to photos folder (optional).")
+    engine: str = Field("deterministic", description='Orchestration engine: "deterministic" or "crewai".')
 
 
 class AppInputs(BaseModel):
@@ -149,6 +150,7 @@ class InputsLoader:
         horizon: Optional[int] = None,
         listing: Optional[str] = None,
         photos: Optional[str] = None,
+        engine: Optional[str] = None,
     ) -> AppInputs:
         """
         Return a *new* AppInputs with provided non-null overrides applied to RunOptions.
@@ -163,6 +165,8 @@ class InputsLoader:
             updates["listing"] = listing
         if photos is not None:
             updates["photos"] = photos
+        if engine is not None:
+            updates["engine"] = engine
 
         if not updates:
             return cfg
@@ -258,6 +262,12 @@ class InputsLoader:
         photos = os.getenv(f"{prefix}PHOTOS")
         if photos:
             updates["photos"] = photos
+
+        engine = os.getenv(f"{prefix}ENGINE")
+        if engine:
+            normalized = engine.strip().lower()
+            if normalized in ("deterministic", "crewai"):
+                updates["engine"] = normalized
 
         if not updates:
             return cfg
