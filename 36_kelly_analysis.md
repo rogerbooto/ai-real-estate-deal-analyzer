@@ -1,50 +1,11 @@
-# Investment Analysis – 36 Kelly, Moncton, New Brunswick E1A 3R8
+# Investment Analysis – Subject Property
 
 **Amenities:**
-- Duplex (up-and-down)
-- Legal secondary suite (renovated basement apartment)
-- Separate electrical meters
-- Separate laundry for both units
-- Electric baseboard heating
-- Municipal water
-- Paved driveway
-- Vinyl siding
-- Large lot
-- Year-round road access
-- Fully finished basement
-- Bright kitchen with white cabinetry (upper unit)
-- Close to schools and amenities
+- hvac
+- parking
 
 **Notes:**
-- MLS#: NB112084
-- Price: $399,900
-- Square feet: 1,936
-- Lot size: 1,274.8 m²
-- 2024 taxes: $5,396.81
-- Assessment: $262,900
-- Property type: Residential bungalow configured as duplex (up-and-down)
-- Upper unit: 3 bedrooms, 1 bathroom, bright kitchen with white cabinetry, dining room, living room, laundry; currently vacant
-- Lower unit: 2 bedrooms, 1 bathroom, kitchen, living/dining area, laundry; tenant-occupied
-- Basement: fully finished, legal apartment
-- Utilities: separate electrical meters
-- Heating: electric baseboard
-- Water: municipal
-- Exterior: vinyl siding
-- Driveway: paved
-- Garage: none
-- Occupancy: upper vacant; lower tenant-occupied
-- Use-case: live in one unit and rent the other
-- Listing brokerage: EXIT Realty Associates
-- Status: Cancelled (useful for comps/analysis)
-- Photos provided: bathroom.jpeg, bedroom.jpeg, kitchen.jpeg, living_room.jpeg
-
-**Condition & Defects:**
-- Recently renovated
-- Move-in ready
-- Fully finished basement
-- Renovated legal basement apartment
-- Bright updated kitchen (upper)
-- No garage
+- Duplex
 
 
 ## Purchase Metrics
@@ -95,18 +56,24 @@ $$Equity_t^{(80\%)} = 0.80 \times NOIValue_t - MortgageBalance_t$$
 
 ## Investment Thesis
 
-- **Verdict:** CONDITIONAL
+- **Verdict:** PASS
 - **Rationale:**
-  - In-place DSCR 0.8698 (<1.0) and remains <1.0 until Year 6; fails typical underwriting and portfolio hurdle (>=1.20) at acquisition.
-  - Year-1 cash-on-cash is -12.67% with cumulative negative cash flow of roughly $10.4k over the first 5 years; requires upfront reserves or subsidy.
-  - Going-in cap rate 6.35% with debt spread 0.845% is below 1.5% target, indicating thin yield versus financing cost in current rate environment.
-  - Despite weak early cash flow, modeled 10-year IRR of 15.34% is attractive, aided by amortization and steady NOI growth; cash flow turns positive in Year 6.
-  - Vacant upper unit and separate electrical meters enable near-term rent reset and tenant-paid utilities, supporting NOI lift with limited operational friction.
-  - Property is recently renovated with legal secondary suite, reducing near-term capex risk and supporting renter demand.
-  - Subscale duplex heightens income volatility; a single vacancy materially impacts collections—liquidity buffer is essential.
-  - Path to proceed: secure lower LTV (<=80%), rate buydown or 1–2 year interest-only, and/or price reduction to achieve DSCR >=1.20 at close.
-  - Sensitivity: achieving DSCR 1.20 at current debt service requires ~+$9.6k NOI—unlikely without price or structure changes; underscores need for renegotiation.
-  - Market dynamics (NB) allow for rent growth on turnover, but not sufficient to offset acquisition-stage coverage shortfall without deal restructuring.
+  - DSCR (Y1) is weak at 0.87 (< 1.20).
+  - Cap-rate spread is thin at 0.85% (< 1.50%).
+  - Projected IRR (10y) is 15.34% (≥ 12.00%).
+  - Year-1 cash flow is negative at $-3,799.
+  - Purchase cap rate respects the floor policy.
+- **Suggested Levers:**
+  - Negotiate lower price to improve cap-rate spread to ≥ 150 bps.
+  - Pursue lower interest rate or longer amortization to widen spread.
+  - Increase down payment to reduce debt service and lift DSCR.
+  - Trim OPEX (e.g., utilities, PM fees) via vendor bids to lift NOI.
+  - Phase rent increases (e.g., renewal program) to strengthen DSCR.
+  - Target rent optimization (ancillary income, fee schedule) to reach breakeven.
+  - Defer non-critical CapEx; build reserves gradually to improve Y1 cash flow.
+  - Address: Cap-rate spread 0.845% below target 1.500%.
+  - Address: Subscale risk: fewer than 4 units.
+  - Address: Negative cash flow in one or more years.
 
 
 ## 30-Year Pro Forma (Summary)

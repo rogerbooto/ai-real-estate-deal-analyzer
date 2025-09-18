@@ -27,7 +27,7 @@ except Exception:  # pragma: no cover
     _CREW_AVAILABLE = False
 
 from src.schemas.models import FinancialInputs
-from src.orchestrator.crew import OrchestrationResult
+from src.orchestrators.crew import OrchestrationResult
 from src.agents.crewai_components import (
     ListingAnalystAgent,
     FinancialForecasterAgent,

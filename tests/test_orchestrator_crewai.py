@@ -12,7 +12,7 @@ from src.schemas.models import (
     MarketAssumptions,
     FinancialInputs,
 )
-from src.orchestrator.crewai_runner import run_orchestration as run_crewai
+from src.orchestrators.crewai_runner import run_orchestration as run_crewai
 from src.reports.generator import write_report
 
 

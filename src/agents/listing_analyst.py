@@ -1,25 +1,34 @@
 # src/agents/listing_analyst.py
 """
-Listing Analyst (V1)
+Listing Analyst (V2)
 
 Purpose
 -------
-Deterministically extract high-signal insights from the local listing assets:
+Extract high-signal insights from local listing assets with the updated CV pipeline:
   - Parse the text file for address, amenities, and notes.
-  - Tag property photos using the CV tagging stub.
+  - Tag property photos via the centralized CV orchestration entrypoint.
   - Merge results into a single ListingInsights object.
 
 Design
 ------
-- Pure Python, no network calls, fully testable.
-- Accepts paths so it can be used by CLI/main.py and by agents/orchestrator later.
-- Conservative merge: text-derived condition/defect tags are optional; in V1 we only
-  map photo-derived tags into condition/defects, while text contributes address,
-  amenities, and notes.
+- Pure Python, no network assumptions in this module.
+- Uses the new CV Tagging Orchestrator which honors feature flags:
+    * AIREAL_PHOTO_AGENT=1 → PhotoTaggerAgent (delegates to batch-aware cv_tagging)
+    * AIREAL_USE_VISION=1  → AI path enabled (provider chosen by AIREAL_VISION_PROVIDER)
+- Conservative merge: text-derived condition/defect tags remain optional; we map
+  **photo-derived** signals into condition/defects while text contributes address,
+  amenities, and notes. (Same behavior as V1 for consistency.)
 
 Public API
 ----------
 analyze_listing(listing_txt_path: str | None, photos_folder: str | None) -> ListingInsights
+
+Migration Notes
+---------------
+- Replaces deprecated calls to `tag_images_in_folder` and `summarize_cv_tags`
+  with the orchestrator’s strict-schema output.
+- The orchestrator is the *single door* for CV tagging and handles AI/deterministic
+  selection, batching, thresholds, ontology, and rollups.
 """
 
 from __future__ import annotations
@@ -28,7 +37,7 @@ from typing import Optional, Set
 
 from src.schemas.models import ListingInsights
 from src.tools.listing_parser import parse_listing_text, parse_listing_string
-from src.tools.cv_tagging import tag_images_in_folder, summarize_cv_tags
+from src.orchestrators.cv_tagging_orchestrator import CvTaggingOrchestrator
 
 
 def analyze_listing(
@@ -53,7 +62,7 @@ def analyze_listing(
     Behavior:
         - If a source is missing, fields gracefully default to empty.
         - No exceptions are raised for missing files or folders; this agent is
-          deliberately forgiving in V1 so downstream agents can still operate.
+          deliberately forgiving so downstream agents can still operate.
     """
     # --- Text parsing ---
     text_insights = ListingInsights()
@@ -63,25 +72,26 @@ def analyze_listing(
         elif fallback_text:
             text_insights = parse_listing_string(fallback_text)
     except Exception:
-        # Defensive: never crash the pipeline due to a bad text file in V1.
+        # Defensive: never crash the pipeline due to a bad text file.
         text_insights = ListingInsights()
 
-    # --- Photo tagging ---
+    # --- Photo tagging via orchestrator ---
     photo_condition: Set[str] = set()
     photo_defects: Set[str] = set()
     try:
         if photos_folder:
-            tags_by_file = tag_images_in_folder(photos_folder)
-            agg = summarize_cv_tags(tags_by_file)
-            photo_condition = agg["condition_tags"]
-            photo_defects = agg["defects"]
+            cv = CvTaggingOrchestrator()
+            cv_out = cv.analyze_folder(photos_folder, recursive=True)
+            rollup = cv_out.get("rollup", {}) if isinstance(cv_out, dict) else {}
+            photo_condition = set(rollup.get("condition_tags", []) or [])
+            photo_defects = set(rollup.get("defects", []) or [])
     except Exception:
         # Defensive: never crash due to image folder issues.
         photo_condition = set()
         photo_defects = set()
 
     # --- Merge ---
-    # Address, amenities, notes come from text. Condition/defects from photos (V1).
+    # Address, amenities, notes come from text. Condition/defects from photos.
     combined = ListingInsights(
         address=text_insights.address,
         amenities=sorted(set(text_insights.amenities)),

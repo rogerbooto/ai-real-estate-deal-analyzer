@@ -1,188 +1,238 @@
 # src/tools/cv_tagging.py
 """
-V1 CV tagging stub (deterministic, no external models).
+CV Tagging Orchestrator (V2.1: Always-AI in AI mode + Batch-first)
 
-Approach
---------
-- Keyword heuristics on image filenames to simulate CV tags.
-- Works on common image extensions; ignores non-image files.
-- Emits canonical tags (e.g., "kitchen", "bathroom") plus prefixed tags:
-  * "cond:<label>"    -> condition tags (e.g., "cond:updated kitchen")
-  * "defect:<label>"  -> defect tags (e.g., "defect:mold")
+Changes in 2.1
+--------------
+- When AI mode is enabled, we now run AI on **every readable image**, regardless
+  of filename cues (forgiveness for mislabels). We still run deterministic
+  tagging and merge, keeping the strongest per (category, label).
+- Prefer **batch analysis** via `run_batch(provider, paths)` when AI is enabled.
 
-Why prefixes?
--------------
-Keeps the raw per-file tag list simple and makes it trivial to aggregate into
-ListingInsights.condition_tags / ListingInsights.defects via summarize_cv_tags().
-
-Public API
-----------
-- tag_images_in_folder(folder: str) -> dict[str, list[str]]
-    Returns tags per image file in `folder`.
-
-- summarize_cv_tags(tags_by_file: dict[str, list[str]]) -> dict[str, set[str]]
-    Returns {"condition_tags": set[str], "defects": set[str]} aggregated across files.
-
-Notes
------
-- Intentionally conservative and explainable for V1.
-- Expandable: add new keyword rules without changing call sites.
+Public API unchanged:
+def tag_photos(photo_paths: list[str], *, use_ai: bool | None = None) -> dict
 """
-
 from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Dict, Iterable, List, Set
-
-
-# ----------------------------
-# Configuration / Keyword maps
-# ----------------------------
+from typing import Dict, Iterable, List, Optional, Set, Tuple
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff"}
 
-# Room/area keywords (produce plain tags like "kitchen", "bathroom", etc.)
 ROOM_KEYWORDS = {
     "kitchen": ["kitchen"],
     "bathroom": ["bath", "bathroom"],
     "bedroom": ["bedroom", "br"],
-    "living": ["living", "livingroom", "living_room"],
+    "living_room": ["living", "livingroom", "living_room"],
+    "basement_finished": ["basement_finished"],
+    "basement_unfinished": ["basement_unfinished"],
     "basement": ["basement"],
-    "roof": ["roof"],
-    "exterior": ["exterior", "front", "facade", "curb"],
+    "exterior_front": ["exterior", "front", "facade", "curb"],
     "garage": ["garage", "carport"],
-    "hvac": ["furnace", "boiler", "hvac"],
+    "utility_room": ["furnace", "boiler", "hvac", "utility"],
+    "patio": ["patio"],
+    "balcony": ["balcony"],
 }
-
-# Condition keywords (combined with room keywords for specific conditions)
 UPDATED_HINTS = ["updated", "renovated", "new", "remodeled", "modernized", "refinished"]
-
-# Defect keywords (map to canonical defect labels)
 DEFECT_MAP = {
-    "mold": ["mold", "mildew"],
-    "water damage": ["water stain", "water_stain", "water damage", "flood", "flooded"],
-    "crack": ["crack", "cracking"],
-    "leak": ["leak", "leaking"],
-    "peeling paint": ["peeling paint", "peeling_paint"],
-    "rot": ["rot", "rotten"],
+    "mold_suspected": ["mold", "mildew"],
+    "water_stain_ceiling": ["water stain", "water_stain", "waterstain"],
+    "leak_suspected": ["leak", "leaking"],
+    "peeling_paint": ["peeling paint", "peeling_paint", "peeling"],
+    "cracked_tile": ["cracked tile", "cracked_tile", "crackedtile"],
+    "damaged_drywall": ["damaged drywall", "drywall damage", "hole drywall"],
+}
+FEATURE_TO_AMENITY = {
+    "dishwasher": "dishwasher",
+    "kitchen_island": "kitchen_island",
+    "stainless_appliances": "stainless_kitchen",
+    "balcony": "balcony",
+    "patio": "patio",
+    "fireplace": "fireplace",
+    "stacked_laundry": "in_unit_laundry",
+    "side_by_side_laundry": "in_unit_laundry",
+    "off_street_parking": "parking",
+    "fence": "fenced_yard",
 }
 
+from .vision.ontology import map_raw_tags, derive_amenities
+from .vision.provider_base import RawTag, run_batch
+# provider selection
+def _get_provider():
+    provider_name = os.getenv("AIREAL_VISION_PROVIDER", "mock").lower()
+    try:
+        if provider_name == "mock":
+            from .vision.mock_provider import MockVisionProvider
+            return MockVisionProvider()
+        elif provider_name == "openai":
+            from .vision.openai_provider import OpenAIProvider  # type: ignore
+            return OpenAIProvider()
+        else:
+            return None
+    except Exception:
+        return None
 
-# ----------------------------
-# Public API
-# ----------------------------
 
-def tag_images_in_folder(folder: str) -> Dict[str, List[str]]:
-    """
-    Tag images in a folder using filename keyword heuristics.
+def tag_photos(photo_paths: List[str], *, use_ai: bool | None = None) -> Dict:
+    if use_ai is None:
+        use_ai = os.getenv("AIREAL_USE_VISION", "0").lower() in ("1", "true", "yes")
 
-    Args:
-        folder: Path to a directory containing image files.
+    provider = None
+    warnings: List[str] = []
+    if use_ai:
+        provider = _get_provider()
+        if provider is None:
+            warnings.append("Vision provider unavailable; falling back to deterministic tagging.")
+            use_ai = False
 
-    Returns:
-        dict of {filename: [tags...]}, where tags include:
-          - plain room/area tags (e.g., "kitchen")
-          - "cond:<label>" condition tags (e.g., "cond:updated kitchen")
-          - "defect:<label>" defect tags (e.g., "defect:mold")
+    images_out: List[Dict] = []
+    rollup_amenities: Set[str] = set()
+    rollup_conditions: Set[str] = set()
+    rollup_defects: Set[str] = set()
 
-    Behavior:
-        - Only files with image extensions are considered.
-        - Case-insensitive filename matching.
-        - Deterministic: no randomness or external calls.
-    """
-    out: Dict[str, List[str]] = {}
-    p = Path(folder)
-    if not p.exists() or not p.is_dir():
-        return out
+    # Filter readability + maintain mapping from index -> path/image_id
+    readable_indices: List[int] = []
+    paths_readable: List[str] = []
+    for i, path in enumerate(photo_paths):
+        if Path(path).suffix.lower() in IMAGE_EXTS and Path(path).exists():
+            readable_indices.append(i)
+            paths_readable.append(path)
 
-    for f in sorted(p.iterdir(), key=lambda x: x.name.lower()):
-        if not f.is_file():
+    # Deterministic pass on all readable
+    det_per_img: Dict[int, List[Dict]] = {}
+    det_amenities_per_img: Dict[int, Set[str]] = {}
+    det_conditions_per_img: Dict[int, Set[str]] = {}
+    det_defects_per_img: Dict[int, Set[str]] = {}
+
+    for i in readable_indices:
+        det_tags, _features, _conditions, _defects, _amenities = _deterministic_tag_single(photo_paths[i])
+        det_per_img[i] = det_tags
+        det_amenities_per_img[i] = set(_amenities)
+        det_conditions_per_img[i] = set(_conditions)
+        det_defects_per_img[i] = set(_defects)
+
+    # AI pass (batch-first) on all readable when enabled
+    ai_per_img: Dict[int, List[Dict]] = {}
+    if use_ai and provider is not None and paths_readable:
+        try:
+            raw_batches = run_batch(provider, paths_readable)  # list[list[RawTag]] aligned to paths_readable
+            if len(raw_batches) != len(paths_readable):
+                raise ValueError("Provider batch returned inconsistent length.")
+            for idx, raw in zip(readable_indices, raw_batches):
+                ai_per_img[idx] = map_raw_tags(raw)
+        except Exception as e:
+            warnings.append(f"vision_error:{type(e).__name__}")
+            # Fall back to deterministic only
+
+    # Assemble outputs in original order
+    for i, path in enumerate(photo_paths):
+        img = _empty_img_dict(path)
+        if i not in det_per_img and i not in ai_per_img:
+            img["quality_flags"].append("unreadable")
+            images_out.append(img)
             continue
-        if f.suffix.lower() not in IMAGE_EXTS:
-            continue
-        tags = _tags_from_filename(f.name)
-        out[f.name] = tags
-    return out
+
+        det_tags = det_per_img.get(i, [])
+        ai_tags = ai_per_img.get(i, [])
+        merged = _merge_tags(det_tags, ai_tags)
+        derived = set(derive_amenities(merged))
+        derived.update(det_amenities_per_img.get(i, set()))
+
+        img["tags"] = merged
+        img["derived_amenities"] = sorted(derived)
+        images_out.append(img)
+
+        # Rollup aggregation
+        rollup_amenities.update(derived)
+        for t in merged:
+            if t["category"] == "condition":
+                rollup_conditions.add(t["label"])
+            elif t["category"] == "issue":
+                rollup_defects.add(t["label"])
+        rollup_conditions.update(det_conditions_per_img.get(i, set()))
+        rollup_defects.update(det_defects_per_img.get(i, set()))
+
+    rollup = {
+        "amenities": sorted(rollup_amenities),
+        "condition_tags": sorted(rollup_conditions),
+        "defects": sorted(rollup_defects),
+        "warnings": warnings,
+    }
+    return {"images": images_out, "rollup": rollup}
 
 
-def summarize_cv_tags(tags_by_file: Dict[str, List[str]]) -> Dict[str, Set[str]]:
-    """
-    Aggregate prefixed tags across all files into ListingInsights-like buckets.
-
-    Returns:
-        {
-            "condition_tags": { ... },   # from tags prefixed with "cond:"
-            "defects": { ... }           # from tags prefixed with "defect:"
-        }
-    """
-    condition: Set[str] = set()
+# ---------- deterministic internals unchanged ----------
+def _deterministic_tag_single(path: str):
+    name = Path(path).name.lower()
+    tags: List[Dict] = []
+    features: Set[str] = set()
+    conditions: Set[str] = set()
     defects: Set[str] = set()
+    derived_amenities: Set[str] = set()
 
-    for tags in tags_by_file.values():
-        for t in tags:
-            if t.startswith("cond:"):
-                condition.add(t.split("cond:", 1)[1])
-            elif t.startswith("defect:"):
-                defects.add(t.split("defect:", 1)[1])
-    return {"condition_tags": condition, "defects": defects}
-
-
-# ----------------------------
-# Internals
-# ----------------------------
-
-def _tags_from_filename(name: str) -> List[str]:
-    """
-    Infer tags from a filename using keyword rules.
-
-    Rules:
-      - Add room tags when room keywords appear.
-      - If UPDATED_HINTS present with a specific room, add "cond:updated <room>".
-      - Map defect phrases to canonical defects via DEFECT_MAP.
-      - Special case: if "roof" and a "leak" hint appear together, prefer "defect:roof leak".
-
-    Example:
-      "kitchen_updated.jpg" -> ["kitchen", "cond:updated kitchen"]
-      "basement_mold.png"   -> ["basement", "defect:mold"]
-      "roof_leak.JPG"       -> ["roof", "defect:roof leak"]
-    """
-    lowered = name.lower()
-    tags: List[str] = []
-
-    # 1) Room/area tags
     matched_rooms: Set[str] = set()
     for canon, words in ROOM_KEYWORDS.items():
-        if any(w in lowered for w in words):
+        if any(w in name for w in words):
             matched_rooms.add(canon)
-            tags.append(canon)
+    for r in matched_rooms:
+        tags.append(_mk_tag(label=r, category="room_type", conf=0.85, evidence=f"name contains '{r.split('_')[0]}'"))
 
-    # 2) Condition hints (updated/renovated/new per room)
-    if any(h in lowered for h in UPDATED_HINTS):
-        for r in matched_rooms:
-            # More descriptive for kitchen/bath/roof; generic 'updated <room>' otherwise
-            if r == "kitchen":
-                tags.append("cond:updated kitchen")
-            elif r == "bathroom":
-                tags.append("cond:updated bath")
-            elif r == "roof":
-                tags.append("cond:new roof")
-            else:
-                tags.append(f"cond:updated {r}")
+    if any(h in name for h in UPDATED_HINTS):
+        for r in matched_rooms or {"kitchen"}:
+            label = (
+                "renovated_kitchen" if r.startswith("kitchen")
+                else "updated_bath" if r.startswith("bathroom")
+                else "new_flooring" if "floor" in name
+                else "well_maintained"
+            )
+            conditions.add(label)
+            tags.append(_mk_tag(label=label, category="condition", conf=0.62, evidence="filename updated/renovated"))
 
-    # 3) Defects
-    defects_found: Set[str] = set()
     for canon, phrases in DEFECT_MAP.items():
-        if any(ph in lowered for ph in phrases):
-            defects_found.add(canon)
+        if any(ph in name for ph in phrases):
+            defects.add(canon)
+            tags.append(_mk_tag(label=canon, category="issue", conf=0.60, evidence="defect keyword in name"))
 
-    # Special case: roof + leak => "roof leak"
-    if "roof" in matched_rooms and ("leak" in lowered or "leaking" in lowered):
-        defects_found.discard("leak")
-        tags.append("defect:roof leak")
+    if "island" in name:
+        features.add("kitchen_island")
+    if "dishwasher" in name:
+        features.add("dishwasher")
+    if "stainless" in name:
+        features.add("stainless_appliances")
+    if "fireplace" in name:
+        features.add("fireplace")
+    if "balcony" in name:
+        features.add("balcony")
+    if "patio" in name:
+        features.add("patio")
 
-    # Add remaining canonical defects
-    for d in sorted(defects_found):
-        tags.append(f"defect:{d}")
+    for f in sorted(features):
+        tags.append(_mk_tag(label=f, category="feature", conf=0.55, evidence="feature keyword in name"))
+        if f in FEATURE_TO_AMENITY:
+            derived_amenities.add(FEATURE_TO_AMENITY[f])
 
-    return tags
+    return tags, list(features), list(conditions), list(defects), list(derived_amenities)
+
+
+def _merge_tags(det: List[Dict], ai: List[Dict]) -> List[Dict]:
+    best: Dict[Tuple[str, str], Dict] = {}
+    for t in det + ai:
+        key = (t.get("category"), t.get("label"))
+        if key[0] not in {"room_type", "feature", "condition", "issue"} or not isinstance(key[1], str):
+            continue
+        prev = best.get(key)
+        if prev is None or float(t.get("confidence", 0.0)) > float(prev.get("confidence", 0.0)):
+            best[key] = t
+    return sorted(best.values(), key=lambda x: (x["category"], x["label"]))
+
+
+def _empty_img_dict(path: str) -> Dict:
+    return {"image_id": Path(path).name, "tags": [], "notes": [], "derived_amenities": [], "quality_flags": []}
+
+
+def _mk_tag(*, label: str, category: str, conf: float, evidence: str, bbox: Optional[List[int]] = None) -> Dict:
+    obj = {"label": label, "category": category, "confidence": float(conf), "evidence": evidence[:60]}
+    if bbox:
+        obj["bbox"] = [int(x) for x in bbox]
+    return obj

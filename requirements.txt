@@ -8,3 +8,4 @@ flask
 flask-cors
 pydantic>=2.7,<3
 pytest>=8
+openai>=1.0.0

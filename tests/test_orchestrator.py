@@ -1,84 +1,80 @@
+# tests/test_orchestrator.py
+"""
+CV Tagging Orchestrator Tests
+
+Purpose
+-------
+Validate the high-level orchestrator behavior:
+- Normalizes and preserves ordering of input paths.
+- Scans folders (non-recursive and recursive) deterministically.
+- Honors feature flags to route via PhotoTaggerAgent (which delegates
+  to batch-aware cv_tagging) or directly to tag_photos.
+- Flags unreadable inputs without raising.
+
+Notes
+-----
+- Uses the mock vision provider when AI is enabled to avoid network calls.
+- We only assert schema shape and key signals (amenities/defects/conditions).
+"""
 from pathlib import Path
 
-from src.schemas.models import (
-    FinancingTerms,
-    OperatingExpenses,
-    IncomeModel,
-    UnitIncome,
-    RefinancePlan,
-    MarketAssumptions,
-    FinancialInputs,
-)
-from src.orchestrator.crew import run_orchestration
-from src.reports.generator import write_report
+from src.orchestrators.cv_tagging_orchestrator import CvTaggingOrchestrator
 
 
-def _inputs() -> FinancialInputs:
-    return FinancialInputs(
-        financing=FinancingTerms(
-            purchase_price=500_000.0,
-            closing_costs=10_000.0,
-            down_payment_rate=0.25,
-            interest_rate=0.055,
-            amort_years=30,
-            io_years=0,
-        ),
-        opex=OperatingExpenses(
-            insurance=2400.0,
-            taxes=6000.0,
-            utilities=3600.0,
-            water_sewer=1800.0,
-            property_management=4800.0,
-            repairs_maintenance=2400.0,
-            trash=1200.0,
-            landscaping=800.0,
-            snow_removal=600.0,
-            hoa_fees=0.0,
-            reserves=1500.0,
-            other=500.0,
-            expense_growth=0.02,
-        ),
-        income=IncomeModel(
-            units=[UnitIncome(rent_month=1200.0, other_income_month=100.0) for _ in range(4)],
-            occupancy=0.95,
-            bad_debt_factor=0.97,
-            rent_growth=0.03,
-        ),
-        refi=RefinancePlan(
-            do_refi=True,
-            year_to_refi=5,
-            refi_ltv=0.75,
-        ),
-        market=MarketAssumptions(
-            cap_rate_purchase=None,
-            cap_rate_floor=0.05,
-            cap_rate_spread_target=0.015,
-        ),
-        capex_reserve_upfront=0.0,
-    )
+def test_analyze_paths_preserves_order_and_flags_unreadable(tmp_path, monkeypatch):
+    # Enable AI + mock to exercise the routed path; orchestrator picks agent via env.
+    monkeypatch.setenv("AIREAL_PHOTO_AGENT", "1")
+    monkeypatch.setenv("AIREAL_USE_VISION", "1")
+    monkeypatch.setenv("AIREAL_VISION_PROVIDER", "mock")
+
+    img1 = tmp_path / "kitchen_island.jpg"
+    img2 = tmp_path / "bath_double_vanity.jpg"
+    not_img = tmp_path / "notes.txt"
+
+    img1.write_text("stub")
+    img2.write_text("stub")
+    not_img.write_text("text")
+
+    # Duplicate path in list should be de-duplicated (first occurrence wins)
+    orc = CvTaggingOrchestrator()
+    out = orc.analyze_paths([str(img1), str(img2), str(not_img), str(img1)])
+
+    assert "images" in out and "rollup" in out
+    ids = [img["image_id"] for img in out["images"]]
+    assert ids == [img1.name, img2.name, not_img.name]  # order preserved, duplicate removed
+
+    by_id = {img["image_id"]: img for img in out["images"]}
+    assert "unreadable" in by_id[not_img.name]["quality_flags"]
+
+    # Minimal rollup sanity
+    roll = out["rollup"]
+    assert isinstance(roll.get("amenities", []), list)
+    assert isinstance(roll.get("defects", []), list)
+    assert isinstance(roll.get("condition_tags", []), list)
 
 
-def test_orchestrator_runs_end_to_end_and_writes_report(tmp_path: Path):
-    # Prepare minimal text + photos (optional)
-    listing_txt = tmp_path / "listing.txt"
-    listing_txt.write_text("Charming triplex at 123 Main St. Parking and laundry.", encoding="utf-8")
-    (tmp_path / "photos").mkdir()
-    (tmp_path / "photos" / "kitchen_updated.jpg").write_bytes(b"")
+def test_analyze_folder_recursive_and_direct_flag_fallback(tmp_path, monkeypatch):
+    # Disable agent to exercise direct orchestrator->tag_photos path
+    monkeypatch.setenv("AIREAL_PHOTO_AGENT", "0")
+    monkeypatch.setenv("AIREAL_USE_VISION", "1")
+    monkeypatch.setenv("AIREAL_VISION_PROVIDER", "mock")
 
-    result = run_orchestration(
-        inputs=_inputs(),
-        listing_txt_path=str(listing_txt),
-        photos_folder=str(tmp_path / "photos"),
-        horizon_years=10,
-    )
+    # Create nested structure
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    f1 = tmp_path / "a" / "kitchen_stainless.jpg"
+    f2 = tmp_path / "b" / "bath_mold.jpg"
+    f3 = tmp_path / "readme.txt"
+    f1.write_text("stub")
+    f2.write_text("stub")
+    f3.write_text("ignore")
 
-    # Structure checks
-    assert result.insights is not None
-    assert result.forecast is not None
-    assert result.thesis.verdict in {"BUY", "CONDITIONAL", "PASS"}
+    orc = CvTaggingOrchestrator()
+    out = orc.analyze_folder(str(tmp_path), recursive=True)
 
-    # Write a real report to disk via the report generator
-    out_file = tmp_path / "investment_analysis.md"
-    write_report(str(out_file), result.insights, result.forecast)
-    assert out_file.exists()
-    assert "# Investment Analysis" in out_file.read_text(encoding="utf-8")
+    assert "images" in out and len(out["images"]) == 2  # only images included
+    names = [img["image_id"] for img in out["images"]]
+    assert set(names) == {f1.name, f2.name}
+
+    # Mold should appear in defects via mock provider filename cue
+    assert "mold_suspected" in out["rollup"]["defects"]
