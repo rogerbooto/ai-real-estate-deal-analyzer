@@ -1,11 +1,52 @@
-# Investment Analysis – Subject Property
+# Investment Analysis – 36 Kelly, Moncton, New Brunswick U1C 2R7
 
 **Amenities:**
-- hvac
-- parking
+- duplex up-and-down
+- legal basement apartment
+- two self-contained units
+- separate electrical meters
+- in-unit laundry in both units
+- electric baseboard heating
+- municipal water
+- vinyl siding exterior
+- paved driveway
+- large lot
+- finished basement
+- bright upper kitchen
+- dining room (upper unit)
+- living room (upper unit)
+- close to schools and amenities
+- year-round road access
 
 **Notes:**
-- Duplex
+- Price: $399,900
+- Square feet: 1,936
+- Approx. price per sq ft: $207
+- Lot size: 1,274.8 m² (~0.315 acres)
+- Property taxes: $5,396.81 (2024)
+- Assessment: $262,900
+- Property type: Residential bungalow; duplex (up-and-down)
+- Units: 2 total
+- Upper unit: 3 bedrooms, 1 bathroom; bright kitchen with white cabinetry; dining room; living room; laundry
+- Lower unit: 2 bedrooms, 1 bathroom; kitchen; combined living/dining; laundry
+- Basement: fully finished legal apartment
+- Occupancy: upper unit vacant; lower unit tenant-occupied
+- Utilities: separate electrical meters
+- Heating: electric baseboard
+- Water: municipal
+- Exterior: vinyl siding
+- Driveway: paved
+- Garage: none
+- Dual-purpose: live in one unit, rent the other
+- Location: close to schools and amenities; year-round road access
+- Listing brokerage: EXIT Realty Associates
+- Listing status: cancelled (useful for comps/analysis)
+
+**Condition & Defects:**
+- recently renovated
+- move-in ready
+- fully finished basement
+- legal secondary suite
 
 
 ## Purchase Metrics
@@ -56,24 +97,15 @@ $$Equity_t^{(80\%)} = 0.80 \times NOIValue_t - MortgageBalance_t$$
 
 ## Investment Thesis
 
-- **Verdict:** PASS
+- **Verdict:** CONDITIONAL
 - **Rationale:**
-  - DSCR (Y1) is weak at 0.87 (< 1.20).
-  - Cap-rate spread is thin at 0.85% (< 1.50%).
-  - Projected IRR (10y) is 15.34% (≥ 12.00%).
-  - Year-1 cash flow is negative at $-3,799.
-  - Purchase cap rate respects the floor policy.
-- **Suggested Levers:**
-  - Negotiate lower price to improve cap-rate spread to ≥ 150 bps.
-  - Pursue lower interest rate or longer amortization to widen spread.
-  - Increase down payment to reduce debt service and lift DSCR.
-  - Trim OPEX (e.g., utilities, PM fees) via vendor bids to lift NOI.
-  - Phase rent increases (e.g., renewal program) to strengthen DSCR.
-  - Target rent optimization (ancillary income, fee schedule) to reach breakeven.
-  - Defer non-critical CapEx; build reserves gradually to improve Y1 cash flow.
-  - Address: Cap-rate spread 0.845% below target 1.500%.
-  - Address: Subscale risk: fewer than 4 units.
-  - Address: Negative cash flow in one or more years.
+  - Underwritten DSCR is 0.87 at purchase with negative cash flow for the first five years, indicating insufficient coverage of debt service under current assumptions.
+  - Operating expenses omit property management and repairs/reserves, which would further depress DSCR and cash flow if applied realistically.
+  - Cap-rate spread is 0.845% versus a 1.50% target, implying inadequate risk premium; targeting a ~7.0% cap on current NOI suggests a price near $362,500 or a rate buydown/higher equity to bridge the gap.
+  - Subscale exposure (2 units) concentrates income risk; one vacancy or turn can materially impact performance.
+  - Forecast taxes ($4,747) are below the listing’s 2024 property taxes (~$5,397), implying NOI may be overstated.
+  - Strengths include a legal, separately metered duplex with recent renovations and one vacant unit enabling an immediate rent reset; amortization drives improving DSCR and positive cash flow from Year 6; modeled 10-year IRR of 15.34%.
+  - Proceed only if price is reduced to approximately $362,500 (or equivalent seller concessions), or if financing terms are improved to achieve Year-1 DSCR of at least 1.20 and breakeven cash flow when underwriting with property management (~8% of GOI) and repairs/reserves (8–10% of GOI). If these conditions cannot be met, pass.
 
 
 ## 30-Year Pro Forma (Summary)

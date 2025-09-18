@@ -6,6 +6,24 @@ This project is a portfolio piece designed to showcase a modern, multi-agent AI 
 
 ---
 
+## Quick Start
+
+Run the demo in **one line**:
+
+```bash
+git clone https://github.com/<your-username>/ai-real-estate-deal-analyzer.git && cd ai-real-estate-deal-analyzer && python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt && python main.py
+```
+
+Expected output:
+
+```text
+Running AI Real Estate Deal Analyzer (V1 demo)...
+Report written to investment_analysis.md
+Thesis verdict: CONDITIONAL
+```
+
+---
+
 ## The Problem: Analysis Paralysis in Real Estate Investing
 
 For an aspiring real estate investor, evaluating a potential deal is a time-consuming, manual, and error-prone process. It involves:
@@ -24,6 +42,45 @@ This "analysis paralysis" prevents many would-be investors from ever taking acti
 This project solves the problem by deploying a team of specialized AI agents that work together to perform a comprehensive deal analysis in seconds. It acts as an expert co-pilot, handling the heavy lifting of data analysis and financial modeling, allowing the human investor to focus on the final decision.
 
 The system's unique value is its **opinionated financial model**, which implements the core principles of Grant Cardone's real estate investment methodology to calculate critical metrics like Net Operating Income (NOI), Cash-on-Cash Return, and Debt Service Coverage Ratio (DSCR).
+
+---
+
+## High-Level Architecture
+
+At a glance, the system is a multi-agent orchestration powered by **CrewAI**. Each agent specializes in one domain, and the Chief Strategist synthesizes all findings into a final investment thesis.
+
+```mermaid
+flowchart LR
+    subgraph Inputs
+        A["Listing Text"]
+        B["Property Photos"]
+        C["Market Data"]
+    end
+
+    subgraph Agents
+        L["Listing Analyst"]
+        F["Financial Forecaster"]
+        S["Chief Strategist"]
+    end
+
+    subgraph Tools
+        T1["CV Tagging"]
+        T2["Financial Model (Amortization, IRR, DSCR)"]
+    end
+
+    subgraph Outputs
+        O["investment_analysis.md"]
+    end
+
+    A --> L
+    B --> L
+    C --> F
+    L --> T1
+    F --> T2
+    L --> S
+    F --> S
+    S --> O
+```
 
 ---
 
@@ -184,16 +241,20 @@ This generates a Markdown report in the project root:
 *(Numbers are illustrative — your run may differ depending on inputs.)*
 
 ---
+
 ## Developer Setup
+
 To get started as a contributor:
 
 **1. Clone the repository**
+
 ```bash
 git clone https://github.com/<your-username>/ai-real-estate-deal-analyzer.git
 cd ai-real-estate-deal-analyzer
 ```
 
 **2. Create a virtual environment**
+
 ```bash
 python -m venv .venv
 source .venv/bin/activate   # Linux/Mac
@@ -209,6 +270,7 @@ pip install -r requirements.txt
 ```
 
 For development (with tests, linting, typing):
+
 ```bash
 pip install -e .[dev]
 ```
@@ -229,7 +291,7 @@ Expected output (V1):
 
 ```text
 ......................
-22 passed in 0.07s
+31 passed in 0.07s
 ```
 
 All tests must pass before merging new code.
