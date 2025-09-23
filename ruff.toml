@@ -1,25 +1,19 @@
 # ---------- General ----------
 line-length = 100
-target-version = "py310"   # matches CI's Python version
+target-version = "py310"
 
-# Lint rule families:
-# E: pycodestyle (style), F: pyflakes (logic), I: isort (imports)
-# B: flake8-bugbear (common bugs), UP: pyupgrade (modernize syntax)
+# ---------- Lint rules ----------
+[lint]
+# E: pycodestyle, F: pyflakes, I: isort, B: flake8-bugbear, UP: pyupgrade
 select = ["E", "F", "I", "B", "UP"]
+ignore = ["E203", "E266"]  # common ignores; tweak as you like
 
+# Per-file allowances (tests are often special)
+[lint.per-file-ignores]
+"tests/**/*" = ["B011"]
 
-# - E203/E266 are commonly ignored when using black-like formatting
-# - E501 line length is handled by tools; we just warn via line-length config
-ignore = ["E203", "E266"]
-
-# ---------- Per-path settings ----------
-[per-file-ignores]
-# Tests often use asserts and fixtures that trigger some rules
-"tests/**/*" = ["B011"]   # 'assert False' or similar in tests
-
-# ---------- isort (import ordering) ----------
-[tool.isort]
-profile = "black"
-line_length = 100
-known_first_party = ["ai_real_estate_deal_analyzer"] 
-known_third_party = ["pydantic", "pytest", "numpy", "pandas"]
+# ---------- isort (via Ruff) ----------
+[lint.isort]
+known-first-party = ["ai_real_estate_deal_analyzer"]  # <- update if your package name differs
+known-third-party = ["pydantic", "pytest", "numpy", "pandas"]
+combine-as-imports = true
