@@ -1,15 +1,15 @@
+from src.reports.generator import generate_report, write_report
 from src.schemas.models import (
-    FinancingTerms,
-    OperatingExpenses,
-    IncomeModel,
-    UnitIncome,
-    RefinancePlan,
-    MarketAssumptions,
     FinancialInputs,
+    FinancingTerms,
+    IncomeModel,
     ListingInsights,
+    MarketAssumptions,
+    OperatingExpenses,
+    RefinancePlan,
+    UnitIncome,
 )
 from src.tools.financial_model import run
-from src.reports.generator import generate_report, write_report
 
 
 def _inputs() -> FinancialInputs:

@@ -1,15 +1,15 @@
 # tests/test_chief_strategist.py
-from src.schemas.models import (
-    FinancingTerms,
-    OperatingExpenses,
-    IncomeModel,
-    UnitIncome,
-    RefinancePlan,
-    MarketAssumptions,
-    FinancialInputs,
-)
-from src.agents.financial_forecaster import forecast_financials
 from src.agents.chief_strategist import synthesize_thesis
+from src.agents.financial_forecaster import forecast_financials
+from src.schemas.models import (
+    FinancialInputs,
+    FinancingTerms,
+    IncomeModel,
+    MarketAssumptions,
+    OperatingExpenses,
+    RefinancePlan,
+    UnitIncome,
+)
 
 
 def _inputs_good() -> FinancialInputs:

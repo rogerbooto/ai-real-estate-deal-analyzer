@@ -22,9 +22,7 @@ forecast_financials(inputs, insights=None, horizon_years=10) -> FinancialForecas
 
 from __future__ import annotations
 
-from typing import Optional
-
-from src.schemas.models import FinancialInputs, ListingInsights, FinancialForecast
+from src.schemas.models import FinancialForecast, FinancialInputs, ListingInsights
 from src.tools.financial_model import run as run_financial_model
 
 
@@ -41,16 +39,18 @@ def _normalize_inputs(inputs: FinancialInputs) -> FinancialInputs:
       - Leave growth rates and interest as provided (caller responsibility).
       - Do not mutate original Pydantic model; return a shallow-copied instance.
     """
-    income = inputs.income.model_copy(update={
-        "occupancy": _clamp01(inputs.income.occupancy),
-        "bad_debt_factor": _clamp01(inputs.income.bad_debt_factor),
-    })
+    income = inputs.income.model_copy(
+        update={
+            "occupancy": _clamp01(inputs.income.occupancy),
+            "bad_debt_factor": _clamp01(inputs.income.bad_debt_factor),
+        }
+    )
     return inputs.model_copy(update={"income": income})
 
 
 def forecast_financials(
     inputs: FinancialInputs,
-    insights: Optional[ListingInsights] = None,
+    insights: ListingInsights | None = None,
     horizon_years: int = 10,
 ) -> FinancialForecast:
     """

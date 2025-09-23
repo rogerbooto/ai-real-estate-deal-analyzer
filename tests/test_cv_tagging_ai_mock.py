@@ -7,8 +7,9 @@ Purpose
 Validate ontology mapping, thresholding, merge behavior, amenity derivation,
 and rollup when AI path is enabled with the MockVisionProvider.
 """
-import os
+
 from pathlib import Path
+
 from src.tools.cv_tagging import tag_photos
 
 

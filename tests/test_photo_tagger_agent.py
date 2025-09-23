@@ -13,7 +13,6 @@ Notes
 -----
 - Uses MockVisionProvider (no network).
 """
-from pathlib import Path
 
 from src.agents.photo_tagger import PhotoTaggerAgent
 
@@ -25,7 +24,7 @@ def test_agent_runs_ai_on_all_images_when_enabled(tmp_path, monkeypatch):
     kitchen = tmp_path / "kitchen_island_stainless.jpg"
     bath = tmp_path / "bath_double_vanity.jpg"
     other = tmp_path / "random.jpg"  # no room cue; still AI in AI mode
-    bad = tmp_path / "notes.txt"     # unreadable
+    bad = tmp_path / "notes.txt"  # unreadable
 
     kitchen.write_text("stub")
     bath.write_text("stub")

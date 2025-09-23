@@ -19,40 +19,45 @@ Design
 
 from __future__ import annotations
 
-from typing import Optional, Callable, Type, TypeVar
+from collections.abc import Callable
+from typing import TypeVar
 
 try:
     # Optional import: present when users actually run with engine="crewai"
-    from crewai import Agent, Task, Crew, Process  # type: ignore
+    from crewai import Agent, Crew, Process, Task  # type: ignore
+
     _CREW_AVAILABLE = True
 except Exception:  # pragma: no cover - exercised by smoke test
     _CREW_AVAILABLE = False
 
-from src.schemas.models import (
-    ListingInsights,
-    FinancialInputs,
-    FinancialForecast,
-)
-from src.agents.listing_analyst import analyze_listing
+import json
+import logging
+import os
+import re
+import sys
+import traceback
+from logging.handlers import RotatingFileHandler
+
+from pydantic import TypeAdapter  # v2: tolerant coercion when possible
+
+from src.agents.chief_strategist import synthesize_thesis
+
 # deterministic local functions
 from src.agents.financial_forecaster import forecast_financials
-from src.agents.chief_strategist import synthesize_thesis
-from src.schemas.models import InvestmentThesis
-
-import json
-import os
-import traceback
-import sys
-import logging
-from logging.handlers import RotatingFileHandler
-from pydantic import TypeAdapter  # v2: tolerant coercion when possible
-import re
+from src.agents.listing_analyst import analyze_listing
+from src.schemas.models import (
+    FinancialForecast,
+    FinancialInputs,
+    InvestmentThesis,
+    ListingInsights,
+)
 
 # -----------------------------
 # Logging / debug helpers
 # -----------------------------
 
-_LOGGER: Optional[logging.Logger] = None
+_LOGGER: logging.Logger | None = None
+
 
 def _get_debug_logger() -> logging.Logger:
     """Create/reuse a rotating file logger for CrewAI debug output."""
@@ -73,9 +78,7 @@ def _get_debug_logger() -> logging.Logger:
             pass
 
         try:
-            handler = RotatingFileHandler(
-                log_path, maxBytes=1_000_000, backupCount=3, encoding="utf-8"
-            )
+            handler = RotatingFileHandler(log_path, maxBytes=1_000_000, backupCount=3, encoding="utf-8")
             formatter = logging.Formatter(
                 fmt="%(asctime)s %(levelname)s %(message)s",
                 datefmt="(%Y-%m-%d %H:%M:%S)",
@@ -143,14 +146,17 @@ def _print_raw_preview(text: str, label: str) -> None:
 
 T = TypeVar("T")
 
+
 def _llm_enabled() -> bool:
     """Check if LLM reasoning is enabled."""
     v = os.getenv("AIREAL_LLM_MODE", "").strip()
     return v in {"1", "true", "yes", "on"}
 
+
 def _get_model_name() -> str:
     """Get the model name for CrewAI or OpenAI."""
     return os.getenv("CREWAI_MODEL") or os.getenv("OPENAI_MODEL") or "gpt-4o-mini"
+
 
 def _ensure_crewai_ready() -> bool:
     """Check if CrewAI is ready to use."""
@@ -164,6 +170,7 @@ def _ensure_crewai_ready() -> bool:
 # -----------------------------
 # JSON parsing helper
 # -----------------------------
+
 
 def _sanitize_json_like(text: str) -> str:
     """Best-effort cleanup of model output into strict JSON.
@@ -205,7 +212,7 @@ def _sanitize_json_like(text: str) -> str:
         if ends:
             end = max(ends)
             if end > start:
-                s = s[start:end + 1]
+                s = s[start : end + 1]
 
     # Replace invalid JSON numbers with null
     s = re.sub(r"\bNaN\b", "null", s)
@@ -224,7 +231,8 @@ def _sanitize_json_like(text: str) -> str:
 
     return s
 
-def _parse_json_as(model_cls: Type[T], text: str, fallback: Callable[[], T]) -> T:
+
+def _parse_json_as(model_cls: type[T], text: str, fallback: Callable[[], T]) -> T:
     """Parse JSON text into a Pydantic model instance."""
     # First, sanitize aggressively
     cleaned = _sanitize_json_like(text)
@@ -271,7 +279,7 @@ def _parse_json_as(model_cls: Type[T], text: str, fallback: Callable[[], T]) -> 
         first_arr = text.find("[")
         last_arr = text.rfind("]")
         if first_arr != -1 and last_arr != -1 and last_arr > first_arr:
-            arr_blob = _sanitize_json_like(text[first_arr:last_arr + 1])
+            arr_blob = _sanitize_json_like(text[first_arr : last_arr + 1])
             return model_cls.model_validate_json(arr_blob)  # type: ignore[attr-defined]
     except Exception:
         pass
@@ -283,8 +291,10 @@ def _parse_json_as(model_cls: Type[T], text: str, fallback: Callable[[], T]) -> 
 # Agents
 # -----------------------------
 
+
 class ListingAnalystAgent:
     """CrewAI wrapper that deterministically produces ListingInsights."""
+
     def __init__(self) -> None:
         if _CREW_AVAILABLE:
             self.agent = Agent(
@@ -305,7 +315,7 @@ class ListingAnalystAgent:
                 agent=self.agent,
             )
 
-    def _run_llm(self, listing_txt_path: Optional[str], photos_folder: Optional[str]) -> ListingInsights:
+    def _run_llm(self, listing_txt_path: str | None, photos_folder: str | None) -> ListingInsights:
         if not _ensure_crewai_ready():
             # No model/keys: fallback to deterministic
             return analyze_listing(listing_txt_path=listing_txt_path, photos_folder=photos_folder)
@@ -314,7 +324,7 @@ class ListingAnalystAgent:
         listing_text = ""
         try:
             if listing_txt_path and os.path.exists(listing_txt_path):
-                listing_text = (open(listing_txt_path, "r", encoding="utf-8").read()[:8000])
+                listing_text = open(listing_txt_path, encoding="utf-8").read()[:8000]
         except Exception:
             pass
         photo_names = []
@@ -335,8 +345,8 @@ class ListingAnalystAgent:
             '  "condition_tags": ["str", ...],\n'
             '  "defects": ["str", ...]\n'
             "}\n\n"
-            'Do not use ellipses; output MUST be complete and valid JSON without truncation.\n'
-            'Do not include comments or trailing commas.\n'
+            "Do not use ellipses; output MUST be complete and valid JSON without truncation.\n"
+            "Do not include comments or trailing commas.\n"
             f"LISTING_TEXT:\n{listing_text}\n\n"
             f"PHOTOS:\n{photo_names}\n"
         )
@@ -350,9 +360,9 @@ class ListingAnalystAgent:
 
             # Run via a Crew (Task has no .execute())
             crew = Crew(
-                agents=[self.agent],          # type: ignore[attr-defined]
+                agents=[self.agent],  # type: ignore[attr-defined]
                 tasks=[task],
-                process=Process.sequential,   # type: ignore[attr-defined]
+                process=Process.sequential,  # type: ignore[attr-defined]
                 verbose=False,
             )
             _ = crew.kickoff()
@@ -373,7 +383,7 @@ class ListingAnalystAgent:
             _print_debug_exc("ListingAnalystAgent.crew.kickoff failed", e)
             return analyze_listing(listing_txt_path=listing_txt_path, photos_folder=photos_folder)
 
-    def run(self, listing_txt_path: Optional[str], photos_folder: Optional[str]) -> ListingInsights:
+    def run(self, listing_txt_path: str | None, photos_folder: str | None) -> ListingInsights:
         if _llm_enabled():
             return self._run_llm(listing_txt_path, photos_folder)
         return analyze_listing(listing_txt_path=listing_txt_path, photos_folder=photos_folder)
@@ -386,6 +396,7 @@ class FinancialForecasterAgent:
     and fast. We keep an Agent/Task (if crewai is present) only for future
     parity/observability, but .run() always calls forecast_financials.
     """
+
     def __init__(self) -> None:
         if _CREW_AVAILABLE:
             self.agent = Agent(
@@ -408,10 +419,9 @@ class FinancialForecasterAgent:
     def run(
         self,
         inputs: FinancialInputs,
-        insights: Optional[ListingInsights],
+        insights: ListingInsights | None,
         horizon_years: int,
     ) -> FinancialForecast:
-        
         # Hard clamp horizon for safety
         if horizon_years < 1:
             horizon_years = 1
@@ -423,6 +433,7 @@ class FinancialForecasterAgent:
 
 class ChiefStrategistAgent:
     """CrewAI wrapper that deterministically produces an InvestmentThesis."""
+
     def __init__(self) -> None:
         if _CREW_AVAILABLE:
             self.agent = Agent(
@@ -445,7 +456,7 @@ class ChiefStrategistAgent:
     def _run_llm(
         self,
         forecast: FinancialForecast,
-        insights: Optional[ListingInsights] = None,
+        insights: ListingInsights | None = None,
     ) -> InvestmentThesis:
         if not _ensure_crewai_ready():
             return synthesize_thesis(forecast)
@@ -466,8 +477,8 @@ class ChiefStrategistAgent:
             '  "rationale": ["string", ...],\n'
             '  "key_metrics": { "dscr": float, "irr": float, "coc": float }\n'
             "}\n\n"
-            'Do not use ellipses; output MUST be complete and valid JSON without truncation.\n'
-            'Do not include comments or trailing commas.\n'
+            "Do not use ellipses; output MUST be complete and valid JSON without truncation.\n"
+            "Do not include comments or trailing commas.\n"
             f"DATA:\n{json.dumps(payload, indent=2)}"
         )
 
@@ -479,9 +490,9 @@ class ChiefStrategistAgent:
             )
 
             crew = Crew(
-                agents=[self.agent],          # type: ignore[attr-defined]
+                agents=[self.agent],  # type: ignore[attr-defined]
                 tasks=[task],
-                process=Process.sequential,   # type: ignore[attr-defined]
+                process=Process.sequential,  # type: ignore[attr-defined]
                 verbose=False,
             )
             _ = crew.kickoff()
@@ -503,7 +514,7 @@ class ChiefStrategistAgent:
     def run(
         self,
         forecast: FinancialForecast,
-        insights: Optional[ListingInsights] = None,
+        insights: ListingInsights | None = None,
     ) -> InvestmentThesis:
         if _llm_enabled():
             return self._run_llm(forecast, insights)

@@ -30,10 +30,8 @@ This is intentionally simple (no ML, no web) to keep V1 deterministic and testab
 from __future__ import annotations
 
 import re
-from typing import Iterable, List, Optional
 
 from src.schemas.models import ListingInsights
-
 
 # ----------------------------
 # Keyword maps (expandable)
@@ -92,6 +90,7 @@ _UNITS_HINT_RE = re.compile(
 # Public API
 # ----------------------------
 
+
 def parse_listing_text(path: str) -> ListingInsights:
     """
     Parse a local listing text file into ListingInsights.
@@ -106,7 +105,7 @@ def parse_listing_text(path: str) -> ListingInsights:
         - File I/O errors propagate to the caller; keep try/except at the call site if needed.
         - This parser is intentionally conservative: if a signal is ambiguous, we prefer not to emit it.
     """
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         text = f.read()
     return parse_listing_string(text)
 
@@ -142,7 +141,8 @@ def parse_listing_string(text: str) -> ListingInsights:
 # Internals
 # ----------------------------
 
-def _extract_address(text: str) -> Optional[str]:
+
+def _extract_address(text: str) -> str | None:
     """Return a best-effort single-line address if found; otherwise None."""
     m = _ADDRESS_RE.search(text)
     if not m:
@@ -153,7 +153,7 @@ def _extract_address(text: str) -> Optional[str]:
     return line
 
 
-def _extract_keywords(text: str, dictionary: dict) -> List[str]:
+def _extract_keywords(text: str, dictionary: dict) -> list[str]:
     """
     Return canonical keys for any keyword hit present in text.
 
@@ -161,7 +161,7 @@ def _extract_keywords(text: str, dictionary: dict) -> List[str]:
         dictionary = { "parking": ["parking", "garage"] }
         -> returns ["parking"] if either word is present.
     """
-    hits: List[str] = []
+    hits: list[str] = []
     lowered = text.lower()
     for canon, words in dictionary.items():
         for w in words:
@@ -171,7 +171,7 @@ def _extract_keywords(text: str, dictionary: dict) -> List[str]:
     return hits
 
 
-def _compose_notes(text: str) -> List[str]:
+def _compose_notes(text: str) -> list[str]:
     """
     Create a compact list of human-friendly notes from simple hints:
       - Units hints (e.g., 'duplex', '4 units')
@@ -180,7 +180,7 @@ def _compose_notes(text: str) -> List[str]:
     Returns:
         A small list of strings (kept short to avoid noisy output).
     """
-    notes: List[str] = []
+    notes: list[str] = []
 
     # Units hint
     m = _UNITS_HINT_RE.search(text)

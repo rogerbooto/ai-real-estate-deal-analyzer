@@ -1,18 +1,21 @@
 # src/schemas/models.py
-from typing import List, Optional
-from pydantic import BaseModel, Field
 
+from pydantic import BaseModel, Field
 
 # =========================
 # Core inputs
 # =========================
 
+
 class FinancingTerms(BaseModel):
     """
     Acquisition and loan parameters. All money amounts are assumed to use the same currency.
     """
+
     purchase_price: float = Field(..., description="Total contract price for the property (currency units).")
-    closing_costs: float = Field(0.0, description="One-time buyer costs at closing (title, fees, transfer taxes). Added to initial cash outlay.")
+    closing_costs: float = Field(
+        0.0, description="One-time buyer costs at closing (title, fees, transfer taxes). Added to initial cash outlay."
+    )
     down_payment_rate: float = Field(..., ge=0, le=1, description="Down payment as a fraction of purchase price (e.g., 0.25 = 25%).")
     interest_rate: float = Field(..., ge=0, le=1, description="Annual interest rate (APR) as a fraction (e.g., 0.043 = 4.3%).")
     amort_years: int = Field(30, description="Amortization term in years for a fully-amortizing schedule (excludes IO period).")
@@ -32,6 +35,7 @@ class OperatingExpenses(BaseModel):
     """
     Annual operating expense inputs for Year 1. A uniform growth rate (expense_growth) is applied each year.
     """
+
     insurance: float = Field(..., description="Annual property insurance.")
     taxes: float = Field(..., description="Annual property taxes.")
     utilities: float = Field(..., description="Annual utilities paid by owner (electric/gas/common areas if applicable).")
@@ -51,8 +55,10 @@ class OperatingExpenses(BaseModel):
 # Per-unit income model
 # -------------------------
 
+
 class UnitIncome(BaseModel):
     """One unit's monthly revenue."""
+
     rent_month: float = Field(..., description="Monthly rent for this unit at Year 1 start (pre-growth).")
     other_income_month: float = Field(0.0, description="Other monthly income attributable to this unit (parking, storage, laundry).")
 
@@ -64,9 +70,12 @@ class IncomeModel(BaseModel):
     - Rents and other income are MONTHLY inputs; the model annualizes internally.
     - occupancy and bad_debt_factor reduce GSI to GOI.
     """
-    units: List[UnitIncome] = Field(..., description="List of units with per-unit monthly rent and other income.")
+
+    units: list[UnitIncome] = Field(..., description="List of units with per-unit monthly rent and other income.")
     occupancy: float = Field(0.97, ge=0, le=1, description="Economic occupancy fraction (1 - vacancy). 0.97 = 97%.")
-    bad_debt_factor: float = Field(0.90, ge=0, le=1, description="Collections effectiveness after bad debt. 0.90 means keep 90% after losses.")
+    bad_debt_factor: float = Field(
+        0.90, ge=0, le=1, description="Collections effectiveness after bad debt. 0.90 means keep 90% after losses."
+    )
     rent_growth: float = Field(0.03, description="Annual growth rate applied to rent and other monthly income (e.g., 0.03 = +3%/yr).")
 
 
@@ -75,55 +84,74 @@ class RefinancePlan(BaseModel):
     Refinance assumptions (optional). If enabled, computes value from NOI and exit cap, then applies refi LTV.
     Timing convention: refi occurs at the END of 'year_to_refi' (after that year's cash flows).
     """
+
     do_refi: bool = Field(True, description="Whether to model a refinance event.")
     year_to_refi: int = Field(5, description="Refinance occurs at the END of this year (e.g., 5 = after Year 5 cash flows).")
     refi_ltv: float = Field(0.75, ge=0, le=1, description="Loan-to-Value used at refi to size the new loan.")
-    exit_cap_rate: Optional[float] = Field(None, description="Cap rate used to value the asset at refi. If None, falls back to market_cap_rate or heuristic.")
-    market_cap_rate: Optional[float] = Field(None, description="Market cap rate reference; also used for purchase if cap_rate_purchase is not provided.")
+    exit_cap_rate: float | None = Field(
+        None,
+        description="Cap rate used to value the asset at refi. If None, falls back to market_cap_rate or heuristic.",
+    )
+    market_cap_rate: float | None = Field(
+        None, description="Market cap rate reference; also used for purchase if cap_rate_purchase is not provided."
+    )
 
 
 class MarketAssumptions(BaseModel):
     """Market / risk guardrails used for purchase metrics and strategist rules."""
-    cap_rate_purchase: Optional[float] = Field(None, description="If provided, use this as the purchase cap rate; else compute NOI/P for Year 1.")
-    cap_rate_floor: Optional[float] = Field(None, description="Minimum acceptable cap rate; if provided, flag deals below this threshold.")
-    cap_rate_spread_target: float = Field(0.015, description="Target spread: cap_rate - interest_rate must be ≥ this value (e.g., 0.015 = 150 bps).")
+
+    cap_rate_purchase: float | None = Field(
+        None, description="If provided, use this as the purchase cap rate; else compute NOI/P for Year 1."
+    )
+    cap_rate_floor: float | None = Field(None, description="Minimum acceptable cap rate; if provided, flag deals below this threshold.")
+    cap_rate_spread_target: float = Field(
+        0.015, description="Target spread: cap_rate - interest_rate must be ≥ this value (e.g., 0.015 = 150 bps)."
+    )
     cap_rate_drift: float = Field(
-        0.0,
-        description="Optional annual drift (absolute, e.g., 0.0025 = +25 bps/year) applied to cap rate over time."
+        0.0, description="Optional annual drift (absolute, e.g., 0.0025 = +25 bps/year) applied to cap rate over time."
     )
 
 
 class FinancialInputs(BaseModel):
     """Top-level input bundle consumed by the financial model tool."""
-    financing: FinancingTerms = Field(..., description="Purchase and loan terms (price, down payment, rate, amortization, IO, mortgage insurance).")
+
+    financing: FinancingTerms = Field(
+        ..., description="Purchase and loan terms (price, down payment, rate, amortization, IO, mortgage insurance)."
+    )
     opex: OperatingExpenses = Field(..., description="Year 1 operating expenses with annual growth.")
     income: IncomeModel = Field(..., description="Revenue model (per-unit monthly inputs; annualized internally).")
     refi: RefinancePlan = Field(RefinancePlan(), description="Refinance plan. Enabled by default; configurable.")
     market: MarketAssumptions = Field(MarketAssumptions(), description="Market guardrails and cap-rate assumptions.")
-    capex_reserve_upfront: float = Field(0.0, description="One-time upfront CapEx/reserves added to initial cash outlay (not recurring OPEX).")
+    capex_reserve_upfront: float = Field(
+        0.0, description="One-time upfront CapEx/reserves added to initial cash outlay (not recurring OPEX)."
+    )
 
 
 # =========================
 # Listing insights
 # =========================
 
+
 class ListingInsights(BaseModel):
     """Signals extracted from listing text and photos. Used by Strategist and to adjust OPEX/CapEx if desired."""
-    address: Optional[str] = Field(None, description="Human-readable address or short identifier.")
-    amenities: List[str] = Field(default_factory=list, description="Recognized amenities (e.g., 'in-unit laundry', 'parking').")
-    condition_tags: List[str] = Field(default_factory=list, description="Condition features (e.g., 'renovated kitchen', 'old roof').")
-    defects: List[str] = Field(default_factory=list, description="Potential issues (e.g., 'water stain', 'mold', 'foundation crack').")
-    notes: List[str] = Field(default_factory=list, description="Free-form additional observations.")
+
+    address: str | None = Field(None, description="Human-readable address or short identifier.")
+    amenities: list[str] = Field(default_factory=list, description="Recognized amenities (e.g., 'in-unit laundry', 'parking').")
+    condition_tags: list[str] = Field(default_factory=list, description="Condition features (e.g., 'renovated kitchen', 'old roof').")
+    defects: list[str] = Field(default_factory=list, description="Potential issues (e.g., 'water stain', 'mold', 'foundation crack').")
+    notes: list[str] = Field(default_factory=list, description="Free-form additional observations.")
 
 
 # =========================
 # Computed outputs
 # =========================
 
+
 class YearBreakdown(BaseModel):
     """
     One row per modeled year, after applying rent/expense growth, with detailed OPEX, debt service, and valuation metrics.
     """
+
     year: int = Field(..., description="Year index starting at 1.")
     gsi: float = Field(..., description="Gross Scheduled Income: annualized rent + other income before vacancy/bad debt.")
     goi: float = Field(..., description="Gross Operating Income: GSI after occupancy and bad-debt factors.")
@@ -156,26 +184,33 @@ class YearBreakdown(BaseModel):
     ending_balance: float = Field(..., description="Ending loan principal balance after this year's payments.")
 
     # Valuation/equity metrics
-    cap_rate_applied: Optional[float] = Field(None, description="Cap rate applied for valuation in this year (purchase cap ± drift if not overridden).")
+    cap_rate_applied: float | None = Field(
+        None, description="Cap rate applied for valuation in this year (purchase cap ± drift if not overridden)."
+    )
     est_value: float = Field(0.0, description="Estimated property value in this year, typically NOI / cap_rate_applied.")
     ltv_pct: float = Field(0.0, description="Loan-to-Value ratio in percent: ending_balance / est_value.")
     available_equity: float = Field(0.0, description="Available equity at 80% LTV: (0.8 × est_value) − ending_balance, floored at 0.")
 
-    notes: List[str] = Field(default_factory=list, description="Any annotations (IO years, refi year, unusual adjustments).")
+    notes: list[str] = Field(default_factory=list, description="Any annotations (IO years, refi year, unusual adjustments).")
 
 
 class PurchaseMetrics(BaseModel):
     """Point-in-time purchase metrics computed from Year 1 and financing."""
+
     cap_rate: float = Field(..., description="Purchase cap rate (either provided or computed as NOI_Y1 / purchase_price).")
     coc: float = Field(..., description="Cash-on-Cash return in Year 1: cash_flow_Y1 / acquisition_cash.")
     dscr: float = Field(..., description="Year 1 DSCR: NOI_Y1 / annual_debt_service.")
     annual_debt_service: float = Field(..., description="Annual debt service in Year 1.")
-    acquisition_cash: float = Field(..., description="Initial cash outlay: down payment + closing costs + upfront reserves (+ mortgage insurance if applicable).")
+    acquisition_cash: float = Field(
+        ...,
+        description="Initial cash outlay: down payment + closing costs + upfront reserves (+ mortgage insurance if applicable).",
+    )
     spread_vs_rate: float = Field(..., description="Cap rate minus interest rate (fraction terms), used for spread checks.")
 
 
 class RefiEvent(BaseModel):
     """Details of a refinance event if modeled."""
+
     year: int = Field(..., description="Year when the refi occurs (end-of-year timing).")
     value: float = Field(..., description="Implied property value at refi: NOI_refi / exit_cap.")
     new_loan: float = Field(..., description="New loan amount sized by refi LTV.")
@@ -185,20 +220,25 @@ class RefiEvent(BaseModel):
 
 class FinancialForecast(BaseModel):
     """Complete financial projection and headline returns."""
+
     purchase: PurchaseMetrics = Field(..., description="Purchase metrics at close/Year 1.")
-    years: List[YearBreakdown] = Field(..., description="Per-year detailed pro forma over the horizon.")
-    refi: Optional[RefiEvent] = Field(None, description="Refi details if modeled; None otherwise.")
+    years: list[YearBreakdown] = Field(..., description="Per-year detailed pro forma over the horizon.")
+    refi: RefiEvent | None = Field(None, description="Refi details if modeled; None otherwise.")
     irr_10yr: float = Field(..., description="Levered IRR over the 10-year horizon including refi/terminal equity.")
     equity_multiple_10yr: float = Field(..., description="(Total distributions to equity) / (initial equity).")
-    warnings: List[str] = Field(default_factory=list, description="Guardrail messages (spread shortfall, subscale risk, negative CF).")
+    warnings: list[str] = Field(default_factory=list, description="Guardrail messages (spread shortfall, subscale risk, negative CF).")
 
 
 # =========================
 # Final strategist output
 # =========================
 
+
 class InvestmentThesis(BaseModel):
     """Human-readable decision synthesized by the Chief Strategist."""
+
     verdict: str = Field(..., description='One of: "BUY", "CONDITIONAL", or "PASS".')
-    rationale: List[str] = Field(..., description="Bulleted reasons supporting the verdict.")
-    levers: List[str] = Field(default_factory=list, description="Suggested actions to strengthen the deal (e.g., negotiate, increase rents).")
+    rationale: list[str] = Field(..., description="Bulleted reasons supporting the verdict.")
+    levers: list[str] = Field(
+        default_factory=list, description="Suggested actions to strengthen the deal (e.g., negotiate, increase rents)."
+    )

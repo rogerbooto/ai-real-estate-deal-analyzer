@@ -3,49 +3,50 @@
 **Amenities:**
 - central air conditioning
 - air exchanger
-- forced air heating
-- propane heating
+- forced air heating (propane)
 - municipal water
 - municipal sewage system
 - shed
 - landscaped yard
 - corner lot
 - level lot
-- basement
-- cedar shingle exterior
-- block foundation
-- laminate flooring
-- tile flooring
-- vinyl flooring
 - year-round access
-- walkable downtown location
-- near marina
-- near parks
-- near restaurants and shops
-- near Parlee Beach
+- cedar shingles exterior
+- basement flex space/potential 5th bedroom
+- walkable to restaurants, shops, parks, marina, and Parlee Beach
 - freehold title
 
 **Notes:**
-- Priced under assessment
-- Quick closing available
-- Sold as is where is
-- 4 bedrooms above grade with potential 5th bedroom or flex space in basement
-- 1 full bathroom
-- Approx. 1440 sqft finished above grade (per listing)
-- Land size approx. 512 m2
-- Annual property taxes reported as $2,620.85
-- Heating via forced air propane; cooling via central air and air exchanger
-- Rental equipment includes furnace and propane tank
-- Prime downtown Shediac location with strong short-term or long-term rental potential
-- Corner site; landscaped lot
-- Room sizes provided in listing details
+- List price: $199,900
+- MLS number: NB122393
+- Bedrooms: 4 above grade
+- Basement has a room labeled bedroom (12'5" x 7'11") and an additional flex space (30' x 24') that the listing notes could be converted to a 5th bedroom
+- Bathrooms: 1 four-piece
+- Square footage: 1440 sqft (above grade finished and total finished)
+- Land size: 512 m2
+- Annual property taxes: $2,620.85
+- Time on market: 74 days on REALTOR.ca
+- Heating: forced air (propane)
+- Cooling: central air conditioning and air exchanger
+- Flooring: laminate, tile, vinyl
+- Foundation: block
+- Exterior finish: cedar shingles
+- Utilities: municipal water and municipal sewage
+- Structures: shed
+- Features: corner site and level lot
+- Location: downtown Shediac; highly walkable to restaurants, shops, parks, marina, and Parlee Beach
+- Use cases: suitable for families, multi-generational living, and short-term or long-term rental investment
+- Sale terms: priced under assessment, quick closing available, sold as is where is
+- Title: freehold
+- Access: year-round access
 
 **Condition & Defects:**
-- as-is where-is
+- as-is sale
 - priced under assessment
-- quick closing possible
-- rental equipment present
-- basement bedroom present (verify egress requirements)
+- quick closing
+- older foundation (block)
+- exterior cedar shingles
+- mixed flooring (laminate/tile/vinyl)
 
 
 ## Purchase Metrics
@@ -98,16 +99,16 @@ $$Equity_t^{(80\%)} = 0.80 \times NOIValue_t - MortgageBalance_t$$
 
 - **Verdict:** CONDITIONAL
 - **Rationale:**
-  - Going-in metrics fail core guardrails: DSCR 0.855 and CoC -13.03% with negative cash flow through Year 5; requires either price improvement, debt restructuring, or income lift to be viable.
-  - Cap-rate spread is 1.06%, below 1.50% target, indicating insufficient risk premium versus debt costs at acquisition.
-  - As-is where-is sale with rental equipment (furnace/propane tank) introduces capex and OPEX uncertainty; current pro forma carries zero reserves, which is not realistic.
-  - Subscale exposure (fewer than 4 units) heightens vacancy/operational volatility; underwriting should reflect higher contingency and management intensity.
-  - Despite weak entry metrics, 10-year IRR projects at 15.91% with meaningful amortization-driven equity build and DSCR improving >1.0 by Year 6 and ~1.19 by Year 10.
-  - Location/format upside: 4-bedroom in walkable downtown Shediac near marina and beach offers potential to pivot to STR or premium long-term tenancy to materially lift GSI.
-  - Price or structure fixes: target ~7–10% price reduction (to align cap-rate spread to ≥1.5%) or equivalent seller credit/rate buydown to de-risk entry and offset early cash deficits.
-  - Income plan: implement rent optimization or STR strategy to raise Year-1 NOI to ≥$13,500 (approx +$2,000 NOI vs base) to achieve ≥1.0 DSCR at acquisition.
-  - Risk mitigations required: full inspection with HVAC/roof/plumbing/electrical focus; verify basement egress; budget reserves at ≥5% of GSI plus ≥6 months debt service; negotiate rental equipment buyout or OPEX allowance.
-  - Financing conditions: lock fixed rate or secure buydown/interest-only period (12–24 months) to bridge early DSCR shortfall; confirm lender acceptance of DSCR trajectory and appraisal at revised pricing.
+  - Year-1 DSCR 0.855 and cash flow -$1,954 indicate negative carry; purchase COC is -13.03%, unacceptable without mitigation.
+  - Entry cap rate 5.76% with a 1.06% spread vs. rate is below a 1.5% target, implying a thin risk premium for an as-is asset.
+  - Negative cash flow through Year 5 and DSCR <1.0 until Year 6 create liquidity and lender risk.
+  - As-is sale, older block foundation, and cedar shingles elevate near-term capex risk; no reserves are modeled and utilities are set to $0 despite propane heating, risking NOI overstatement.
+  - Subscale single-door asset concentrates income risk in one tenancy and heightens vacancy/turnover exposure.
+  - Location strength (downtown Shediac, highly walkable) and 4–5 bedroom flexibility support rent growth and potential STR upside if permitted.
+  - Projected 10-year IRR 15.91% with improving cash flow (to ~$2.6k in Year 10) and substantial principal paydown is attractive if entry and financing are optimized.
+  - Priced under assessment with 74 days on market suggests negotiation leverage for price reduction or seller credits.
+  - Proceed only if purchase price and/or financing changes reduce annual debt service by ~29% (to support DSCR ≥1.20) or increase stabilized NOI by ~$4,650 to meet DSCR ≥1.20 and achieve at least breakeven Year-1 cash flow.
+  - Validate zoning/permits for STR and basement bedroom egress; complete full inspections (foundation, exterior envelope, HVAC), obtain repair bids, establish reserves, and re-underwrite with realistic utilities before closing.
 
 
 ## 30-Year Pro Forma (Summary)

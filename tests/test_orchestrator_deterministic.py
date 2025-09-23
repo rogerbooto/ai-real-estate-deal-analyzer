@@ -9,7 +9,7 @@ Verify the orchestrator runs purely deterministic tagging when AI is disabled:
 - Flags unreadable (non-image) paths.
 - Produces expected rollup from filename heuristics.
 """
-from pathlib import Path
+
 from src.orchestrators.cv_tagging_orchestrator import CvTaggingOrchestrator
 
 

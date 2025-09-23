@@ -1,6 +1,7 @@
 # tests/test_listing_parser.py
 from src.tools.listing_parser import parse_listing_string
 
+
 def test_parse_listing_string_basics():
     txt = """
     Beautiful triplex at 123 Main St, Springfield, 01101. Fresh paint and updated kitchen.

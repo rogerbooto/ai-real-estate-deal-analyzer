@@ -8,8 +8,6 @@ Purpose
   break tagging; it should fall back to deterministic and issue a warning.
 - No network calls are made.
 """
-from pathlib import Path
-import os
 
 from src.tools.cv_tagging import tag_photos
 

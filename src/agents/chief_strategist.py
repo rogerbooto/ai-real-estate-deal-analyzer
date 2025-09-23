@@ -29,33 +29,31 @@ This is intentionally simple for V1. In V2+, you can:
 
 from __future__ import annotations
 
-from typing import List
-
 from src.schemas.models import FinancialForecast, InvestmentThesis
 
 # ----------------------------
 # Underwriting guardrails (tunable)
 # ----------------------------
-MIN_DSCR_Y1 = 1.20            # Year 1 DSCR floor
-MIN_SPREAD = 0.015            # Cap rate - interest rate target (150 bps)
-MIN_IRR_10YR = 0.12           # 10-year IRR target (12%)
+MIN_DSCR_Y1 = 1.20  # Year 1 DSCR floor
+MIN_SPREAD = 0.015  # Cap rate - interest rate target (150 bps)
+MIN_IRR_10YR = 0.12  # 10-year IRR target (12%)
 REQUIRE_POSITIVE_CF_ALL = False  # If True, require CF >= 0 for all years to be BUY
-REQUIRE_POSITIVE_CF_Y1 = True    # Require CF >= 0 in Year 1 for BUY
+REQUIRE_POSITIVE_CF_Y1 = True  # Require CF >= 0 in Year 1 for BUY
 
 
-def _flag(condition: bool, msg: str, rationale: List[str]) -> None:
+def _flag(condition: bool, msg: str, rationale: list[str]) -> None:
     """Append a rationale line if condition is True."""
     if condition:
         rationale.append(msg)
 
 
-def _levers_for(forecast: FinancialForecast) -> List[str]:
+def _levers_for(forecast: FinancialForecast) -> list[str]:
     """
     Produce actionable (but generic) levers based on observed weaknesses.
     This is V1 and intentionally qualitative.
     """
     y1 = forecast.years[0]
-    levers: List[str] = []
+    levers: list[str] = []
 
     # If spread below target
     if forecast.purchase.spread_vs_rate < MIN_SPREAD:
@@ -85,10 +83,10 @@ def _levers_for(forecast: FinancialForecast) -> List[str]:
     # Deduplicate while preserving order
     seen = set()
     deduped = []
-    for l in levers:
-        if l not in seen:
-            deduped.append(l)
-            seen.add(l)
+    for lever in levers:
+        if lever not in seen:
+            deduped.append(lever)
+            seen.add(lever)
     return deduped
 
 
@@ -113,7 +111,7 @@ def synthesize_thesis(forecast: FinancialForecast) -> InvestmentThesis:
     y1 = forecast.years[0]
     purchase = forecast.purchase
 
-    rationale: List[str] = []
+    rationale: list[str] = []
 
     # Evaluate guardrails
     dscr_ok = y1.dscr >= MIN_DSCR_Y1
@@ -146,29 +144,26 @@ def synthesize_thesis(forecast: FinancialForecast) -> InvestmentThesis:
 
     # Verdict logic (critical fail threshold)
     fails = [
-        (not dscr_ok),                 # DSCR below floor
-        (not spread_ok),               # spread below target
-        (not irr_ok),                  # IRR below target
-        (not cf_y1_ok),                # negative Y1 CF (if enforced)
-        (not cf_all_ok),               # negative CF in hold (if enforced)
-        (not no_cap_floor_breach),     # explicit cap floor breach
+        (not dscr_ok),  # DSCR below floor
+        (not spread_ok),  # spread below target
+        (not irr_ok),  # IRR below target
+        (not cf_y1_ok),  # negative Y1 CF (if enforced)
+        (not cf_all_ok),  # negative CF in hold (if enforced)
+        (not no_cap_floor_breach),  # explicit cap floor breach
     ]
     num_fails = sum(1 for f in fails if f)
 
     # Heuristic thresholds (tunable):
     # - PASS if ≥3 critical items fail, OR cap-floor breach + DSCR fail together.
-    pass_condition = (
-        num_fails >= 3
-        or ((not no_cap_floor_breach) and (not dscr_ok))
-    )
+    pass_condition = num_fails >= 3 or ((not no_cap_floor_breach) and (not dscr_ok))
 
-    if not any(fails):            # all pass
+    if not any(fails):  # all pass
         verdict = "BUY"
-        levers: List[str] = []
-    elif pass_condition:          # many critical fails
+        levers: list[str] = []
+    elif pass_condition:  # many critical fails
         verdict = "PASS"
         levers = _levers_for(forecast)
-    else:                         # some fail, some pass
+    else:  # some fail, some pass
         verdict = "CONDITIONAL"
         levers = _levers_for(forecast)
 

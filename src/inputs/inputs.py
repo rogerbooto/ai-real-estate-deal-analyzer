@@ -55,23 +55,24 @@ import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional, Union, List
+from typing import Any
 
 from pydantic import BaseModel, Field, ValidationError
 
 from src.schemas.models import FinancialInputs, IncomeModel, UnitIncome
 
-
 # ----------------------------
 # Pydantic models for structured inputs
 # ----------------------------
 
+
 class RunOptions(BaseModel):
     """Runtime (non-financial) options controlling the analysis run."""
+
     out: str = Field("investment_analysis.md", description="Path to write the Markdown report.")
     horizon: int = Field(10, ge=1, le=50, description="Forecast horizon in years.")
-    listing: Optional[str] = Field(None, description="Path to listing .txt (optional).")
-    photos: Optional[str] = Field(None, description="Path to photos folder (optional).")
+    listing: str | None = Field(None, description="Path to listing .txt (optional).")
+    photos: str | None = Field(None, description="Path to photos folder (optional).")
     engine: str = Field("deterministic", description='Orchestration engine: "deterministic" or "crewai".')
 
 
@@ -83,6 +84,7 @@ class AppInputs(BaseModel):
         inputs: The validated FinancialInputs used by the financial engine.
         run:    Non-financial, runtime options for the current execution.
     """
+
     inputs: FinancialInputs
     run: RunOptions = RunOptions()
 
@@ -90,6 +92,7 @@ class AppInputs(BaseModel):
 # ----------------------------
 # Loader
 # ----------------------------
+
 
 @dataclass(frozen=True)
 class InputsLoader:
@@ -106,11 +109,12 @@ class InputsLoader:
         1) ./data/sample/inputs.json
         2) ./config.json
     """
+
     env_prefix: str = "AIREAL_"
 
     # ---------- Public API ----------
 
-    def load(self, path: Optional[Union[str, Path]] = None) -> AppInputs:
+    def load(self, path: str | Path | None = None) -> AppInputs:
         """
         Load inputs from a JSON file (path). If path is None, try defaults.
 
@@ -146,17 +150,17 @@ class InputsLoader:
         self,
         cfg: AppInputs,
         *,
-        out: Optional[str] = None,
-        horizon: Optional[int] = None,
-        listing: Optional[str] = None,
-        photos: Optional[str] = None,
-        engine: Optional[str] = None,
+        out: str | None = None,
+        horizon: int | None = None,
+        listing: str | None = None,
+        photos: str | None = None,
+        engine: str | None = None,
     ) -> AppInputs:
         """
         Return a *new* AppInputs with provided non-null overrides applied to RunOptions.
         Does not mutate the original instance.
         """
-        updates: Dict[str, Any] = {}
+        updates: dict[str, Any] = {}
         if out is not None:
             updates["out"] = out
         if horizon is not None:
@@ -176,7 +180,7 @@ class InputsLoader:
 
     # ---------- Internals ----------
 
-    def _resolve_path(self, path: Optional[Union[str, Path]]) -> Path:
+    def _resolve_path(self, path: str | Path | None) -> Path:
         if path is not None:
             p = Path(path)
             if not p.exists():
@@ -188,11 +192,10 @@ class InputsLoader:
             if candidate.exists():
                 return candidate
         raise FileNotFoundError(
-            "No inputs path provided and no default inputs found. "
-            "Looked for ./data/sample/inputs.json and ./config.json."
+            "No inputs path provided and no default inputs found. Looked for ./data/sample/inputs.json and ./config.json."
         )
 
-    def _read_json_file(self, p: Path) -> Dict[str, Any]:
+    def _read_json_file(self, p: Path) -> dict[str, Any]:
         if p.suffix.lower() != ".json":
             raise ValueError(f"Unsupported inputs format for {p.name}; only .json supported in V1.")
         try:
@@ -200,7 +203,7 @@ class InputsLoader:
         except json.JSONDecodeError as e:
             raise ValueError(f"Invalid JSON in {p}: {e}") from e
 
-    def _maybe_translate_legacy(self, raw: Dict[str, Any]) -> Dict[str, Any]:
+    def _maybe_translate_legacy(self, raw: dict[str, Any]) -> dict[str, Any]:
         """
         Accept legacy (FinancialInputs at root) or structured (AppInputs shape).
         If legacy 'income' uses a scalar model (units:int + rent_month:float),
@@ -227,7 +230,7 @@ class InputsLoader:
 
         return {"inputs": raw}
 
-    def _parse_root(self, data: Dict[str, Any]) -> AppInputs:
+    def _parse_root(self, data: dict[str, Any]) -> AppInputs:
         """
         Validate and return structured AppInputs.
         """
@@ -241,7 +244,7 @@ class InputsLoader:
         Apply light, optional overrides from environment variables to run options.
         """
         prefix = self.env_prefix
-        updates: Dict[str, Any] = {}
+        updates: dict[str, Any] = {}
 
         out = os.getenv(f"{prefix}OUT")
         if out:
@@ -280,6 +283,7 @@ class InputsLoader:
 # Convenience function
 # ----------------------------
 
-def load_inputs(path: Optional[Union[str, Path]] = None) -> AppInputs:
+
+def load_inputs(path: str | Path | None = None) -> AppInputs:
     """Convenience wrapper for one-shot callers."""
     return InputsLoader().load(path)

@@ -30,8 +30,9 @@ Invariants & Guardrails
 """
 
 from __future__ import annotations
-from typing import Protocol, TypedDict, Literal, List, Sequence, Any, cast
 
+from collections.abc import Sequence
+from typing import Literal, Protocol, TypedDict
 
 Category = Literal["room_type", "feature", "condition", "issue"]
 
@@ -45,15 +46,14 @@ class RawTag(TypedDict, total=False):
 
 
 class VisionProvider(Protocol):
-    def analyze(self, path: str) -> List[RawTag]:
-        ...
+    def analyze(self, path: str) -> list[RawTag]: ...
 
     # NOTE: Providers may optionally implement this for efficiency.
     # def analyze_batch(self, paths: List[str]) -> List[List[RawTag]]:
     #     ...
 
 
-def run_batch(provider: VisionProvider, paths: Sequence[str]) -> List[List[RawTag]]:
+def run_batch(provider: VisionProvider, paths: Sequence[str]) -> list[list[RawTag]]:
     """
     Execute analysis for a batch of images, preserving input order.
     If provider exposes `analyze_batch`, use it; otherwise loop over `analyze`.

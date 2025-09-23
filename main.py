@@ -31,21 +31,21 @@ Usage
 
 from __future__ import annotations
 
-from pathlib import Path
 import argparse
+from pathlib import Path
 
-from src.schemas.models import (
-    FinancingTerms,
-    OperatingExpenses,
-    IncomeModel,
-    UnitIncome,
-    RefinancePlan,
-    MarketAssumptions,
-    FinancialInputs,
-)
-from src.inputs.inputs import InputsLoader, AppInputs
+from src.inputs.inputs import AppInputs, InputsLoader
 from src.orchestrators import crew as deterministic_orchestrator
 from src.reports.generator import write_report
+from src.schemas.models import (
+    FinancialInputs,
+    FinancingTerms,
+    IncomeModel,
+    MarketAssumptions,
+    OperatingExpenses,
+    RefinancePlan,
+    UnitIncome,
+)
 
 
 def build_sample_inputs() -> FinancialInputs:

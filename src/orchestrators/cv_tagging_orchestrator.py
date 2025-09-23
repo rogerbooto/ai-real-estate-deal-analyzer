@@ -60,14 +60,14 @@ Portfolio signals
 - Input normalization & stable ordering for reproducibility.
 - Explicit guardrails and de-duplication to prevent accidental double-sends.
 """
+
 from __future__ import annotations
 
 import os
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Dict, Iterable, List, Set
 
 from src.tools.cv_tagging import tag_photos
-
 
 _IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff"}
 _USE_PHOTO_AGENT = os.getenv("AIREAL_PHOTO_AGENT", "0").lower() in ("1", "true", "yes")
@@ -81,7 +81,7 @@ class CvTaggingOrchestrator:
 
     # --------------- Public API ---------------
 
-    def analyze_paths(self, photo_paths: List[str]) -> Dict:
+    def analyze_paths(self, photo_paths: list[str]) -> dict:
         """
         Analyze an explicit, ordered list of paths.
 
@@ -100,6 +100,7 @@ class CvTaggingOrchestrator:
         if _USE_PHOTO_AGENT:
             try:
                 from src.agents.photo_tagger import PhotoTaggerAgent
+
                 agent = PhotoTaggerAgent()
                 return agent.analyze(normalized)
             except Exception:
@@ -109,7 +110,7 @@ class CvTaggingOrchestrator:
         # Direct path (no agent indirection)
         return tag_photos(normalized, use_ai=_VISION_ENABLED)
 
-    def analyze_folder(self, folder: str, *, recursive: bool = False) -> Dict:
+    def analyze_folder(self, folder: str, *, recursive: bool = False) -> dict:
         """
         Scan a folder for image files and analyze them.
 
@@ -123,7 +124,7 @@ class CvTaggingOrchestrator:
     # --------------- Utilities ---------------
 
     @staticmethod
-    def list_images(folder: str, *, recursive: bool = False) -> List[str]:
+    def list_images(folder: str, *, recursive: bool = False) -> list[str]:
         """
         Return a stable, name-sorted list of image file paths under `folder`.
 
@@ -136,13 +137,12 @@ class CvTaggingOrchestrator:
             return []
 
         if not recursive:
-            files = [p for p in sorted(base.iterdir(), key=lambda x: x.name.lower())
-                     if p.is_file() and p.suffix.lower() in _IMAGE_EXTS]
+            files = [p for p in sorted(base.iterdir(), key=lambda x: x.name.lower()) if p.is_file() and p.suffix.lower() in _IMAGE_EXTS]
             return [str(p) for p in files]
 
         # Recursive: deterministic directory walk
-        collected: List[str] = []
-        for dirpath, dirnames, filenames in _walk_sorted(base):
+        collected: list[str] = []
+        for dirpath, _dirnames, filenames in _walk_sorted(base):
             for name in filenames:
                 p = Path(dirpath) / name
                 if p.suffix.lower() in _IMAGE_EXTS and p.is_file():
@@ -152,7 +152,8 @@ class CvTaggingOrchestrator:
 
 # --------------- Internal helpers ---------------
 
-def _normalize_paths(paths: Iterable[str]) -> List[str]:
+
+def _normalize_paths(paths: Iterable[str]) -> list[str]:
     """
     Normalize and de-duplicate input paths while preserving first-seen order.
 
@@ -162,8 +163,8 @@ def _normalize_paths(paths: Iterable[str]) -> List[str]:
       'unreadable' if needed). This ensures the caller’s order is preserved.
     - De-duplication key is the *absolute* path string (case-normalized).
     """
-    out: List[str] = []
-    seen: Set[str] = set()
+    out: list[str] = []
+    seen: set[str] = set()
     for p in paths:
         # Convert to absolute path for consistent de-dupe semantics
         ap = str(Path(p).resolve())

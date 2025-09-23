@@ -1,29 +1,25 @@
 # src/tools/financial_model.py
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import List, Optional, Tuple, Dict
-
 from src.schemas.models import (
+    FinancialForecast,
     FinancialInputs,
     ListingInsights,
-    YearBreakdown,
     PurchaseMetrics,
     RefiEvent,
-    FinancialForecast,
+    YearBreakdown,
 )
 from src.tools.amortization import (
-    monthly_payment,  # Note: exposed for completeness; generate_schedule() uses it internally.
-    generate_schedule,
     annual_debt_service_and_split,
     balance_after_years,
+    generate_schedule,
     remaining_term_years,
 )
-
 
 # ============================
 # Internal utilities
 # ============================
+
 
 def _pow_growth(base: float, rate: float, year_index: int) -> float:
     """
@@ -46,7 +42,7 @@ def _pow_growth(base: float, rate: float, year_index: int) -> float:
     return base * ((1.0 + rate) ** (year_index - 1))
 
 
-def _irr(cash_flows: List[float], tol: float = 1e-6, max_iter: int = 200) -> float:
+def _irr(cash_flows: list[float], tol: float = 1e-6, max_iter: int = 200) -> float:
     """
     Compute IRR for a series of annual cash flows using bisection over NPV(rate) = 0.
 
@@ -79,7 +75,7 @@ def _irr(cash_flows: List[float], tol: float = 1e-6, max_iter: int = 200) -> flo
             if t == 0:
                 acc += cf
             else:
-                denom *= (1.0 + rate)
+                denom *= 1.0 + rate
                 acc += cf / denom
         return acc
 
@@ -112,6 +108,7 @@ def _irr(cash_flows: List[float], tol: float = 1e-6, max_iter: int = 200) -> flo
 
 # Helpers for valuation tracks / refi heuristics
 
+
 def _safe_div(n: float, d: float) -> float:
     """Safe division for LTV/value math; returns +inf if denominator is 0 and numerator > 0, else 0."""
     if d == 0:
@@ -119,7 +116,7 @@ def _safe_div(n: float, d: float) -> float:
     return n / d
 
 
-def _first_refi_year_at_or_below_80_ltv(ltv_by_year: List[float], seasoning_min_years: int) -> Optional[int]:
+def _first_refi_year_at_or_below_80_ltv(ltv_by_year: list[float], seasoning_min_years: int) -> int | None:
     """
     Return the first 1-based year where LTV ≤ 0.80, respecting seasoning_min_years.
     """
@@ -135,9 +132,10 @@ def _first_refi_year_at_or_below_80_ltv(ltv_by_year: List[float], seasoning_min_
 # Core engine
 # ============================
 
+
 def run(
     inputs: FinancialInputs,
-    insights: Optional[ListingInsights] = None,
+    insights: ListingInsights | None = None,
     horizon_years: int = 10,
 ) -> FinancialForecast:
     """
@@ -190,12 +188,10 @@ def run(
     loan_amt = max(0.0, f.purchase_price - down_payment) + insurance_premium
 
     acquisition_cash = down_payment + f.closing_costs + inputs.capex_reserve_upfront
-    
+
     if acquisition_cash <= 0.0:
-        raise ValueError(
-            "Acquisition cash must be positive. Check purchase price, down payment rate, closing costs, and upfront reserves."
-        )
-    
+        raise ValueError("Acquisition cash must be positive. Check purchase price, down payment rate, closing costs, and upfront reserves.")
+
     # Debt schedules
     sched_pre = generate_schedule(
         principal=loan_amt,
@@ -206,10 +202,10 @@ def run(
     sched_post = None  # created only if/when refi happens
 
     # ---- Per-year pro forma ----
-    years: List[YearBreakdown] = []
-    warnings: List[str] = []
+    years: list[YearBreakdown] = []
+    warnings: list[str] = []
 
-    def opex_for_year(y: int) -> Tuple[float, dict]:
+    def opex_for_year(y: int) -> tuple[float, dict]:
         """
         Compute grown OPEX for year y and return (total, parts dict).
         Each line item grows by expense_growth using the same rule as income growth.
@@ -233,18 +229,14 @@ def run(
         return total, parts
 
     # tiny holders for refi artifacts produced inside the loop (initialized lazily)
-    _refi_event_holder: List[Optional[RefiEvent]] = [None]
-    _cash_out_holder: List[float] = [0.0]
+    _refi_event_holder: list[RefiEvent | None] = [None]
+    _cash_out_holder: list[float] = [0.0]
 
     for y in range(1, horizon_years + 1):
         # Income (monthly -> annual), with growth applied from Year 2 onward
-        total_rent_mo_y = sum(
-            _pow_growth(u.rent_month, inc.rent_growth, y) for u in inc.units
-        )
+        total_rent_mo_y = sum(_pow_growth(u.rent_month, inc.rent_growth, y) for u in inc.units)
 
-        total_other_mo_y = sum(
-            _pow_growth(u.other_income_month, inc.rent_growth, y) for u in inc.units
-        )
+        total_other_mo_y = sum(_pow_growth(u.other_income_month, inc.rent_growth, y) for u in inc.units)
 
         gsi = 12.0 * (total_rent_mo_y + total_other_mo_y)
         goi = gsi * inc.occupancy * inc.bad_debt_factor
@@ -344,16 +336,12 @@ def run(
     interest_rate = f.interest_rate
 
     # Baseline (appreciation-based) values
-    property_value_baseline: List[float] = [
-        purchase_price * ((1.0 + baseline_appreciation) ** (y - 1)) for y in range(1, n + 1)
-    ]
+    property_value_baseline: list[float] = [purchase_price * ((1.0 + baseline_appreciation) ** (y - 1)) for y in range(1, n + 1)]
 
     # Stress (rate-anchored) values
     stress_basis = max(0.0, purchase_price - stress_price_adjustment)
     stress_growth = 1.0 + (interest_rate / 3.0) if interest_rate is not None else 1.0
-    property_value_stress: List[float] = [
-        stress_basis * (stress_growth ** (y - 1)) for y in range(1, n + 1)
-    ]
+    property_value_stress: list[float] = [stress_basis * (stress_growth ** (y - 1)) for y in range(1, n + 1)]
 
     # NOI-based values with cap-rate drift
     # Start cap: use purchase cap if present; else back into it via NOI_Y1 / purchase_price
@@ -362,7 +350,7 @@ def run(
     if not cap_rate_start or cap_rate_start <= 0:
         cap_rate_start = (y1_noi / purchase_price) if purchase_price > 0 else 0.0
 
-    property_value_noi: List[float] = []
+    property_value_noi: list[float] = []
     for idx, y in enumerate(years):
         cap_t = cap_rate_start + cap_rate_drift_per_year * idx  # linear drift per year index
         if cap_t <= 0:
@@ -390,9 +378,7 @@ def run(
     # ---- Purchase metrics (Year 1) ----
     y1 = years[0]
     cap_rate_purchase = (
-        mkt.cap_rate_purchase
-        if mkt.cap_rate_purchase is not None
-        else ((y1.noi / f.purchase_price) if f.purchase_price > 0 else 0.0)
+        mkt.cap_rate_purchase if mkt.cap_rate_purchase is not None else ((y1.noi / f.purchase_price) if f.purchase_price > 0 else 0.0)
     )
     annual_debt_service_y1 = y1.debt_service
     coc_y1 = (y1.cash_flow / acquisition_cash) if acquisition_cash > 0 else 0.0
@@ -409,7 +395,7 @@ def run(
     )
 
     # ---- Refi details (compute if not created in-loop) ----
-    refi_event: Optional[RefiEvent] = None
+    refi_event: RefiEvent | None = None
     if refi.do_refi:
         if _refi_event_holder[0] is None:
             noi_refi = noi_at_year(refi.year_to_refi, inc, o)
@@ -458,18 +444,15 @@ def run(
         irr_10yr=irr_10,
         equity_multiple_10yr=em_10,
         warnings=warnings,
-
         # valuation tracks & suggested refi years
         property_value_baseline=property_value_baseline,
         ltv_baseline=ltv_baseline,
         equity_baseline=equity_baseline,
         suggested_refi_year_baseline=suggested_refi_year_baseline,
-
         property_value_stress=property_value_stress,
         ltv_stress=ltv_stress,
         equity_stress=equity_stress,
         suggested_refi_year_stress=suggested_refi_year_stress,
-
         property_value_noi=property_value_noi,
         ltv_noi=ltv_noi,
         equity_noi=equity_noi,
@@ -480,6 +463,7 @@ def run(
 # ============================
 # Helpers (exposed for testing)
 # ============================
+
 
 def noi_at_year(year: int, income, opex) -> float:
     """
@@ -493,13 +477,9 @@ def noi_at_year(year: int, income, opex) -> float:
     Returns:
         NOI for the requested year.
     """
-    total_rent_mo = sum(
-        _pow_growth(u.rent_month, income.rent_growth, year) for u in income.units
-    )
+    total_rent_mo = sum(_pow_growth(u.rent_month, income.rent_growth, year) for u in income.units)
 
-    total_other_mo = sum(
-        _pow_growth(u.other_income_month, income.rent_growth, year) for u in income.units
-    )
+    total_other_mo = sum(_pow_growth(u.other_income_month, income.rent_growth, year) for u in income.units)
 
     gsi = 12.0 * (total_rent_mo + total_other_mo)
     goi = gsi * income.occupancy * income.bad_debt_factor
@@ -545,13 +525,13 @@ def pick_cap_rate(market, default_interest: float) -> float:
 
 
 def compute_returns(
-    years: List[YearBreakdown],
+    years: list[YearBreakdown],
     acquisition_cash: float,
     market,
     interest_rate: float,
-    refi_year: Optional[int],
+    refi_year: int | None,
     cash_out_at_refi: float,
-) -> Tuple[float, float]:
+) -> tuple[float, float]:
     """
     Build annual levered cash flows and compute 10-year IRR and Equity Multiple.
 

@@ -1,7 +1,7 @@
 # src/tools/amortization.py
 from __future__ import annotations
+
 from dataclasses import dataclass
-from typing import List, Tuple, Optional
 
 
 @dataclass(frozen=True)
@@ -16,6 +16,7 @@ class PaymentBreakdown:
         total (float): Total payment this month (interest + principal).
         balance (float): Remaining principal balance after this month's payment.
     """
+
     month: int
     interest: float
     principal: float
@@ -74,7 +75,7 @@ def generate_schedule(
     annual_rate: float,
     amort_years: int,
     io_years: int = 0,
-) -> List[PaymentBreakdown]:
+) -> list[PaymentBreakdown]:
     """
     Build a monthly amortization schedule with an optional initial interest-only (IO) period.
 
@@ -101,7 +102,7 @@ def generate_schedule(
         raise ValueError("Years cannot be negative.")
 
     r = annual_rate / 12.0
-    schedule: List[PaymentBreakdown] = []
+    schedule: list[PaymentBreakdown] = []
     bal = principal
     month = 0
 
@@ -133,9 +134,9 @@ def generate_schedule(
 
 
 def annual_debt_service_and_split(
-    schedule: List[PaymentBreakdown],
+    schedule: list[PaymentBreakdown],
     year_index: int,
-) -> Tuple[float, float, float]:
+) -> tuple[float, float, float]:
     """
     Aggregate annual debt service for a given 1-based year.
 
@@ -169,7 +170,7 @@ def annual_debt_service_and_split(
     return (total, interest, principal)
 
 
-def balance_after_years(schedule: List[PaymentBreakdown], years_elapsed: int) -> float:
+def balance_after_years(schedule: list[PaymentBreakdown], years_elapsed: int) -> float:
     """
     Get the ending principal balance after a whole number of years.
 
@@ -189,7 +190,7 @@ def balance_after_years(schedule: List[PaymentBreakdown], years_elapsed: int) ->
     return schedule[cutoff - 1].balance
 
 
-def remaining_term_years(schedule: List[PaymentBreakdown], from_year: int) -> int:
+def remaining_term_years(schedule: list[PaymentBreakdown], from_year: int) -> int:
     """
     Compute remaining full years in the schedule after a given 1-based year.
 

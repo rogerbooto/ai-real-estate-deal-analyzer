@@ -38,10 +38,10 @@ Testing
 - Used by `tests/test_cv_tagging_ai_mock.py` to validate the AI path
   (mapping, thresholds, dedupe, rollup).
 """
+
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List
 
 from .provider_base import RawTag, VisionProvider
 
@@ -49,9 +49,9 @@ from .provider_base import RawTag, VisionProvider
 class MockVisionProvider(VisionProvider):
     """Deterministic, filename-based mock provider."""
 
-    def analyze(self, path: str) -> List[RawTag]:
+    def analyze(self, path: str) -> list[RawTag]:
         name = Path(path).name.lower()
-        out: List[RawTag] = []
+        out: list[RawTag] = []
 
         # --- Room type cues ---
         if any(k in name for k in ("kitchen", "ktn")):

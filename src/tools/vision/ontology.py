@@ -50,8 +50,9 @@ Testing
 """
 
 from __future__ import annotations
-from typing import Dict, Iterable, List, Set, Literal
 
+from collections.abc import Iterable
+from typing import Literal
 
 Category = Literal["room_type", "feature", "condition", "issue"]
 
@@ -59,39 +60,97 @@ Category = Literal["room_type", "feature", "condition", "issue"]
 # Allowed ontology (tight)
 # -------------------------
 
-ROOM_TYPE: Set[str] = {
-    "exterior_front", "exterior_back", "yard", "garage", "driveway", "entry",
-    "living_room", "dining_room", "kitchen", "bedroom", "bathroom", "laundry",
-    "hallway", "basement_finished", "basement_unfinished", "utility_room",
-    "balcony", "patio",
+ROOM_TYPE: set[str] = {
+    "exterior_front",
+    "exterior_back",
+    "yard",
+    "garage",
+    "driveway",
+    "entry",
+    "living_room",
+    "dining_room",
+    "kitchen",
+    "bedroom",
+    "bathroom",
+    "laundry",
+    "hallway",
+    "basement_finished",
+    "basement_unfinished",
+    "utility_room",
+    "balcony",
+    "patio",
 }
 
-FEATURE: Set[str] = {
-    "stainless_appliances", "gas_range", "electric_range", "range_hood", "double_sink",
-    "kitchen_island", "dishwasher", "microwave", "quartz_counters", "granite_counters",
-    "tile_backsplash", "pantry", "hardwood_floor", "laminate_floor", "tile_floor",
-    "carpet_floor", "fireplace", "ceiling_fan", "recessed_lighting", "large_window",
-    "skylight", "walk_in_closet", "double_vanity", "frameless_shower", "soaking_tub",
-    "stacked_laundry", "side_by_side_laundry", "thermostat", "water_heater", "hvac_unit",
-    "breaker_panel", "smart_lock", "security_camera", "off_street_parking", "fence", "shed",
+FEATURE: set[str] = {
+    "stainless_appliances",
+    "gas_range",
+    "electric_range",
+    "range_hood",
+    "double_sink",
+    "kitchen_island",
+    "dishwasher",
+    "microwave",
+    "quartz_counters",
+    "granite_counters",
+    "tile_backsplash",
+    "pantry",
+    "hardwood_floor",
+    "laminate_floor",
+    "tile_floor",
+    "carpet_floor",
+    "fireplace",
+    "ceiling_fan",
+    "recessed_lighting",
+    "large_window",
+    "skylight",
+    "walk_in_closet",
+    "double_vanity",
+    "frameless_shower",
+    "soaking_tub",
+    "stacked_laundry",
+    "side_by_side_laundry",
+    "thermostat",
+    "water_heater",
+    "hvac_unit",
+    "breaker_panel",
+    "smart_lock",
+    "security_camera",
+    "off_street_parking",
+    "fence",
+    "shed",
 }
 
-CONDITION: Set[str] = {
-    "renovated_kitchen", "updated_bath", "new_flooring", "fresh_paint",
-    "original_finishes", "dated_kitchen", "dated_bath", "minor_wear", "well_maintained",
+CONDITION: set[str] = {
+    "renovated_kitchen",
+    "updated_bath",
+    "new_flooring",
+    "fresh_paint",
+    "original_finishes",
+    "dated_kitchen",
+    "dated_bath",
+    "minor_wear",
+    "well_maintained",
 }
 
-ISSUE: Set[str] = {
-    "water_stain_ceiling", "mold_suspected", "peeling_paint", "cracked_tile",
-    "damaged_drywall", "exposed_wiring", "trip_hazard", "smoke_detector_missing",
-    "carbon_monoxide_detector_missing", "leak_suspected", "pest_signs",
+ISSUE: set[str] = {
+    "water_stain_ceiling",
+    "mold_suspected",
+    "peeling_paint",
+    "cracked_tile",
+    "damaged_drywall",
+    "exposed_wiring",
+    "trip_hazard",
+    "smoke_detector_missing",
+    "carbon_monoxide_detector_missing",
+    "leak_suspected",
+    "pest_signs",
 }
 
 # ------------------------------------
 # Feature → Amenity normalization map
 # ------------------------------------
 
-FEATURE_TO_AMENITY: Dict[str, str] = {
+FEATURE_TO_AMENITY: dict[str, str] = {
     "stacked_laundry": "in_unit_laundry",
     "side_by_side_laundry": "in_unit_laundry",
     "dishwasher": "dishwasher",
@@ -125,7 +184,7 @@ def in_ontology(label: str, category: Category) -> bool:
     return False
 
 
-def map_raw_tags(raw: Iterable[dict]) -> List[dict]:
+def map_raw_tags(raw: Iterable[dict]) -> list[dict]:
     """
     Map provider outputs to strict tags by applying:
     1) Category/label validation against the ontology
@@ -136,7 +195,7 @@ def map_raw_tags(raw: Iterable[dict]) -> List[dict]:
     Returns a stable (sorted) list of tag dicts:
         {"label", "category", "confidence", "evidence", "bbox?"}
     """
-    best: Dict[tuple[str, str], dict] = {}
+    best: dict[tuple[str, str], dict] = {}
 
     for t in raw:
         label = t.get("label")
@@ -173,7 +232,7 @@ def map_raw_tags(raw: Iterable[dict]) -> List[dict]:
     return sorted(best.values(), key=lambda x: (x["category"], x["label"]))
 
 
-def derive_amenities(mapped_tags: Iterable[dict]) -> List[str]:
+def derive_amenities(mapped_tags: Iterable[dict]) -> list[str]:
     """
     Normalize feature-level signals into a user-facing amenity list.
 
@@ -183,7 +242,7 @@ def derive_amenities(mapped_tags: Iterable[dict]) -> List[str]:
 
     Returns a sorted, de-duplicated list of amenities.
     """
-    out: Set[str] = set()
+    out: set[str] = set()
     for t in mapped_tags:
         if t["category"] == "feature":
             label = t["label"]

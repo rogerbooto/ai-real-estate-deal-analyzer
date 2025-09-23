@@ -16,7 +16,6 @@ Notes
 - Uses the mock vision provider when AI is enabled to avoid network calls.
 - We only assert schema shape and key signals (amenities/defects/conditions).
 """
-from pathlib import Path
 
 from src.orchestrators.cv_tagging_orchestrator import CvTaggingOrchestrator
 

@@ -1,11 +1,11 @@
 from src.schemas.models import (
-    FinancingTerms,
-    OperatingExpenses,
-    IncomeModel,
-    UnitIncome,
-    RefinancePlan,
-    MarketAssumptions,
     FinancialInputs,
+    FinancingTerms,
+    IncomeModel,
+    MarketAssumptions,
+    OperatingExpenses,
+    RefinancePlan,
+    UnitIncome,
 )
 from src.tools.financial_model import run
 
@@ -126,7 +126,7 @@ def test_run_no_refi_10yr_smoke():
 
     # Monotonic sanity: with positive rent growth & expense growth, GSI should weakly increase
     gsi_values = [y.gsi for y in forecast.years]
-    assert all(b >= a for a, b in zip(gsi_values, gsi_values[1:]))
+    assert all(b >= a for a, b in zip(gsi_values, gsi_values[1:], strict=False))
 
     # DSCR should be finite and non-negative
     assert all(y.dscr >= 0.0 for y in forecast.years)

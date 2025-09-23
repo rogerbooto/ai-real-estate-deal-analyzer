@@ -1,16 +1,15 @@
 # src/reports/generator.py
 from __future__ import annotations
 
-from typing import List, Optional
 import os
 
 from src.schemas.models import (
-    ListingInsights,
     FinancialForecast,
-    YearBreakdown,
+    InvestmentThesis,
+    ListingInsights,
     PurchaseMetrics,
     RefiEvent,
-    InvestmentThesis,
+    YearBreakdown,
 )
 
 
@@ -46,6 +45,7 @@ def _section(title: str) -> str:
 # -----------------------
 # Env “knobs” for valuations
 # -----------------------
+
 
 def _cap_drift_per_year() -> float:
     """
@@ -86,7 +86,8 @@ def _stress_adj() -> float:
 # Header & top sections
 # -----------------------
 
-def _render_header(insights: Optional[ListingInsights]) -> str:
+
+def _render_header(insights: ListingInsights | None) -> str:
     """
     Render the report header with subject property summary.
     """
@@ -184,12 +185,12 @@ def _render_methodology() -> str:
     return "\n".join(lines) + "\n"
 
 
-
 # -----------------------
 # Pro forma (horizon-aware)
 # -----------------------
 
-def _render_year_table(years: List[YearBreakdown]) -> str:
+
+def _render_year_table(years: list[YearBreakdown]) -> str:
     """
     Render a compact Markdown table of key annual metrics.
 
@@ -222,6 +223,7 @@ def _render_year_table(years: List[YearBreakdown]) -> str:
 # Valuation helpers
 # -----------------------
 
+
 def _estimate_purchase_price_from_y1(forecast: FinancialForecast) -> float:
     """
     We don't carry purchase price in the forecast schema, so infer it from:
@@ -247,7 +249,8 @@ def _interest_rate_from_purchase(purchase: PurchaseMetrics) -> float:
 # Three separate valuation tables
 # -----------------------
 
-def _render_valuation_table_noi(years: List[YearBreakdown], purchase: PurchaseMetrics) -> str:
+
+def _render_valuation_table_noi(years: list[YearBreakdown], purchase: PurchaseMetrics) -> str:
     """
     NOI-based table with drifting cap:
       - Cap_t = Cap_0 + drift * (t-1)
@@ -272,17 +275,11 @@ def _render_valuation_table_noi(years: List[YearBreakdown], purchase: PurchaseMe
         est_value = (y.noi / cap_t) if cap_t > 0 else 0.0
         ltv = (y.ending_balance / est_value) if est_value > 0 else 0.0
         avail_eq = 0.80 * est_value - y.ending_balance
-        rows.append(
-            f"| {y.year} "
-            f"| {_fmt_pct(cap_t)} "
-            f"| {_fmt_currency(est_value)} "
-            f"| {_fmt_pct(ltv)} "
-            f"| {_fmt_currency(avail_eq)} |"
-        )
+        rows.append(f"| {y.year} | {_fmt_pct(cap_t)} | {_fmt_currency(est_value)} | {_fmt_pct(ltv)} | {_fmt_currency(avail_eq)} |")
     return "\n".join(header + rows) + "\n"
 
 
-def _render_valuation_table_baseline(years: List[YearBreakdown], forecast: FinancialForecast) -> str:
+def _render_valuation_table_baseline(years: list[YearBreakdown], forecast: FinancialForecast) -> str:
     """
     Baseline appreciation table:
       - PurchasePrice inferred from Y1 NOI / cap.
@@ -306,16 +303,11 @@ def _render_valuation_table_baseline(years: List[YearBreakdown], forecast: Finan
         est_value = p0 * ((1.0 + g) ** y.year)
         ltv = (y.ending_balance / est_value) if est_value > 0 else 0.0
         avail_eq = 0.80 * est_value - y.ending_balance
-        rows.append(
-            f"| {y.year} "
-            f"| {_fmt_currency(est_value)} "
-            f"| {_fmt_pct(ltv)} "
-            f"| {_fmt_currency(avail_eq)} |"
-        )
+        rows.append(f"| {y.year} | {_fmt_currency(est_value)} | {_fmt_pct(ltv)} | {_fmt_currency(avail_eq)} |")
     return "\n".join(header + rows) + "\n"
 
 
-def _render_valuation_table_stress(years: List[YearBreakdown], forecast: FinancialForecast) -> str:
+def _render_valuation_table_stress(years: list[YearBreakdown], forecast: FinancialForecast) -> str:
     """
     Stress-test table (rate-anchored):
       - r = interest rate ≈ purchase.cap_rate - spread
@@ -333,27 +325,23 @@ def _render_valuation_table_stress(years: List[YearBreakdown], forecast: Financi
     basis = max(0.0, p0 - _stress_adj())
 
     header = [
-        _section(f"Valuation – Stress-Test (rate-anchored: r/3 = {_fmt_pct(r/3 if r else 0.0)}, adj = {_fmt_currency(_stress_adj())})"),
+        _section(f"Valuation – Stress-Test (rate-anchored: r/3 = {_fmt_pct(r / 3 if r else 0.0)}, adj = {_fmt_currency(_stress_adj())})"),
         "| Year | Estimated Value | LTV % | Available Equity @80% |",
         "| ---: | ---: | ---: | ---: |",
     ]
     rows = []
     for y in years:
-        est_value = basis * (growth ** y.year)
+        est_value = basis * (growth**y.year)
         ltv = (y.ending_balance / est_value) if est_value > 0 else 0.0
         avail_eq = 0.80 * est_value - y.ending_balance
-        rows.append(
-            f"| {y.year} "
-            f"| {_fmt_currency(est_value)} "
-            f"| {_fmt_pct(ltv)} "
-            f"| {_fmt_currency(avail_eq)} |"
-        )
+        rows.append(f"| {y.year} | {_fmt_currency(est_value)} | {_fmt_pct(ltv)} | {_fmt_currency(avail_eq)} |")
     return "\n".join(header + rows) + "\n"
 
 
 # -----------------------
 # Other sections
 # -----------------------
+
 
 def _render_opex_details(year1: YearBreakdown) -> str:
     """
@@ -378,7 +366,7 @@ def _render_opex_details(year1: YearBreakdown) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _render_refi(refi: Optional[RefiEvent]) -> str:
+def _render_refi(refi: RefiEvent | None) -> str:
     """
     Render the refinance card if present.
     """
@@ -407,7 +395,7 @@ def _render_returns(forecast: FinancialForecast) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _render_warnings(warnings: List[str]) -> str:
+def _render_warnings(warnings: list[str]) -> str:
     """
     Render guardrail warnings, if any.
     """
@@ -426,14 +414,14 @@ def _render_thesis(thesis: InvestmentThesis) -> str:
     lines = [
         _section("Investment Thesis"),
         f"- **Verdict:** {thesis.verdict}",
-        f"- **Rationale:**",
+        "- **Rationale:**",
     ]
     for r in thesis.rationale:
         lines.append(f"  - {r}")
     if thesis.levers:
-        lines.append(f"- **Suggested Levers:**")
-        for l in thesis.levers:
-            lines.append(f"  - {l}")
+        lines.append("- **Suggested Levers:**")
+        for lever in thesis.levers:
+            lines.append(f"  - {lever}")
     return "\n".join(lines) + "\n"
 
 
@@ -441,11 +429,12 @@ def _render_thesis(thesis: InvestmentThesis) -> str:
 # Orchestration
 # -----------------------
 
+
 def generate_report(
-    insights: Optional[ListingInsights],
+    insights: ListingInsights | None,
     forecast: FinancialForecast,
-    thesis: Optional[InvestmentThesis] = None,
-    title_override: Optional[str] = None,
+    thesis: InvestmentThesis | None = None,
+    title_override: str | None = None,
 ) -> str:
     """
     Generate a professional Markdown report that summarizes the investment analysis.
@@ -488,7 +477,7 @@ def generate_report(
     return "\n".join(part for part in parts if part).strip() + "\n"
 
 
-def write_report(path: str, insights: Optional[ListingInsights], forecast: FinancialForecast, thesis: Optional[InvestmentThesis] = None) -> None:
+def write_report(path: str, insights: ListingInsights | None, forecast: FinancialForecast, thesis: InvestmentThesis | None = None) -> None:
     """
     Convenience helper to write the generated report to disk.
     """

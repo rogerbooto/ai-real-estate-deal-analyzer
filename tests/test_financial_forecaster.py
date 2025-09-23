@@ -1,14 +1,14 @@
-from src.schemas.models import (
-    FinancingTerms,
-    OperatingExpenses,
-    IncomeModel,
-    UnitIncome,
-    RefinancePlan,
-    MarketAssumptions,
-    FinancialInputs,
-    ListingInsights,
-)
 from src.agents.financial_forecaster import forecast_financials
+from src.schemas.models import (
+    FinancialInputs,
+    FinancingTerms,
+    IncomeModel,
+    ListingInsights,
+    MarketAssumptions,
+    OperatingExpenses,
+    RefinancePlan,
+    UnitIncome,
+)
 
 
 def _valid_inputs() -> FinancialInputs:
@@ -64,8 +64,8 @@ def test_forecaster_clamps_occupancy_and_bad_debt_and_runs():
     # Keep the same unit list but break occupancy/bad_debt
     bad_income = IncomeModel.model_construct(
         units=base.income.units,
-        occupancy=1.2,          # > 1 on purpose
-        bad_debt_factor=-0.1,   # < 0 on purpose
+        occupancy=1.2,  # > 1 on purpose
+        bad_debt_factor=-0.1,  # < 0 on purpose
         rent_growth=base.income.rent_growth,
     )
 

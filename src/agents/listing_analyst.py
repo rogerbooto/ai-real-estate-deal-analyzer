@@ -33,18 +33,16 @@ Migration Notes
 
 from __future__ import annotations
 
-from typing import Optional, Set
-
-from src.schemas.models import ListingInsights
-from src.tools.listing_parser import parse_listing_text, parse_listing_string
 from src.orchestrators.cv_tagging_orchestrator import CvTaggingOrchestrator
+from src.schemas.models import ListingInsights
+from src.tools.listing_parser import parse_listing_string, parse_listing_text
 
 
 def analyze_listing(
-    listing_txt_path: Optional[str] = None,
-    photos_folder: Optional[str] = None,
+    listing_txt_path: str | None = None,
+    photos_folder: str | None = None,
     *,
-    fallback_text: Optional[str] = None,
+    fallback_text: str | None = None,
 ) -> ListingInsights:
     """
     Build a ListingInsights object from local assets.
@@ -76,8 +74,8 @@ def analyze_listing(
         text_insights = ListingInsights()
 
     # --- Photo tagging via orchestrator ---
-    photo_condition: Set[str] = set()
-    photo_defects: Set[str] = set()
+    photo_condition: set[str] = set()
+    photo_defects: set[str] = set()
     try:
         if photos_folder:
             cv = CvTaggingOrchestrator()

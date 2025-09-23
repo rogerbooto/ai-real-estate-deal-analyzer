@@ -1,19 +1,18 @@
-import os
 from pathlib import Path
 
 import pytest
 
-from src.schemas.models import (
-    FinancingTerms,
-    OperatingExpenses,
-    IncomeModel,
-    UnitIncome,
-    RefinancePlan,
-    MarketAssumptions,
-    FinancialInputs,
-)
 from src.orchestrators.crewai_runner import run_orchestration as run_crewai
 from src.reports.generator import write_report
+from src.schemas.models import (
+    FinancialInputs,
+    FinancingTerms,
+    IncomeModel,
+    MarketAssumptions,
+    OperatingExpenses,
+    RefinancePlan,
+    UnitIncome,
+)
 
 
 def _inputs() -> FinancialInputs:

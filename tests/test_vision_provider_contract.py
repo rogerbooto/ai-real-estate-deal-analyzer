@@ -1,6 +1,5 @@
 # tests/test_vision_provider_contract.py
-import os
-from src.tools.vision.ontology import map_raw_tags, derive_amenities, CONF_THRESHOLD, in_ontology
+from src.tools.vision.ontology import CONF_THRESHOLD, derive_amenities, in_ontology, map_raw_tags
 
 
 def test_map_filters_threshold_and_ontology():

@@ -24,18 +24,17 @@ run_orchestration(listing_txt_path, photos_folder, inputs, horizon_years=10)
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
 
-from src.schemas.models import FinancialInputs
-from src.schemas.models import ListingInsights, FinancialForecast, InvestmentThesis
-from src.agents.listing_analyst import analyze_listing
-from src.agents.financial_forecaster import forecast_financials
 from src.agents.chief_strategist import synthesize_thesis
+from src.agents.financial_forecaster import forecast_financials
+from src.agents.listing_analyst import analyze_listing
+from src.schemas.models import FinancialForecast, FinancialInputs, InvestmentThesis, ListingInsights
 
 
 @dataclass(frozen=True)
 class OrchestrationResult:
     """Bundle of final artifacts from the agent pipeline."""
+
     insights: ListingInsights
     forecast: FinancialForecast
     thesis: InvestmentThesis
@@ -43,8 +42,8 @@ class OrchestrationResult:
 
 def run_orchestration(
     inputs: FinancialInputs,
-    listing_txt_path: Optional[str] = None,
-    photos_folder: Optional[str] = None,
+    listing_txt_path: str | None = None,
+    photos_folder: str | None = None,
     *,
     horizon_years: int = 10,
 ) -> OrchestrationResult:

@@ -13,7 +13,6 @@ Scenarios
 - Text + photos: rollup condition/defects populated from CV tagging.
 - Robust to missing folders/files (forgiving behavior).
 """
-from pathlib import Path
 
 from src.agents.listing_analyst import analyze_listing
 
@@ -55,5 +54,7 @@ def test_listing_analyst_with_photos_uses_orchestrator(tmp_path, monkeypatch):
     assert "dishwasher" in out.amenities or True  # parser-dependent; don't overfit
 
     # Photo-derived rollup present
-    assert any(c in out.condition_tags for c in ("renovated_kitchen", "updated_bath", "well_maintained", "new_flooring")) or isinstance(out.condition_tags, list)
+    assert any(c in out.condition_tags for c in ("renovated_kitchen", "updated_bath", "well_maintained", "new_flooring")) or isinstance(
+        out.condition_tags, list
+    )
     assert "mold_suspected" in out.defects

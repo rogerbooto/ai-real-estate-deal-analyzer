@@ -12,11 +12,14 @@ Changes in 2.1
 Public API unchanged:
 def tag_photos(photo_paths: list[str], *, use_ai: bool | None = None) -> dict
 """
+
 from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Set, Tuple
+
+from .vision.ontology import derive_amenities, map_raw_tags
+from .vision.provider_base import run_batch
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff"}
 
@@ -56,17 +59,18 @@ FEATURE_TO_AMENITY = {
     "fence": "fenced_yard",
 }
 
-from .vision.ontology import map_raw_tags, derive_amenities
-from .vision.provider_base import RawTag, run_batch
+
 # provider selection
 def _get_provider():
     provider_name = os.getenv("AIREAL_VISION_PROVIDER", "mock").lower()
     try:
         if provider_name == "mock":
             from .vision.mock_provider import MockVisionProvider
+
             return MockVisionProvider()
         elif provider_name == "openai":
             from .vision.openai_provider import OpenAIProvider  # type: ignore
+
             return OpenAIProvider()
         else:
             return None
@@ -74,36 +78,36 @@ def _get_provider():
         return None
 
 
-def tag_photos(photo_paths: List[str], *, use_ai: bool | None = None) -> Dict:
+def tag_photos(photo_paths: list[str], *, use_ai: bool | None = None) -> dict:
     if use_ai is None:
         use_ai = os.getenv("AIREAL_USE_VISION", "0").lower() in ("1", "true", "yes")
 
     provider = None
-    warnings: List[str] = []
+    warnings: list[str] = []
     if use_ai:
         provider = _get_provider()
         if provider is None:
             warnings.append("Vision provider unavailable; falling back to deterministic tagging.")
             use_ai = False
 
-    images_out: List[Dict] = []
-    rollup_amenities: Set[str] = set()
-    rollup_conditions: Set[str] = set()
-    rollup_defects: Set[str] = set()
+    images_out: list[dict] = []
+    rollup_amenities: set[str] = set()
+    rollup_conditions: set[str] = set()
+    rollup_defects: set[str] = set()
 
     # Filter readability + maintain mapping from index -> path/image_id
-    readable_indices: List[int] = []
-    paths_readable: List[str] = []
+    readable_indices: list[int] = []
+    paths_readable: list[str] = []
     for i, path in enumerate(photo_paths):
         if Path(path).suffix.lower() in IMAGE_EXTS and Path(path).exists():
             readable_indices.append(i)
             paths_readable.append(path)
 
     # Deterministic pass on all readable
-    det_per_img: Dict[int, List[Dict]] = {}
-    det_amenities_per_img: Dict[int, Set[str]] = {}
-    det_conditions_per_img: Dict[int, Set[str]] = {}
-    det_defects_per_img: Dict[int, Set[str]] = {}
+    det_per_img: dict[int, list[dict]] = {}
+    det_amenities_per_img: dict[int, set[str]] = {}
+    det_conditions_per_img: dict[int, set[str]] = {}
+    det_defects_per_img: dict[int, set[str]] = {}
 
     for i in readable_indices:
         det_tags, _features, _conditions, _defects, _amenities = _deterministic_tag_single(photo_paths[i])
@@ -113,13 +117,13 @@ def tag_photos(photo_paths: List[str], *, use_ai: bool | None = None) -> Dict:
         det_defects_per_img[i] = set(_defects)
 
     # AI pass (batch-first) on all readable when enabled
-    ai_per_img: Dict[int, List[Dict]] = {}
+    ai_per_img: dict[int, list[dict]] = {}
     if use_ai and provider is not None and paths_readable:
         try:
             raw_batches = run_batch(provider, paths_readable)  # list[list[RawTag]] aligned to paths_readable
             if len(raw_batches) != len(paths_readable):
                 raise ValueError("Provider batch returned inconsistent length.")
-            for idx, raw in zip(readable_indices, raw_batches):
+            for idx, raw in zip(readable_indices, raw_batches, strict=False):
                 ai_per_img[idx] = map_raw_tags(raw)
         except Exception as e:
             warnings.append(f"vision_error:{type(e).__name__}")
@@ -165,13 +169,13 @@ def tag_photos(photo_paths: List[str], *, use_ai: bool | None = None) -> Dict:
 # ---------- deterministic internals unchanged ----------
 def _deterministic_tag_single(path: str):
     name = Path(path).name.lower()
-    tags: List[Dict] = []
-    features: Set[str] = set()
-    conditions: Set[str] = set()
-    defects: Set[str] = set()
-    derived_amenities: Set[str] = set()
+    tags: list[dict] = []
+    features: set[str] = set()
+    conditions: set[str] = set()
+    defects: set[str] = set()
+    derived_amenities: set[str] = set()
 
-    matched_rooms: Set[str] = set()
+    matched_rooms: set[str] = set()
     for canon, words in ROOM_KEYWORDS.items():
         if any(w in name for w in words):
             matched_rooms.add(canon)
@@ -181,9 +185,12 @@ def _deterministic_tag_single(path: str):
     if any(h in name for h in UPDATED_HINTS):
         for r in matched_rooms or {"kitchen"}:
             label = (
-                "renovated_kitchen" if r.startswith("kitchen")
-                else "updated_bath" if r.startswith("bathroom")
-                else "new_flooring" if "floor" in name
+                "renovated_kitchen"
+                if r.startswith("kitchen")
+                else "updated_bath"
+                if r.startswith("bathroom")
+                else "new_flooring"
+                if "floor" in name
                 else "well_maintained"
             )
             conditions.add(label)
@@ -215,8 +222,8 @@ def _deterministic_tag_single(path: str):
     return tags, list(features), list(conditions), list(defects), list(derived_amenities)
 
 
-def _merge_tags(det: List[Dict], ai: List[Dict]) -> List[Dict]:
-    best: Dict[Tuple[str, str], Dict] = {}
+def _merge_tags(det: list[dict], ai: list[dict]) -> list[dict]:
+    best: dict[tuple[str, str], dict] = {}
     for t in det + ai:
         key = (t.get("category"), t.get("label"))
         if key[0] not in {"room_type", "feature", "condition", "issue"} or not isinstance(key[1], str):
@@ -227,11 +234,11 @@ def _merge_tags(det: List[Dict], ai: List[Dict]) -> List[Dict]:
     return sorted(best.values(), key=lambda x: (x["category"], x["label"]))
 
 
-def _empty_img_dict(path: str) -> Dict:
+def _empty_img_dict(path: str) -> dict:
     return {"image_id": Path(path).name, "tags": [], "notes": [], "derived_amenities": [], "quality_flags": []}
 
 
-def _mk_tag(*, label: str, category: str, conf: float, evidence: str, bbox: Optional[List[int]] = None) -> Dict:
+def _mk_tag(*, label: str, category: str, conf: float, evidence: str, bbox: list[int] | None = None) -> dict:
     obj = {"label": label, "category": category, "confidence": float(conf), "evidence": evidence[:60]}
     if bbox:
         obj["bbox"] = [int(x) for x in bbox]

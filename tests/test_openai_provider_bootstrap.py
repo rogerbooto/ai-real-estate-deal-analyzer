@@ -7,8 +7,9 @@ Purpose
 Ensure the provider fails fast and clearly without OPENAI_API_KEY, so callers
 (e.g., cv_tagging) can gracefully fall back.
 """
-import os
+
 import importlib
+
 import pytest
 
 

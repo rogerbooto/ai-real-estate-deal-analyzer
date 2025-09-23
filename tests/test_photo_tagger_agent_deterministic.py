@@ -7,7 +7,7 @@ Purpose
 Ensure the agent delegates to deterministic tagging when AI is disabled and
 returns the strict schema with expected signals from filename heuristics.
 """
-from pathlib import Path
+
 from src.agents.photo_tagger import PhotoTaggerAgent
 
 

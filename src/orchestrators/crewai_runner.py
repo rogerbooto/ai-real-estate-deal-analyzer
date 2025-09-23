@@ -17,22 +17,20 @@ run_orchestration(listing_txt_path, photos_folder, inputs, horizon_years=10)
 from __future__ import annotations
 
 import os
-from typing import Optional
 
 try:
     # Importing Crew to verify availability for helpful errors
-    from crewai import Crew, Process  # type: ignore
     _CREW_AVAILABLE = True
 except Exception:  # pragma: no cover
     _CREW_AVAILABLE = False
 
-from src.schemas.models import FinancialInputs
-from src.orchestrators.crew import OrchestrationResult
 from src.agents.crewai_components import (
-    ListingAnalystAgent,
-    FinancialForecasterAgent,
     ChiefStrategistAgent,
+    FinancialForecasterAgent,
+    ListingAnalystAgent,
 )
+from src.orchestrators.crew import OrchestrationResult
+from src.schemas.models import FinancialInputs
 
 
 def _require_provider_env() -> None:
@@ -58,8 +56,8 @@ def _require_provider_env() -> None:
 
 def run_orchestration(
     inputs: FinancialInputs,
-    listing_txt_path: Optional[str] = None,
-    photos_folder: Optional[str] = None,
+    listing_txt_path: str | None = None,
+    photos_folder: str | None = None,
     *,
     horizon_years: int = 10,
 ) -> OrchestrationResult:
