@@ -1,0 +1,11 @@
+# Default owner for everything
+*       @rogerbooto
+
+# Docs and markdown files
+*.md    @rogerbooto
+
+# Source code
+/src/   @rogerbooto
+
+# Tests
+/tests/ @rogerbooto

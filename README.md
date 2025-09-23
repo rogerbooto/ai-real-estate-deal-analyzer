@@ -1,3 +1,10 @@
+![CI](https://github.com/rogerbooto/ai-real-estate-deal-analyzer/actions/workflows/ci.yml/badge.svg)
+[![codecov](https://codecov.io/gh/rogerbooto/ai-real-estate-deal-analyzer/branch/main/graph/badge.svg)](https://codecov.io/gh/rogerbooto/ai-real-estate-deal-analyzer)
+![Python Versions](https://img.shields.io/badge/python-3.10-blue.svg)
+![License](https://img.shields.io/badge/license-MIT-green.svg)
+[![Release](https://img.shields.io/github/v/release/rogerbooto/ai-real-estate-deal-analyzer)](https://github.com/rogerbooto/ai-real-estate-deal-analyzer/releases)
+
+
 # The AI Real Estate Deal Analyzer
 
 An autonomous AI co-pilot that ingests a real estate listing and user-provided market data to perform a rigorous, Grant Cardone–inspired investment analysis, generating a comprehensive financial breakdown and a human-readable investment thesis.
@@ -21,6 +28,11 @@ Running AI Real Estate Deal Analyzer (V1 demo)...
 Report written to investment_analysis.md
 Thesis verdict: CONDITIONAL
 ```
+
+### Demo Artifacts
+- Sample input data: `data/sample/`
+- Example outputs: `artifacts/36_kelly_analysis.md` and `artifacts/36_kelly_analysis.pdf`
+
 
 ---
 
@@ -295,6 +307,8 @@ Expected output (V1):
 ```
 
 All tests must pass before merging new code.
+
+**CI Status & Coverage:** See badges above. All PRs must pass CI, lint, type checks, and meet coverage thresholds.
 
 ---
 

@@ -1,0 +1,25 @@
+# ---------- General ----------
+line-length = 100
+target-version = "py310"   # matches CI's Python version
+
+# Lint rule families:
+# E: pycodestyle (style), F: pyflakes (logic), I: isort (imports)
+# B: flake8-bugbear (common bugs), UP: pyupgrade (modernize syntax)
+select = ["E", "F", "I", "B", "UP"]
+
+
+# - E203/E266 are commonly ignored when using black-like formatting
+# - E501 line length is handled by tools; we just warn via line-length config
+ignore = ["E203", "E266"]
+
+# ---------- Per-path settings ----------
+[per-file-ignores]
+# Tests often use asserts and fixtures that trigger some rules
+"tests/**/*" = ["B011"]   # 'assert False' or similar in tests
+
+# ---------- isort (import ordering) ----------
+[tool.isort]
+profile = "black"
+line_length = 100
+known_first_party = ["ai_real_estate_deal_analyzer"] 
+known_third_party = ["pydantic", "pytest", "numpy", "pandas"]
