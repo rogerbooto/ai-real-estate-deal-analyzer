@@ -19,11 +19,12 @@ Design
 
 from __future__ import annotations
 
-from typing import TypeVar, Callable
+from collections.abc import Callable
+from typing import TypeVar
 
 try:
     # Optional import: present when users actually run with engine="crewai"
-    from crewai import Agent, Crew, Process, Task 
+    from crewai import Agent, Crew, Process, Task
 
     _CREW_AVAILABLE = True
 except Exception:  # pragma: no cover - exercised by smoke test
@@ -37,10 +38,9 @@ import sys
 import traceback
 from logging.handlers import RotatingFileHandler
 
-from src.agents.chief_strategist import synthesize_thesis
-
-
 from pydantic import BaseModel, TypeAdapter
+
+from src.agents.chief_strategist import synthesize_thesis
 
 # deterministic local functions
 from src.agents.financial_forecaster import forecast_financials

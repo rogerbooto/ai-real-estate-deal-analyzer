@@ -16,12 +16,12 @@ def tag_photos(photo_paths: list[str], *, use_ai: bool | None = None) -> dict
 from __future__ import annotations
 
 import os
+from collections.abc import Iterable
 from pathlib import Path
+from typing import Any, cast
 
 from .vision.ontology import derive_amenities, map_raw_tags
 from .vision.provider_base import VisionProvider, run_batch
-
-from typing import Any, Optional, Iterable, cast
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff"}
 
@@ -63,14 +63,14 @@ FEATURE_TO_AMENITY = {
 
 
 # provider selection
-def _get_provider() -> Optional[VisionProvider]:
+def _get_provider() -> VisionProvider | None:
     provider_name = os.getenv("AIREAL_VISION_PROVIDER", "mock").lower()
     try:
         if provider_name == "mock":
             from .vision.mock_provider import MockVisionProvider
             return MockVisionProvider()
         elif provider_name == "openai":
-            from .vision.openai_provider import OpenAIProvider 
+            from .vision.openai_provider import OpenAIProvider
             return OpenAIProvider()
         else:
             return None

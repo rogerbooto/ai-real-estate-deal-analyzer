@@ -25,10 +25,9 @@ import os
 import re
 import time
 from pathlib import Path
+from typing import Any, Literal, cast
 
 from .provider_base import RawTag, VisionProvider
-
-from typing import Any, Optional, Literal, cast
 
 ValidCategory = Literal["room_type", "feature", "condition", "issue"]
 
@@ -39,7 +38,7 @@ class OpenAIProvider(VisionProvider):
         if not api_key:
             raise RuntimeError("OPENAI_API_KEY not set for OpenAIProvider.")
         try:
-            from openai import OpenAI 
+            from openai import OpenAI
 
             self._client = OpenAI(api_key=api_key)
             self._mode = "responses"
@@ -150,7 +149,7 @@ class OpenAIProvider(VisionProvider):
                 timeout=self._timeout_s,
             )
             
-            content_opt = cast(Optional[str], resp_chat_completion.choices[0].message.content)
+            content_opt = cast(str | None, resp_chat_completion.choices[0].message.content)
             return content_opt or "" 
         
         if hasattr(self._client, "ChatCompletion"):
@@ -279,10 +278,10 @@ def _parse_provider_json(text: str) -> list[RawTag]:
 
         confidence_any: Any = item.get("confidence")
 
-        if not isinstance(confidence_any, (int, float, str)):
+        if not isinstance(confidence_any, (int | float | str)):
             # skip if confidence can’t be converted to float
             continue
-        
+
         try:
             conf_f: float = float(confidence_any)
         except (TypeError, ValueError):

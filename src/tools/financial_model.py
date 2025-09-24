@@ -1,15 +1,17 @@
 # src/tools/financial_model.py
 from __future__ import annotations
 
+from typing import Any
+
 from src.schemas.models import (
     FinancialForecast,
     FinancialInputs,
+    IncomeModel,
     ListingInsights,
+    OperatingExpenses,
     PurchaseMetrics,
     RefiEvent,
     YearBreakdown,
-    IncomeModel,
-    OperatingExpenses
 )
 from src.tools.amortization import (
     annual_debt_service_and_split,
@@ -17,8 +19,6 @@ from src.tools.amortization import (
     generate_schedule,
     remaining_term_years,
 )
-
-from typing import Any
 
 # ============================
 # Internal utilities
