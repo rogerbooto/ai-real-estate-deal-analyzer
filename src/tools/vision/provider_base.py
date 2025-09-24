@@ -61,7 +61,7 @@ def run_batch(provider: VisionProvider, paths: Sequence[str]) -> list[list[RawTa
     # Try native batch if present (duck typing)
     analyze_batch = getattr(provider, "analyze_batch", None)
     if callable(analyze_batch):
-        out = analyze_batch(list(paths))  # type: ignore[misc]
+        out = analyze_batch(list(paths))
         # Validate shape: list[list[RawTag]] with same length
         if not isinstance(out, list) or len(out) != len(paths):
             raise ValueError("Provider analyze_batch returned invalid shape.")

@@ -8,6 +8,8 @@ from src.schemas.models import (
     PurchaseMetrics,
     RefiEvent,
     YearBreakdown,
+    IncomeModel,
+    OperatingExpenses
 )
 from src.tools.amortization import (
     annual_debt_service_and_split,
@@ -15,6 +17,8 @@ from src.tools.amortization import (
     generate_schedule,
     remaining_term_years,
 )
+
+from typing import Any
 
 # ============================
 # Internal utilities
@@ -328,7 +332,7 @@ def run(
     # Pull market knobs with safe defaults to keep this block deterministic
     baseline_appreciation = getattr(mkt, "baseline_appreciation_rate", 0.03) or 0.0
     stress_price_adjustment = getattr(mkt, "stress_price_adjustment", 0.0) or 0.0
-    cap_rate_drift_per_year = getattr(mkt, "cap_rate_drift_per_year", 0.0) or 0.0
+    cap_rate_drift_per_year = getattr(mkt, "cap_rate_drift", 0.0) or 0.0
     seasoning_min_years = int(getattr(mkt, "seasoning_min_years", 1) or 1)
 
     n = len(years)
@@ -345,21 +349,21 @@ def run(
 
     # NOI-based values with cap-rate drift
     # Start cap: use purchase cap if present; else back into it via NOI_Y1 / purchase_price
-    y1_noi = years[0].noi if years else 0.0
+    first_year_noi = years[0].noi if years else 0.0
     cap_rate_start = getattr(mkt, "cap_rate_purchase", None)
     if not cap_rate_start or cap_rate_start <= 0:
-        cap_rate_start = (y1_noi / purchase_price) if purchase_price > 0 else 0.0
+        cap_rate_start = (first_year_noi / purchase_price) if purchase_price > 0 else 0.0
 
     property_value_noi: list[float] = []
-    for idx, y in enumerate(years):
+    for idx, year in enumerate(years):
         cap_t = cap_rate_start + cap_rate_drift_per_year * idx  # linear drift per year index
         if cap_t <= 0:
             property_value_noi.append(0.0)
         else:
-            property_value_noi.append(_safe_div(y.noi, cap_t))
+            property_value_noi.append(_safe_div(year.noi, cap_t))
 
     # LTV and Equity (80% basis) for each track
-    end_balances = [y.ending_balance for y in years]
+    end_balances = [year.ending_balance for year in years]
 
     ltv_baseline = [_safe_div(end_balances[i], max(1e-12, property_value_baseline[i])) for i in range(n)]
     equity_baseline = [max(0.0, 0.80 * property_value_baseline[i] - end_balances[i]) for i in range(n)]
@@ -434,7 +438,7 @@ def run(
         warnings.append(f"Cap-rate spread {spread_vs_rate:.3%} below target {mkt.cap_rate_spread_target:.3%}.")
     if len(inc.units) < 4:
         warnings.append("Subscale risk: fewer than 4 units.")
-    if any(y.cash_flow < 0 for y in years):
+    if any(year.cash_flow < 0 for year in years):
         warnings.append("Negative cash flow in one or more years.")
 
     return FinancialForecast(
@@ -465,7 +469,7 @@ def run(
 # ============================
 
 
-def noi_at_year(year: int, income, opex) -> float:
+def noi_at_year(year: int, income: IncomeModel, opex: OperatingExpenses) -> float:
     """
     Compute NOI for a specified year using the same growth rules as the main run() loop.
 
@@ -504,30 +508,30 @@ def noi_at_year(year: int, income, opex) -> float:
     return goi - total_opex
 
 
-def pick_cap_rate(market, default_interest: float) -> float:
+def pick_cap_rate(market: Any, default_interest: float) -> float:
     """
     Choose a cap rate when not explicitly provided elsewhere.
 
     Rule:
       - Prefer market.cap_rate_purchase if provided.
       - Else use a conservative fallback: interest rate + spread target (default 150 bps).
-
-    Args:
-        market: MarketAssumptions.
-        default_interest: Interest rate used as a base for fallback.
-
-    Returns:
-        Cap rate as a fraction.
     """
-    if market.cap_rate_purchase is not None:
-        return market.cap_rate_purchase
-    return max(1e-6, default_interest + (market.cap_rate_spread_target or 0.015))
+    try:
+        cap_rate = getattr(market, "cap_rate_purchase", None)
+        if cap_rate is not None:
+            return float(cap_rate)
+    except (TypeError, ValueError):
+        # TODO: Log or warn here
+        pass
+
+    spread = getattr(market, "cap_rate_spread_target", 0.015) or 0.015
+    return max(1e-6, default_interest + float(spread))
 
 
 def compute_returns(
     years: list[YearBreakdown],
     acquisition_cash: float,
-    market,
+    market: Any,
     interest_rate: float,
     refi_year: int | None,
     cash_out_at_refi: float,
@@ -561,9 +565,9 @@ def compute_returns(
         return 0.0, 0.0
 
     cfs = [-acquisition_cash]
-    for y in years:
-        cf = y.cash_flow
-        if refi_year is not None and y.year == refi_year and cash_out_at_refi > 0:
+    for year in years:
+        cf = year.cash_flow
+        if refi_year is not None and year.year == refi_year and cash_out_at_refi > 0:
             cf += cash_out_at_refi
         cfs.append(cf)
 

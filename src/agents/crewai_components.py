@@ -19,12 +19,11 @@ Design
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from typing import TypeVar
+from typing import TypeVar, Callable
 
 try:
     # Optional import: present when users actually run with engine="crewai"
-    from crewai import Agent, Crew, Process, Task  # type: ignore
+    from crewai import Agent, Crew, Process, Task 
 
     _CREW_AVAILABLE = True
 except Exception:  # pragma: no cover - exercised by smoke test
@@ -38,9 +37,10 @@ import sys
 import traceback
 from logging.handlers import RotatingFileHandler
 
-from pydantic import TypeAdapter  # v2: tolerant coercion when possible
-
 from src.agents.chief_strategist import synthesize_thesis
+
+
+from pydantic import BaseModel, TypeAdapter
 
 # deterministic local functions
 from src.agents.financial_forecaster import forecast_financials
@@ -144,7 +144,7 @@ def _print_raw_preview(text: str, label: str) -> None:
 # Config helpers
 # -----------------------------
 
-T = TypeVar("T")
+T = TypeVar("T", bound=BaseModel)
 
 
 def _llm_enabled() -> bool:
@@ -234,53 +234,50 @@ def _sanitize_json_like(text: str) -> str:
 
 def _parse_json_as(model_cls: type[T], text: str, fallback: Callable[[], T]) -> T:
     """Parse JSON text into a Pydantic model instance."""
-    # First, sanitize aggressively
     cleaned = _sanitize_json_like(text)
 
-    # Try strict parse on cleaned
+    # Strict parse
     try:
-        return model_cls.model_validate_json(cleaned)  # type: ignore[attr-defined]
+        return model_cls.model_validate_json(cleaned)
     except Exception as e:
         _print_debug_exc(f"_parse_json_as initial parse failed for {model_cls.__name__}", e)
         _print_raw_preview(cleaned, f"{model_cls.__name__} cleaned output")
 
-    # Try tolerant (TypeAdapter) on cleaned
+    # Tolerant parse
     try:
-        adapter = TypeAdapter(model_cls)  # type: ignore[type-arg]
+        adapter = TypeAdapter(model_cls)   # pydantic's typing can be loose here
         return adapter.validate_json(cleaned)
     except Exception as e:
         _print_debug_exc(f"_parse_json_as TypeAdapter parse failed for {model_cls.__name__}", e)
 
-    # Try blob extraction on original text, then sanitize again
+    # Blob (object) strict
     try:
         start = text.find("{")
         end = text.rfind("}")
         if start != -1 and end != -1 and end > start:
-            blob = text[start : end + 1]
-            blob = _sanitize_json_like(blob)
-            return model_cls.model_validate_json(blob)  # type: ignore[attr-defined]
+            blob = _sanitize_json_like(text[start : end + 1])
+            return model_cls.model_validate_json(blob)
     except Exception as e2:
         _print_debug_exc(f"_parse_json_as blob strict parse failed for {model_cls.__name__}", e2)
 
-    # Blob + tolerant
+    # Blob (object) tolerant
     try:
         start = text.find("{")
         end = text.rfind("}")
         if start != -1 and end != -1 and end > start:
-            blob = text[start : end + 1]
-            blob = _sanitize_json_like(blob)
-            adapter = TypeAdapter(model_cls)  # type: ignore[type-arg]
-            return adapter.validate_json(blob)
+            blob = _sanitize_json_like(text[start : end + 1])
+            adapter2 = TypeAdapter(model_cls) 
+            return adapter2.validate_json(blob)
     except Exception as e3:
         _print_debug_exc(f"_parse_json_as blob TypeAdapter parse failed for {model_cls.__name__}", e3)
 
-    # Last-ditch: try JSON array root (some models output a top-level list)
+    # Top-level array strict
     try:
         first_arr = text.find("[")
         last_arr = text.rfind("]")
         if first_arr != -1 and last_arr != -1 and last_arr > first_arr:
             arr_blob = _sanitize_json_like(text[first_arr : last_arr + 1])
-            return model_cls.model_validate_json(arr_blob)  # type: ignore[attr-defined]
+            return model_cls.model_validate_json(arr_blob)
     except Exception:
         pass
 
@@ -355,14 +352,14 @@ class ListingAnalystAgent:
             task = Task(
                 description=prompt,
                 expected_output="JSON for ListingInsights only.",
-                agent=self.agent,  # type: ignore[attr-defined]
+                agent=self.agent,  
             )
 
             # Run via a Crew (Task has no .execute())
             crew = Crew(
-                agents=[self.agent],  # type: ignore[attr-defined]
+                agents=[self.agent],  
                 tasks=[task],
-                process=Process.sequential,  # type: ignore[attr-defined]
+                process=Process.sequential,  
                 verbose=False,
             )
             _ = crew.kickoff()
@@ -486,13 +483,13 @@ class ChiefStrategistAgent:
             task = Task(
                 description=prompt,
                 expected_output="JSON for InvestmentThesis only.",
-                agent=self.agent,  # type: ignore[attr-defined]
+                agent=self.agent,  
             )
 
             crew = Crew(
-                agents=[self.agent],  # type: ignore[attr-defined]
+                agents=[self.agent],  
                 tasks=[task],
-                process=Process.sequential,  # type: ignore[attr-defined]
+                process=Process.sequential,  
                 verbose=False,
             )
             _ = crew.kickoff()

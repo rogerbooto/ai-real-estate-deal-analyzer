@@ -28,6 +28,10 @@ from pathlib import Path
 
 from .provider_base import RawTag, VisionProvider
 
+from typing import Any, Optional, Literal, cast
+
+ValidCategory = Literal["room_type", "feature", "condition", "issue"]
+
 
 class OpenAIProvider(VisionProvider):
     def __init__(self) -> None:
@@ -35,16 +39,15 @@ class OpenAIProvider(VisionProvider):
         if not api_key:
             raise RuntimeError("OPENAI_API_KEY not set for OpenAIProvider.")
         try:
-            from openai import OpenAI  # type: ignore
+            from openai import OpenAI 
 
             self._client = OpenAI(api_key=api_key)
             self._mode = "responses"
         except Exception:
             try:
-                import openai  # type: ignore
+                from openai import OpenAI
 
-                openai.api_key = api_key
-                self._client = openai
+                self._client = OpenAI(api_key=api_key)
                 self._mode = "chat_completions"
             except Exception as e:
                 raise RuntimeError("OpenAI SDK not available. Install `openai>=1.0`.") from e
@@ -90,44 +93,50 @@ class OpenAIProvider(VisionProvider):
     # ---------- OpenAI calls ----------
     def _call_responses_api(self, image_b64: str, prompt: str) -> str:
         data_url = f"data:image/jpeg;base64,{image_b64}"
-        out = self._client.responses.create(  # type: ignore[attr-defined]
-            model=self._model,
-            input=[
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "input_text", "text": prompt},
-                        # CHANGED: use image_url (Responses API expects this)
-                        {"type": "input_image", "image_url": data_url},
-                    ],
-                }
-            ],
-            # If your SDK complains about 'timeout', you can remove it or use:
-            # self._client = self._client.with_options(timeout=self._timeout_s)
-            timeout=self._timeout_s,
-        )
-        # Prefer the SDK's convenience property if available
+
+        messages: list[dict[str, Any]] = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "input_text", "text": prompt},
+                    {"type": "input_image", "image_url": {"url": data_url}},
+                ],
+            }
+        ]
+
+        out = self._client.responses.create(
+        model=self._model,
+        input=cast(Any, messages), # satisfy the SDK’s broad union type
+        timeout=self._timeout_s,
+    )
+
+        # Prefer convenience property
         txt = getattr(out, "output_text", None)
         if isinstance(txt, str) and txt.strip():
             return txt
 
-        # Fallbacks for older SDKs/structures
-        try:
-            first_output = out.output[0]  # type: ignore[index]
-            if first_output.type == "message":
-                return "".join(
-                    c.text
-                    for c in first_output.content
-                    if getattr(c, "type", "") == "output_text"  # type: ignore[attr-defined]
-                )
-        except Exception:
-            pass
-        return getattr(out, "text", "") or json.dumps(getattr(out, "output", ""), default=str)
+        # Fallback: defensively walk variant outputs
+        chunks: list[str] = []
+        outputs = getattr(out, "output", []) or []
+        for o in outputs:
+            otype = getattr(o, "type", None)
+            if otype == "output_text":
+                t = getattr(o, "text", None)
+                if isinstance(t, str):
+                    chunks.append(t)
+            elif otype == "message":
+                for c in getattr(o, "content", []) or []:
+                    if getattr(c, "type", None) == "output_text":
+                        t = getattr(c, "text", None)
+                        if isinstance(t, str):
+                            chunks.append(t)
+
+        return "".join(chunks).strip()
 
     def _call_chat_completions(self, image_b64: str, prompt: str) -> str:
         data_url = f"data:image/jpeg;base64,{image_b64}"
         if hasattr(self._client, "chat") and hasattr(self._client.chat, "completions"):
-            resp = self._client.chat.completions.create(  # type: ignore[attr-defined]
+            resp_chat_completion: Any = self._client.chat.completions.create(  
                 model=self._model,
                 messages=[
                     {
@@ -140,14 +149,23 @@ class OpenAIProvider(VisionProvider):
                 ],
                 timeout=self._timeout_s,
             )
-            return resp.choices[0].message.content or ""  # type: ignore[union-attr]
+            
+            content_opt = cast(Optional[str], resp_chat_completion.choices[0].message.content)
+            return content_opt or "" 
+        
         if hasattr(self._client, "ChatCompletion"):
-            resp = self._client.ChatCompletion.create(  # type: ignore[attr-defined]
+            resp_chatCompletion: Any = self._client.ChatCompletion.create(  
                 model=self._model,
                 messages=[{"role": "user", "content": prompt + f"\n\n[image: {data_url}]"}],
                 request_timeout=self._timeout_s,
             )
-            return resp["choices"][0]["message"]["content"]
+            
+            content: Any = resp_chatCompletion["choices"][0]["message"]["content"]
+            if isinstance(content, str):
+                return content
+            else:
+                return ""
+        
         raise RuntimeError("Unsupported OpenAI SDK mode for chat completions.")
 
 
@@ -191,8 +209,9 @@ def _parse_provider_json(text: str) -> list[RawTag]:
         s = re.sub(r"\s*```$", "", s, count=1)
 
     # 2) If it's not pure JSON, try to extract the first JSON array/object
-    def _try_load(candidate: str):
-        return json.loads(candidate)
+    def _try_load(candidate: str) -> dict[str, Any] | list[Any]:
+        json_file = json.loads(candidate)
+        return cast(dict[str, Any] | list[Any], json_file)
 
     loaded = None
     try:
@@ -240,31 +259,53 @@ def _parse_provider_json(text: str) -> list[RawTag]:
     for item in items:
         if not isinstance(item, dict):
             continue
-        label = item.get("label")
-        category = item.get("category")
-        confidence = item.get("confidence")
-        evidence = (item.get("evidence") or "")[:60]
-        bbox = item.get("bbox")
+
+        label_any: Any = item.get("label")
+        if not isinstance(label_any, str):
+            # skip if label is missing or not a string
+            continue
+        label: str = label_any
+
+        category_any: Any = item.get("category")
+        if not isinstance(category_any, str):
+            continue
+        category_str: str = category_any
 
         # category sanity (ontology strictness happens later)
-        if category not in {"room_type", "feature", "condition", "issue"}:
+        if category_str not in {"room_type", "feature", "condition", "issue"}:
             continue
+
+        category: ValidCategory = cast("ValidCategory", category_str)
+
+        confidence_any: Any = item.get("confidence")
+
+        if not isinstance(confidence_any, (int, float, str)):
+            # skip if confidence can’t be converted to float
+            continue
+        
         try:
-            conf_f = float(confidence)
-        except Exception:
+            conf_f: float = float(confidence_any)
+        except (TypeError, ValueError):
             continue
+
+        ev_any: Any = item.get("evidence")
+        evidence: str = (ev_any if isinstance(ev_any, str) else "")[:60]
+
+        bbox = item.get("bbox")
 
         obj: RawTag = {
             "label": label,
             "category": category,
             "confidence": conf_f,
             "evidence": evidence,
-        }  # type: ignore[assignment]
+        }
+
         if isinstance(bbox, list) and len(bbox) == 4:
             try:
                 obj["bbox"] = [int(x) for x in bbox]
             except Exception:
                 pass
+
         out.append(obj)
 
     return out

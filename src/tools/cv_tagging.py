@@ -19,7 +19,9 @@ import os
 from pathlib import Path
 
 from .vision.ontology import derive_amenities, map_raw_tags
-from .vision.provider_base import run_batch
+from .vision.provider_base import VisionProvider, run_batch
+
+from typing import Any, Optional, Iterable, cast
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff"}
 
@@ -61,16 +63,14 @@ FEATURE_TO_AMENITY = {
 
 
 # provider selection
-def _get_provider():
+def _get_provider() -> Optional[VisionProvider]:
     provider_name = os.getenv("AIREAL_VISION_PROVIDER", "mock").lower()
     try:
         if provider_name == "mock":
             from .vision.mock_provider import MockVisionProvider
-
             return MockVisionProvider()
         elif provider_name == "openai":
-            from .vision.openai_provider import OpenAIProvider  # type: ignore
-
+            from .vision.openai_provider import OpenAIProvider 
             return OpenAIProvider()
         else:
             return None
@@ -124,7 +124,7 @@ def tag_photos(photo_paths: list[str], *, use_ai: bool | None = None) -> dict:
             if len(raw_batches) != len(paths_readable):
                 raise ValueError("Provider batch returned inconsistent length.")
             for idx, raw in zip(readable_indices, raw_batches, strict=False):
-                ai_per_img[idx] = map_raw_tags(raw)
+                ai_per_img[idx] = map_raw_tags(cast(Iterable[dict[str, Any]], raw))
         except Exception as e:
             warnings.append(f"vision_error:{type(e).__name__}")
             # Fall back to deterministic only
@@ -167,7 +167,7 @@ def tag_photos(photo_paths: list[str], *, use_ai: bool | None = None) -> dict:
 
 
 # ---------- deterministic internals unchanged ----------
-def _deterministic_tag_single(path: str):
+def _deterministic_tag_single(path: str) -> tuple[list[dict], list[str], list[str], list[str], list[str]]:
     name = Path(path).name.lower()
     tags: list[dict] = []
     features: set[str] = set()
@@ -222,15 +222,24 @@ def _deterministic_tag_single(path: str):
     return tags, list(features), list(conditions), list(defects), list(derived_amenities)
 
 
-def _merge_tags(det: list[dict], ai: list[dict]) -> list[dict]:
-    best: dict[tuple[str, str], dict] = {}
-    for t in det + ai:
-        key = (t.get("category"), t.get("label"))
-        if key[0] not in {"room_type", "feature", "condition", "issue"} or not isinstance(key[1], str):
+def _merge_tags(det: list[dict[str, Any]], ai: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    best: dict[tuple[str, str], dict[str, Any]] = {}
+
+    merged_tags = det + ai
+
+    for merged_tag in merged_tags:
+        cat = merged_tag.get("category")
+        lab = merged_tag.get("label")
+        if not (isinstance(cat, str) and isinstance(lab, str)):
             continue
+        if cat not in {"room_type", "feature", "condition", "issue"}:
+            continue
+
+        key: tuple[str, str] = (cat, lab)
         prev = best.get(key)
-        if prev is None or float(t.get("confidence", 0.0)) > float(prev.get("confidence", 0.0)):
-            best[key] = t
+        if prev is None or float(merged_tag.get("confidence", 0.0)) > float(prev.get("confidence", 0.0)):
+            best[key] = merged_tag
+            
     return sorted(best.values(), key=lambda x: (x["category"], x["label"]))
 
 

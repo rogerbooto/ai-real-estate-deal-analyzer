@@ -176,7 +176,7 @@ def _normalize_paths(paths: Iterable[str]) -> list[str]:
     return out
 
 
-def _walk_sorted(base: Path):
+def _walk_sorted(base: Path) -> Iterable[tuple[str, list[str], list[str]]]:
     """
     Deterministic recursive directory walk:
     - Yields (dirpath, dirnames, filenames) like os.walk

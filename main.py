@@ -145,7 +145,7 @@ def ensure_sample_assets(listing_txt_path: str | None, photos_dir_path: str | No
     return str(listing_txt), str(photos_dir)
 
 
-def main():
+def main() -> None:
     """Run end-to-end analysis and write investment_analysis.md (or chosen output)."""
     print("Running AI Real Estate Deal Analyzer (V2)...")
     args = parse_args()

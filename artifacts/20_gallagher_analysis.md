@@ -1,52 +1,50 @@
 # Investment Analysis – 20 Gallagher, Shediac, New Brunswick E4P1S8
 
 **Amenities:**
-- central air conditioning
-- air exchanger
-- forced air heating (propane)
-- municipal water
-- municipal sewage system
-- shed
-- landscaped yard
-- corner lot
-- level lot
-- year-round access
-- cedar shingles exterior
-- basement flex space/potential 5th bedroom
-- walkable to restaurants, shops, parks, marina, and Parlee Beach
-- freehold title
+- Central air conditioning
+- Air exchanger
+- Forced air heating (propane)
+- Municipal water
+- Municipal sewage system
+- Shed
+- Corner lot
+- Level lot
+- Landscaped yard
+- Cedar shingles exterior
+- Laminate flooring
+- Tile flooring
+- Vinyl flooring
+- Basement flex space
+- Year-round access
+- Walkable to restaurants, shops, parks, marina, Parlee Beach
 
 **Notes:**
-- List price: $199,900
-- MLS number: NB122393
-- Bedrooms: 4 above grade
-- Basement has a room labeled bedroom (12'5" x 7'11") and an additional flex space (30' x 24') that the listing notes could be converted to a 5th bedroom
-- Bathrooms: 1 four-piece
-- Square footage: 1440 sqft (above grade finished and total finished)
-- Land size: 512 m2
-- Annual property taxes: $2,620.85
-- Time on market: 74 days on REALTOR.ca
-- Heating: forced air (propane)
-- Cooling: central air conditioning and air exchanger
-- Flooring: laminate, tile, vinyl
-- Foundation: block
-- Exterior finish: cedar shingles
-- Utilities: municipal water and municipal sewage
-- Structures: shed
-- Features: corner site and level lot
-- Location: downtown Shediac; highly walkable to restaurants, shops, parks, marina, and Parlee Beach
-- Use cases: suitable for families, multi-generational living, and short-term or long-term rental investment
-- Sale terms: priced under assessment, quick closing available, sold as is where is
-- Title: freehold
-- Access: year-round access
+- Priced under assessment; quick closing available
+- Sold as is where is
+- 1440 sqft finished above grade
+- 4 bedrooms with potential 5th bedroom in basement
+- Single 4pc bathroom (approx 4'9" x 5'7")
+- Basement 'Other' space approx 30' x 24' for additional development
+- Propane furnace and propane tank are rental equipment
+- Heating: forced air (propane); Cooling: central air conditioning; air exchanger
+- Exterior finished in cedar shingles
+- Flooring includes laminate, tile, and vinyl
+- Corner site, level lot, landscaped
+- Land size approx 512 m2
+- Annual property taxes approx $2,620.85
+- Freehold title
+- Downtown Shediac location near marina and Parlee Beach; strong short-term or long-term rental potential
+- MLS NB122393
 
 **Condition & Defects:**
-- as-is sale
-- priced under assessment
-- quick closing
-- older foundation (block)
-- exterior cedar shingles
-- mixed flooring (laminate/tile/vinyl)
+- as-is
+- investor-friendly
+- cosmetic-updates-likely
+- central-air
+- propane-heat
+- rental-equipment-furnace-propane-tank
+- block-foundation
+- older-exterior-cedar-shingles
 
 
 ## Purchase Metrics
@@ -99,16 +97,18 @@ $$Equity_t^{(80\%)} = 0.80 \times NOIValue_t - MortgageBalance_t$$
 
 - **Verdict:** CONDITIONAL
 - **Rationale:**
-  - Year-1 DSCR 0.855 and cash flow -$1,954 indicate negative carry; purchase COC is -13.03%, unacceptable without mitigation.
-  - Entry cap rate 5.76% with a 1.06% spread vs. rate is below a 1.5% target, implying a thin risk premium for an as-is asset.
-  - Negative cash flow through Year 5 and DSCR <1.0 until Year 6 create liquidity and lender risk.
-  - As-is sale, older block foundation, and cedar shingles elevate near-term capex risk; no reserves are modeled and utilities are set to $0 despite propane heating, risking NOI overstatement.
-  - Subscale single-door asset concentrates income risk in one tenancy and heightens vacancy/turnover exposure.
-  - Location strength (downtown Shediac, highly walkable) and 4–5 bedroom flexibility support rent growth and potential STR upside if permitted.
-  - Projected 10-year IRR 15.91% with improving cash flow (to ~$2.6k in Year 10) and substantial principal paydown is attractive if entry and financing are optimized.
-  - Priced under assessment with 74 days on market suggests negotiation leverage for price reduction or seller credits.
-  - Proceed only if purchase price and/or financing changes reduce annual debt service by ~29% (to support DSCR ≥1.20) or increase stabilized NOI by ~$4,650 to meet DSCR ≥1.20 and achieve at least breakeven Year-1 cash flow.
-  - Validate zoning/permits for STR and basement bedroom egress; complete full inspections (foundation, exterior envelope, HVAC), obtain repair bids, establish reserves, and re-underwrite with realistic utilities before closing.
+  - Day-one DSCR 0.855 and cash-on-cash -13.03 percent indicate weak coverage and an initial cash drain
+  - Projected cash flow remains negative through year 5 and turns positive in year 6; DSCR exceeds 1.0 from year 6 and reaches about 1.19 by year 10
+  - Cap rate 5.761 percent with 1.061 percent spread to debt rate is below target, leaving limited cushion for shocks
+  - Despite weak near-term cash flow, the 10-year IRR of 15.91 percent and strong amortization-driven equity build create attractive long-term economics for a patient hold
+  - Subscale single-asset exposure heightens vacancy and operational risk
+  - As-is condition, cedar shingles exterior, block foundation, and rented propane furnace and tank imply near-term capex and operating expense leakage; reserves are not modeled
+  - Downtown Shediac location with beach and marina access plus 4 bedrooms and potential 5th suggests short-term rental upside not captured in the base underwriting
+  - Property taxes may reset on sale; confirm assessment and model a step-up to avoid DSCR erosion
+  - Proceed only if one of the following de-risks the file: price reduction, rate buydown, longer amortization, or brief interest-only period to achieve year-1 DSCR at least 1.20 and positive cash-on-cash
+  - Alternative path: validate STR legality and underwrite an STR program or an additional legal bedroom to lift year-1 NOI to at least 16165 to meet 1.20x coverage on current debt service
+  - Eliminate or credit back rented propane equipment costs at close and fund an adequate initial reserve
+  - If conditions cannot be met, pass due to thin spread and early negative cash flow
 
 
 ## 30-Year Pro Forma (Summary)

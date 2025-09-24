@@ -55,7 +55,7 @@ import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from pydantic import BaseModel, Field, ValidationError
 
@@ -199,7 +199,8 @@ class InputsLoader:
         if p.suffix.lower() != ".json":
             raise ValueError(f"Unsupported inputs format for {p.name}; only .json supported in V1.")
         try:
-            return json.loads(p.read_text(encoding="utf-8"))
+            json_file = json.loads(p.read_text(encoding="utf-8"))
+            return cast(dict[str, Any], json_file)
         except json.JSONDecodeError as e:
             raise ValueError(f"Invalid JSON in {p}: {e}") from e
 
