@@ -68,9 +68,11 @@ def _get_provider() -> VisionProvider | None:
     try:
         if provider_name == "mock":
             from .vision.mock_provider import MockVisionProvider
+
             return MockVisionProvider()
         elif provider_name == "openai":
             from .vision.openai_provider import OpenAIProvider
+
             return OpenAIProvider()
         else:
             return None
@@ -239,7 +241,7 @@ def _merge_tags(det: list[dict[str, Any]], ai: list[dict[str, Any]]) -> list[dic
         prev = best.get(key)
         if prev is None or float(merged_tag.get("confidence", 0.0)) > float(prev.get("confidence", 0.0)):
             best[key] = merged_tag
-            
+
     return sorted(best.values(), key=lambda x: (x["category"], x["label"]))
 
 

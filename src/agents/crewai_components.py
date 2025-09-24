@@ -245,7 +245,7 @@ def _parse_json_as(model_cls: type[T], text: str, fallback: Callable[[], T]) -> 
 
     # Tolerant parse
     try:
-        adapter = TypeAdapter(model_cls)   # pydantic's typing can be loose here
+        adapter = TypeAdapter(model_cls)  # pydantic's typing can be loose here
         return adapter.validate_json(cleaned)
     except Exception as e:
         _print_debug_exc(f"_parse_json_as TypeAdapter parse failed for {model_cls.__name__}", e)
@@ -266,7 +266,7 @@ def _parse_json_as(model_cls: type[T], text: str, fallback: Callable[[], T]) -> 
         end = text.rfind("}")
         if start != -1 and end != -1 and end > start:
             blob = _sanitize_json_like(text[start : end + 1])
-            adapter2 = TypeAdapter(model_cls) 
+            adapter2 = TypeAdapter(model_cls)
             return adapter2.validate_json(blob)
     except Exception as e3:
         _print_debug_exc(f"_parse_json_as blob TypeAdapter parse failed for {model_cls.__name__}", e3)
@@ -352,14 +352,14 @@ class ListingAnalystAgent:
             task = Task(
                 description=prompt,
                 expected_output="JSON for ListingInsights only.",
-                agent=self.agent,  
+                agent=self.agent,
             )
 
             # Run via a Crew (Task has no .execute())
             crew = Crew(
-                agents=[self.agent],  
+                agents=[self.agent],
                 tasks=[task],
-                process=Process.sequential,  
+                process=Process.sequential,
                 verbose=False,
             )
             _ = crew.kickoff()
@@ -483,13 +483,13 @@ class ChiefStrategistAgent:
             task = Task(
                 description=prompt,
                 expected_output="JSON for InvestmentThesis only.",
-                agent=self.agent,  
+                agent=self.agent,
             )
 
             crew = Crew(
-                agents=[self.agent],  
+                agents=[self.agent],
                 tasks=[task],
-                process=Process.sequential,  
+                process=Process.sequential,
                 verbose=False,
             )
             _ = crew.kickoff()

@@ -104,10 +104,10 @@ class OpenAIProvider(VisionProvider):
         ]
 
         out = self._client.responses.create(
-        model=self._model,
-        input=cast(Any, messages), # satisfy the SDK’s broad union type
-        timeout=self._timeout_s,
-    )
+            model=self._model,
+            input=cast(Any, messages),  # satisfy the SDK’s broad union type
+            timeout=self._timeout_s,
+        )
 
         # Prefer convenience property
         txt = getattr(out, "output_text", None)
@@ -135,7 +135,7 @@ class OpenAIProvider(VisionProvider):
     def _call_chat_completions(self, image_b64: str, prompt: str) -> str:
         data_url = f"data:image/jpeg;base64,{image_b64}"
         if hasattr(self._client, "chat") and hasattr(self._client.chat, "completions"):
-            resp_chat_completion: Any = self._client.chat.completions.create(  
+            resp_chat_completion: Any = self._client.chat.completions.create(
                 model=self._model,
                 messages=[
                     {
@@ -148,23 +148,23 @@ class OpenAIProvider(VisionProvider):
                 ],
                 timeout=self._timeout_s,
             )
-            
+
             content_opt = cast(str | None, resp_chat_completion.choices[0].message.content)
-            return content_opt or "" 
-        
+            return content_opt or ""
+
         if hasattr(self._client, "ChatCompletion"):
-            resp_chatCompletion: Any = self._client.ChatCompletion.create(  
+            resp_chatCompletion: Any = self._client.ChatCompletion.create(
                 model=self._model,
                 messages=[{"role": "user", "content": prompt + f"\n\n[image: {data_url}]"}],
                 request_timeout=self._timeout_s,
             )
-            
+
             content: Any = resp_chatCompletion["choices"][0]["message"]["content"]
             if isinstance(content, str):
                 return content
             else:
                 return ""
-        
+
         raise RuntimeError("Unsupported OpenAI SDK mode for chat completions.")
 
 
