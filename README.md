@@ -18,7 +18,7 @@ This project is a portfolio piece designed to showcase a modern, multi-agent AI 
 Run the demo in **one line**:
 
 ```bash
-git clone https://github.com/<your-username>/ai-real-estate-deal-analyzer.git && cd ai-real-estate-deal-analyzer && python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt && python main.py
+git clone https://github.com/rogerbooto/ai-real-estate-deal-analyzer.git && cd ai-real-estate-deal-analyzer && python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt && python main.py
 ```
 
 Expected output:
@@ -198,7 +198,9 @@ This model feeds into our per-year pro forma:
 * **AI Models:** Computer Vision (CLIP-based tagging), LLM agents
 * **Data Modeling:** Pydantic v2
 * **Testing:** Pytest
-* **Packaging:** `pyproject.toml` with Poetry-style dependency management
+* **Lint/Type:** Ruff, mypy
+* **Deps:** `requirements.txt` (runtime) + `requirements-dev.txt` (dev)
+* **Packaging:** `pyproject.toml`
 
 ---
 
@@ -299,14 +301,21 @@ Run the test suite with:
 pytest -q
 ```
 
-Expected output (V1):
+All tests must pass before merging new code.
 
-```text
-......................
-31 passed in 0.07s
+Lint & types:
+```bash
+ruff check .
+mypy --strict src
 ```
 
-All tests must pass before merging new code.
+Coverage is enforced via `pytest.ini` (90% minimum) and uploaded to Codecov in CI:
+```bash
+# pytest.ini
+[pytest]
+addopts = -q --cov=src --cov-report=term-missing --cov-report=xml --cov-fail-under=90
+testpaths = tests
+```
 
 **CI Status & Coverage:** See badges above. All PRs must pass CI, lint, type checks, and meet coverage thresholds.
 
