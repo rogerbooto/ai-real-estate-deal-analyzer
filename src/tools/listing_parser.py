@@ -30,6 +30,8 @@ This is intentionally simple (no ML, no web) to keep V1 deterministic and testab
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
+from typing import Any
 
 from src.schemas.models import ListingInsights
 
@@ -153,7 +155,7 @@ def _extract_address(text: str) -> str | None:
     return line
 
 
-def _extract_keywords(text: str, dictionary: dict) -> list[str]:
+def _extract_keywords(text: str, dictionary: Mapping[str, Any]) -> list[str]:
     """
     Return canonical keys for any keyword hit present in text.
 

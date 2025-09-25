@@ -239,8 +239,8 @@ This generates a Markdown report in the project root:
 ```markdown
 # Investment Analysis Report
 
-**Property Address:** 123 Main St  
-**Verdict:** CONDITIONAL  
+**Property Address:** 123 Main St
+**Verdict:** CONDITIONAL
 
 ## Purchase Metrics
 - Cap Rate: 5.12%

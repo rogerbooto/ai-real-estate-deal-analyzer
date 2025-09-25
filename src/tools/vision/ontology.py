@@ -52,9 +52,11 @@ Testing
 from __future__ import annotations
 
 from collections.abc import Iterable
-from typing import Literal
+from typing import Any, Literal
 
 Category = Literal["room_type", "feature", "condition", "issue"]
+
+JSONDict = dict[str, Any]
 
 # -------------------------
 # Allowed ontology (tight)
@@ -184,7 +186,7 @@ def in_ontology(label: str, category: Category) -> bool:
     return False
 
 
-def map_raw_tags(raw: Iterable[dict]) -> list[dict]:
+def map_raw_tags(raw: Iterable[JSONDict]) -> list[JSONDict]:
     """
     Map provider outputs to strict tags by applying:
     1) Category/label validation against the ontology
@@ -195,7 +197,7 @@ def map_raw_tags(raw: Iterable[dict]) -> list[dict]:
     Returns a stable (sorted) list of tag dicts:
         {"label", "category", "confidence", "evidence", "bbox?"}
     """
-    best: dict[tuple[str, str], dict] = {}
+    best: dict[tuple[str, str], JSONDict] = {}
 
     for t in raw:
         label = t.get("label")
@@ -232,7 +234,7 @@ def map_raw_tags(raw: Iterable[dict]) -> list[dict]:
     return sorted(best.values(), key=lambda x: (x["category"], x["label"]))
 
 
-def derive_amenities(mapped_tags: Iterable[dict]) -> list[str]:
+def derive_amenities(mapped_tags: Iterable[JSONDict]) -> list[str]:
     """
     Normalize feature-level signals into a user-facing amenity list.
 

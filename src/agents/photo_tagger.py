@@ -23,14 +23,17 @@ class PhotoTaggerAgent:
 from __future__ import annotations
 
 import os
+from typing import Any
 
 from src.tools.cv_tagging import tag_photos
+
+JSONDict = dict[str, Any]
 
 
 class PhotoTaggerAgent:
     def __init__(self) -> None:
         self._vision_enabled = os.getenv("AIREAL_USE_VISION", "0").lower() in ("1", "true", "yes")
 
-    def analyze(self, photo_paths: list[str]) -> dict:
+    def analyze(self, photo_paths: list[str]) -> JSONDict:
         # Delegate to the orchestrator, which now prefers batch AI when enabled.
         return tag_photos(photo_paths, use_ai=self._vision_enabled)

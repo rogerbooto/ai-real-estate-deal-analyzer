@@ -1,6 +1,6 @@
 # Contributing to The AI Real Estate Deal Analyzer
 
-First off, thank you for your interest in contributing! 🎉  
+First off, thank you for your interest in contributing! 🎉
 This project is intended as an **open research and educational project**. Contributions that improve the clarity, correctness, or usability of the code and documentation are always welcome.
 
 ---

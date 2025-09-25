@@ -1,6 +1,6 @@
 # Security Policy
 
-This project is provided **as is**. It is primarily a **portfolio piece** to demonstrate modern engineering practices.  
+This project is provided **as is**. It is primarily a **portfolio piece** to demonstrate modern engineering practices.
 I do not actively maintain or patch it beyond personal updates.
 
 ## Reporting Issues
@@ -21,5 +21,5 @@ I cannot commit to providing fixes or timelines, but contributions are welcome a
 - If you fork or use this code, you are responsible for reviewing and hardening it for your environment.
 
 ## Disclaimer
-This software is for demonstration and educational purposes only.  
+This software is for demonstration and educational purposes only.
 No warranties or service-level commitments are provided.

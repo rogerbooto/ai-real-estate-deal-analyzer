@@ -33,5 +33,5 @@ following conditions:
 By using this Software, you acknowledge and agree to the terms above.
 
 ---
-Contact: Roger Booto Tokime  
+Contact: Roger Booto Tokime
 Year: 2025

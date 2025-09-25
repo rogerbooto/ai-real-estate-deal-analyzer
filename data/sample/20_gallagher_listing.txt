@@ -1,7 +1,7 @@
 $199,900
 
 Hide
- 
+
 Favourite
 20 Gallagher
 Shediac, New Brunswick E4P1S8
@@ -12,11 +12,11 @@ Get Qualified for a Mortgage
 
  4
 Bedrooms
- 
+
 
  1
 Bathrooms
- 
+
 
  1440
 Square Feet
@@ -86,23 +86,23 @@ Total Finished
 Rooms
 Metric
 Imperial
-Main level	Bedroom	
+Main level	Bedroom
 10' x 13'6''
-Bedroom	
+Bedroom
 10'3'' x 13'2''
-4pc Bathroom	
+4pc Bathroom
 4'9'' x 5'7''
-Living room	
+Living room
 13'5'' x 14'
-Kitchen/Dining room	
+Kitchen/Dining room
 13'8'' x 9'10''
-Second level	Bedroom	
+Second level	Bedroom
 13'8'' x 11'8''
-Bedroom	
+Bedroom
 14' x 11'8''
-Basement	Other	
+Basement	Other
 30' x 24'
-Bedroom	
+Bedroom
 12'5'' x 7'11''
 Land
 Lot Features

@@ -209,7 +209,7 @@ def run(
     years: list[YearBreakdown] = []
     warnings: list[str] = []
 
-    def opex_for_year(y: int) -> tuple[float, dict]:
+    def opex_for_year(y: int) -> tuple[float, dict[str, float]]:
         """
         Compute grown OPEX for year y and return (total, parts dict).
         Each line item grows by expense_growth using the same rule as income growth.

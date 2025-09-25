@@ -66,8 +66,11 @@ from __future__ import annotations
 import os
 from collections.abc import Iterable
 from pathlib import Path
+from typing import Any
 
 from src.tools.cv_tagging import tag_photos
+
+JSONDict = dict[str, Any]
 
 _IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff"}
 _USE_PHOTO_AGENT = os.getenv("AIREAL_PHOTO_AGENT", "0").lower() in ("1", "true", "yes")
@@ -81,7 +84,7 @@ class CvTaggingOrchestrator:
 
     # --------------- Public API ---------------
 
-    def analyze_paths(self, photo_paths: list[str]) -> dict:
+    def analyze_paths(self, photo_paths: list[str]) -> JSONDict:
         """
         Analyze an explicit, ordered list of paths.
 
@@ -110,7 +113,7 @@ class CvTaggingOrchestrator:
         # Direct path (no agent indirection)
         return tag_photos(normalized, use_ai=_VISION_ENABLED)
 
-    def analyze_folder(self, folder: str, *, recursive: bool = False) -> dict:
+    def analyze_folder(self, folder: str, *, recursive: bool = False) -> JSONDict:
         """
         Scan a folder for image files and analyze them.
 

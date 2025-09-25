@@ -23,6 +23,8 @@ from typing import Any, cast
 from .vision.ontology import derive_amenities, map_raw_tags
 from .vision.provider_base import VisionProvider, run_batch
 
+JSONDict = dict[str, Any]
+
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff"}
 
 ROOM_KEYWORDS = {
@@ -80,7 +82,7 @@ def _get_provider() -> VisionProvider | None:
         return None
 
 
-def tag_photos(photo_paths: list[str], *, use_ai: bool | None = None) -> dict:
+def tag_photos(photo_paths: list[str], *, use_ai: bool | None = None) -> JSONDict:
     if use_ai is None:
         use_ai = os.getenv("AIREAL_USE_VISION", "0").lower() in ("1", "true", "yes")
 
@@ -92,7 +94,7 @@ def tag_photos(photo_paths: list[str], *, use_ai: bool | None = None) -> dict:
             warnings.append("Vision provider unavailable; falling back to deterministic tagging.")
             use_ai = False
 
-    images_out: list[dict] = []
+    images_out: list[JSONDict] = []
     rollup_amenities: set[str] = set()
     rollup_conditions: set[str] = set()
     rollup_defects: set[str] = set()
@@ -106,7 +108,7 @@ def tag_photos(photo_paths: list[str], *, use_ai: bool | None = None) -> dict:
             paths_readable.append(path)
 
     # Deterministic pass on all readable
-    det_per_img: dict[int, list[dict]] = {}
+    det_per_img: dict[int, list[JSONDict]] = {}
     det_amenities_per_img: dict[int, set[str]] = {}
     det_conditions_per_img: dict[int, set[str]] = {}
     det_defects_per_img: dict[int, set[str]] = {}
@@ -119,7 +121,7 @@ def tag_photos(photo_paths: list[str], *, use_ai: bool | None = None) -> dict:
         det_defects_per_img[i] = set(_defects)
 
     # AI pass (batch-first) on all readable when enabled
-    ai_per_img: dict[int, list[dict]] = {}
+    ai_per_img: dict[int, list[JSONDict]] = {}
     if use_ai and provider is not None and paths_readable:
         try:
             raw_batches = run_batch(provider, paths_readable)  # list[list[RawTag]] aligned to paths_readable
@@ -169,9 +171,9 @@ def tag_photos(photo_paths: list[str], *, use_ai: bool | None = None) -> dict:
 
 
 # ---------- deterministic internals unchanged ----------
-def _deterministic_tag_single(path: str) -> tuple[list[dict], list[str], list[str], list[str], list[str]]:
+def _deterministic_tag_single(path: str) -> tuple[list[JSONDict], list[str], list[str], list[str], list[str]]:
     name = Path(path).name.lower()
-    tags: list[dict] = []
+    tags: list[JSONDict] = []
     features: set[str] = set()
     conditions: set[str] = set()
     defects: set[str] = set()
@@ -245,11 +247,11 @@ def _merge_tags(det: list[dict[str, Any]], ai: list[dict[str, Any]]) -> list[dic
     return sorted(best.values(), key=lambda x: (x["category"], x["label"]))
 
 
-def _empty_img_dict(path: str) -> dict:
+def _empty_img_dict(path: str) -> JSONDict:
     return {"image_id": Path(path).name, "tags": [], "notes": [], "derived_amenities": [], "quality_flags": []}
 
 
-def _mk_tag(*, label: str, category: str, conf: float, evidence: str, bbox: list[int] | None = None) -> dict:
+def _mk_tag(*, label: str, category: str, conf: float, evidence: str, bbox: list[int] | None = None) -> JSONDict:
     obj = {"label": label, "category": category, "confidence": float(conf), "evidence": evidence[:60]}
     if bbox:
         obj["bbox"] = [int(x) for x in bbox]
