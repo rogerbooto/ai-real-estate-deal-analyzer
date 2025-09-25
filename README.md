@@ -18,7 +18,7 @@ This project is a portfolio piece designed to showcase a modern, multi-agent AI 
 Run the demo in **one line**:
 
 ```bash
-git clone https://github.com/<your-username>/ai-real-estate-deal-analyzer.git && cd ai-real-estate-deal-analyzer && python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt && python main.py
+git clone https://github.com/rogerbooto/ai-real-estate-deal-analyzer.git && cd ai-real-estate-deal-analyzer && python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt && python main.py
 ```
 
 Expected output:
@@ -261,7 +261,7 @@ To get started as a contributor:
 **1. Clone the repository**
 
 ```bash
-git clone https://github.com/<your-username>/ai-real-estate-deal-analyzer.git
+git clone git clone https://github.com/rogerbooto/ai-real-estate-deal-analyzer.git
 cd ai-real-estate-deal-analyzer
 ```
 
