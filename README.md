@@ -263,7 +263,7 @@ To get started as a contributor:
 **1. Clone the repository**
 
 ```bash
-git clone https://github.com/<your-username>/ai-real-estate-deal-analyzer.git
+git clone git clone https://github.com/rogerbooto/ai-real-estate-deal-analyzer.git
 cd ai-real-estate-deal-analyzer
 ```
 
