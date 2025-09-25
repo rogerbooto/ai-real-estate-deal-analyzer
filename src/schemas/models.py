@@ -247,9 +247,11 @@ class InvestmentThesis(BaseModel):
         default_factory=list, description="Suggested actions to strengthen the deal (e.g., negotiate, increase rents)."
     )
 
+
 # =========================
 # Market insights
 # =========================
+
 
 @dataclass(frozen=True)
 class MarketSnapshot:
@@ -266,8 +268,7 @@ class MarketSnapshot:
             f"[MarketSnapshot] {self.region} | "
             f"Vacancy: {self.vacancy_rate:.2%}, Cap: {self.cap_rate:.2%}, "
             f"Rent↑: {self.rent_growth:.2%}, Opex↑: {self.expense_growth:.2%}, "
-            f"Rate: {self.interest_rate:.2%}"
-            + (f" | Notes: {self.notes}" if self.notes else "")
+            f"Rate: {self.interest_rate:.2%}" + (f" | Notes: {self.notes}" if self.notes else "")
         )
 
     def __str__(self) -> str:  # human-friendly fallback

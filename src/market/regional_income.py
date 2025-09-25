@@ -51,9 +51,7 @@ def build_regional_income(
     p75_rent = float(cast(float, np.percentile(comps, 75)))
     turnover_cost = median_rent * 0.5
 
-    str_multiplier: float | None = (
-        _DEFAULT_STR_MULTIPLIER if _region_allows_str(region) else None
-    )
+    str_multiplier: float | None = _DEFAULT_STR_MULTIPLIER if _region_allows_str(region) else None
 
     return RegionalIncomeTable(
         region=region,
