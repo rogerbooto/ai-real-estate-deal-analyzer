@@ -1,5 +1,9 @@
 # src/schemas/models.py
 
+from __future__ import annotations
+
+from dataclasses import dataclass
+
 from pydantic import BaseModel, Field
 
 # =========================
@@ -242,3 +246,53 @@ class InvestmentThesis(BaseModel):
     levers: list[str] = Field(
         default_factory=list, description="Suggested actions to strengthen the deal (e.g., negotiate, increase rents)."
     )
+
+# =========================
+# Market insights
+# =========================
+
+@dataclass(frozen=True)
+class MarketSnapshot:
+    region: str
+    vacancy_rate: float
+    cap_rate: float
+    rent_growth: float
+    expense_growth: float
+    interest_rate: float
+    notes: str | None = None
+
+    def summary(self) -> str:
+        return (
+            f"[MarketSnapshot] {self.region} | "
+            f"Vacancy: {self.vacancy_rate:.2%}, Cap: {self.cap_rate:.2%}, "
+            f"Rent↑: {self.rent_growth:.2%}, Opex↑: {self.expense_growth:.2%}, "
+            f"Rate: {self.interest_rate:.2%}"
+            + (f" | Notes: {self.notes}" if self.notes else "")
+        )
+
+    def __str__(self) -> str:  # human-friendly fallback
+        return self.summary()
+
+
+@dataclass(frozen=True)
+class RegionalIncomeTable:
+    region: str
+    bedrooms: int
+    median_rent: float
+    p25_rent: float
+    p75_rent: float
+    turnover_cost: float
+    str_multiplier: float | None = None
+
+    def summary(self) -> str:
+        base = (
+            f"[RegionalIncomeTable] {self.region} | {self.bedrooms}BR | "
+            f"P25: ${self.p25_rent:,.0f}, Median: ${self.median_rent:,.0f}, "
+            f"P75: ${self.p75_rent:,.0f} | Turnover: ${self.turnover_cost:,.0f}"
+        )
+        if self.str_multiplier is not None:
+            base += f" | STR×: {self.str_multiplier:.2f}"
+        return base
+
+    def __str__(self) -> str:
+        return self.summary()

@@ -111,3 +111,6 @@ venv.bak/
 Thumbs.db
 ehthumbs.db
 Desktop.ini
+
+# Ignore any file or folder with "_ignore" anywhere in its name (recursively)
+**/*_ignore*
