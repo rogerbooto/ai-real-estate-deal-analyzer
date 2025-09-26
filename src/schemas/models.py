@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict as _dc_asdict, dataclass
 
 from pydantic import BaseModel, Field
 
@@ -292,8 +292,102 @@ class RegionalIncomeTable:
             f"P75: ${self.p75_rent:,.0f} | Turnover: ${self.turnover_cost:,.0f}"
         )
         if self.str_multiplier is not None:
-            base += f" | STR×: {self.str_multiplier:.2f}"
+            base += f" | STRx: {self.str_multiplier:.2f}"
         return base
 
     def __str__(self) -> str:
+        return self.summary()
+
+
+# =========================
+# Market hypotheses
+# =========================
+
+
+@dataclass(frozen=True)
+class MarketHypothesis:
+    """
+    Immutable market hypothesis deltas and metadata.
+
+    All deltas are absolute percentage points (e.g., +0.02 == +200 bps).
+    """
+
+    rent_delta: float
+    expense_growth_delta: float
+    interest_rate_delta: float
+    cap_rate_delta: float
+    vacancy_delta: float
+    str_viability: bool
+    prior: float  # 0..1; will be normalized across a set
+    rationale: str
+
+    def as_dict(self) -> dict[str, object]:
+        return _dc_asdict(self)
+
+    def summary(self) -> str:
+        """
+        Wall Street-style compact line with directional triangles and percentages:
+        - ▲ up, ▼ down, ➝ flat
+        - Values shown as percentages of absolute points (e.g., 0.02 -> 2.00%)
+        """
+
+        def fmt_pct(x: float) -> str:
+            if x > 0:
+                sym = "▲"
+            elif x < 0:
+                sym = "▼"
+            else:
+                sym = "➝"
+            return f"{sym} {abs(x) * 100:.2f}%"
+
+        parts = [
+            f"Rent: {fmt_pct(self.rent_delta)}",
+            f"Opex: {fmt_pct(self.expense_growth_delta)}",
+            f"Rate: {fmt_pct(self.interest_rate_delta)}",
+            f"Cap: {fmt_pct(self.cap_rate_delta)}",
+            f"Vac: {fmt_pct(self.vacancy_delta)}",
+        ]
+        prior_pct = f"{self.prior * 100:.2f}%"
+        str_flag = "Y" if self.str_viability else "N"
+        return "  ".join(parts) + f" | STR={str_flag} | prior={prior_pct} | {self.rationale}"
+
+    def __str__(self) -> str:  # pragma: no cover
+        return self.summary()
+
+
+@dataclass(frozen=True)
+class HypothesisSet:
+    """Immutable collection of market hypotheses for a given region and seed."""
+
+    snapshot_region: str
+    seed: int
+    items: tuple[MarketHypothesis, ...]
+    notes: str | None = None
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "snapshot_region": self.snapshot_region,
+            "seed": self.seed,
+            "items": [h.as_dict() for h in self.items],
+            "notes": self.notes,
+        }
+
+    def summary(self, top_n: int = 5) -> str:
+        n = len(self.items)
+        if n == 0:
+            return f"[HypothesisSet] {self.snapshot_region} | seed={self.seed} | 0 items"
+        # top-N by prior (stable)
+        top = sorted(
+            self.items,
+            key=lambda h: (-h.prior, h.rent_delta, h.expense_growth_delta, h.interest_rate_delta, h.cap_rate_delta, h.vacancy_delta),
+        )[:top_n]
+        prior_sum = sum(h.prior for h in self.items)
+        lines = [
+            f"[HypothesisSet] {self.snapshot_region} | seed={self.seed} | count={n} | prior_sum={prior_sum:.6f}",
+        ]
+        for i, h in enumerate(top, 1):
+            lines.append(f"  #{i}: {h.summary()}")
+        return "\n".join(lines)
+
+    def __str__(self) -> str:  # pragma: no cover
         return self.summary()
