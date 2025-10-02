@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict as _dc_asdict, dataclass
+from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
+from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 # =========================
 # Core inputs
@@ -254,14 +257,24 @@ class InvestmentThesis(BaseModel):
 
 
 @dataclass(frozen=True)
-class MarketSnapshot:
-    region: str
-    vacancy_rate: float
-    cap_rate: float
-    rent_growth: float
-    expense_growth: float
-    interest_rate: float
-    notes: str | None = None
+class MarketSnapshot(BaseModel):
+    """
+    Point-in-time market context used by scenario generation and guardrails.
+
+    This is descriptive (not prescriptive) data you might source from public
+    reports or internal research. Values are expressed as *fractions* (e.g.,
+    0.05 for 5%) to match the rest of the codebase.
+    """
+
+    region: str = Field(..., description="Market/geographic region name (e.g., 'Moncton, NB').")
+    vacancy_rate: float = Field(..., ge=0, le=1, description="Vacancy rate as a fraction (e.g., 0.05 for 5%).")
+    cap_rate: float = Field(..., ge=0, description="Market capitalization rate as a fraction.")
+    rent_growth: float = Field(..., description="Expected annual rent growth as a fraction.")
+    expense_growth: float = Field(..., description="Expected annual OPEX growth as a fraction.")
+    interest_rate: float = Field(..., ge=0, description="Prevailing interest rate (APR) as a fraction.")
+    notes: str | None = Field(None, description="Optional commentary or source notes.")
+
+    model_config = ConfigDict(frozen=True, extra="ignore")
 
     def summary(self) -> str:
         return (
@@ -271,19 +284,28 @@ class MarketSnapshot:
             f"Rate: {self.interest_rate:.2%}" + (f" | Notes: {self.notes}" if self.notes else "")
         )
 
-    def __str__(self) -> str:  # human-friendly fallback
+    def __str__(self) -> str:
         return self.summary()
 
 
 @dataclass(frozen=True)
-class RegionalIncomeTable:
-    region: str
-    bedrooms: int
-    median_rent: float
-    p25_rent: float
-    p75_rent: float
-    turnover_cost: float
-    str_multiplier: float | None = None
+class RegionalIncomeTable(BaseModel):
+    """
+    Reference rent & turnover table for a specific bedroom count in a region.
+
+    Used to sanity-check underwriting and to seed scenario analysis. All money
+    values should be in the same implicit currency for your project.
+    """
+
+    region: str = Field(..., description="Market/geographic region name.")
+    bedrooms: int = Field(..., ge=0, description="Bedroom count (0 = studio).")
+    median_rent: float = Field(..., ge=0, description="Median monthly rent for this unit type.")
+    p25_rent: float = Field(..., ge=0, description="25th percentile monthly rent.")
+    p75_rent: float = Field(..., ge=0, description="75th percentile monthly rent.")
+    turnover_cost: float = Field(..., ge=0, description="Average turnover cost for this unit type.")
+    str_multiplier: float | None = Field(None, ge=0, description="Optional STR uplift (multiplier) relative to LTR baseline.")
+
+    model_config = ConfigDict(frozen=True, extra="ignore")
 
     def summary(self) -> str:
         base = (
@@ -305,39 +327,31 @@ class RegionalIncomeTable:
 
 
 @dataclass(frozen=True)
-class MarketHypothesis:
+class MarketHypothesis(BaseModel):
     """
-    Immutable market hypothesis deltas and metadata.
+    A single “what-if” market hypothesis (deltas relative to a snapshot).
 
-    All deltas are absolute percentage points (e.g., +0.02 == +200 bps).
+    All deltas are absolute (e.g., +0.02 == +200 bps). These are used to
+    perturb a baseline `MarketSnapshot` for scenario analysis.
     """
 
-    rent_delta: float
-    expense_growth_delta: float
-    interest_rate_delta: float
-    cap_rate_delta: float
-    vacancy_delta: float
-    str_viability: bool
-    prior: float  # 0..1; will be normalized across a set
-    rationale: str
+    rent_delta: float = Field(..., description="Absolute change to rent growth (e.g., +0.02 = +200 bps).")
+    expense_growth_delta: float = Field(..., description="Absolute change to OPEX growth (fraction).")
+    interest_rate_delta: float = Field(..., description="Absolute change to interest rate (fraction).")
+    cap_rate_delta: float = Field(..., description="Absolute change to cap rate (fraction).")
+    vacancy_delta: float = Field(..., description="Absolute change to vacancy rate (fraction).")
+    str_viability: bool = Field(..., description="Whether STR operation is viable under this hypothesis.")
+    prior: float = Field(..., ge=0, le=1, description="Prior probability weight (normalized across a set).")
+    rationale: str = Field(..., description="Short explanation for the hypothesis.")
+
+    model_config = ConfigDict(frozen=True, extra="ignore")
 
     def as_dict(self) -> dict[str, object]:
-        return _dc_asdict(self)
+        return self.model_dump()
 
     def summary(self) -> str:
-        """
-        Wall Street-style compact line with directional triangles and percentages:
-        - ▲ up, ▼ down, ➝ flat
-        - Values shown as percentages of absolute points (e.g., 0.02 -> 2.00%)
-        """
-
         def fmt_pct(x: float) -> str:
-            if x > 0:
-                sym = "▲"
-            elif x < 0:
-                sym = "▼"
-            else:
-                sym = "➝"
+            sym = "▲" if x > 0 else "▼" if x < 0 else "➝"
             return f"{sym} {abs(x) * 100:.2f}%"
 
         parts = [
@@ -351,43 +365,281 @@ class MarketHypothesis:
         str_flag = "Y" if self.str_viability else "N"
         return "  ".join(parts) + f" | STR={str_flag} | prior={prior_pct} | {self.rationale}"
 
-    def __str__(self) -> str:  # pragma: no cover
+    def __str__(self) -> str:
         return self.summary()
 
 
 @dataclass(frozen=True)
-class HypothesisSet:
-    """Immutable collection of market hypotheses for a given region and seed."""
+class HypothesisSet(BaseModel):
+    """
+    Immutable collection of `MarketHypothesis` items tied to a region and seed.
 
-    snapshot_region: str
-    seed: int
-    items: tuple[MarketHypothesis, ...]
-    notes: str | None = None
+    `prior` values inside `items` should typically be normalized to sum to 1.0,
+    but the set doesn’t enforce that to keep scenarios flexible.
+    """
+
+    snapshot_region: str = Field(..., description="Region associated with this hypothesis set.")
+    seed: int = Field(..., description="Random seed used for reproducibility.")
+    items: tuple[MarketHypothesis, ...] = Field(..., description="Tuple of market hypotheses.")
+    notes: str | None = Field(None, description="Optional notes about this set.")
+
+    model_config = ConfigDict(frozen=True, extra="ignore")
 
     def as_dict(self) -> dict[str, object]:
-        return {
-            "snapshot_region": self.snapshot_region,
-            "seed": self.seed,
-            "items": [h.as_dict() for h in self.items],
-            "notes": self.notes,
-        }
+        return self.model_dump()
 
     def summary(self, top_n: int = 5) -> str:
         n = len(self.items)
         if n == 0:
             return f"[HypothesisSet] {self.snapshot_region} | seed={self.seed} | 0 items"
-        # top-N by prior (stable)
         top = sorted(
             self.items,
             key=lambda h: (-h.prior, h.rent_delta, h.expense_growth_delta, h.interest_rate_delta, h.cap_rate_delta, h.vacancy_delta),
         )[:top_n]
         prior_sum = sum(h.prior for h in self.items)
-        lines = [
-            f"[HypothesisSet] {self.snapshot_region} | seed={self.seed} | count={n} | prior_sum={prior_sum:.6f}",
-        ]
+        lines = [f"[HypothesisSet] {self.snapshot_region} | seed={self.seed} | count={n} | prior_sum={prior_sum:.6f}"]
         for i, h in enumerate(top, 1):
             lines.append(f"  #{i}: {h.summary()}")
         return "\n".join(lines)
 
-    def __str__(self) -> str:  # pragma: no cover
+    def __str__(self) -> str:
         return self.summary()
+
+
+# =========================
+# Listings
+# =========================
+
+
+class ListingNormalized(BaseModel):
+    """Normalized facts parsed from listing HTML or text."""
+
+    model_config = ConfigDict(frozen=True, extra="ignore")
+
+    source_url: str | None = None
+    title: str | None = None
+    price: float | None = Field(default=None, ge=0, description="Monthly rent or list price; currency-agnostic float.")
+    address: str | None = None
+
+    bedrooms: float | None = Field(default=None, ge=0, description="Allow 0 for studio; 0.5 for den/loft if detected.")
+    bathrooms: float | None = Field(default=None, ge=0)
+    sqft: int | None = Field(default=None, ge=0)
+    year_built: int | None = Field(default=None, ge=1700, le=datetime.now().year)
+
+    parking: bool | None = None
+    laundry: str | None = Field(default=None, description="One of: in-unit / on-site / none")
+    heating: str | None = None
+    cooling: str | None = None
+    hoa_fee: float | None = Field(default=None, ge=0)
+    notes: str | None = None
+
+    postal_code: str | None = Field(
+        None,
+        description="Postal/ZIP code derived from listing text/HTML when available.",
+    )
+
+    def summary(self) -> str:
+        bits: list[str] = []
+        if self.title:
+            bits.append(self.title)
+        if self.price is not None:
+            bits.append(f"price={self.price:,.0f}")
+        if self.bedrooms is not None:
+            bits.append(f"{self.bedrooms} bd")
+        if self.bathrooms is not None:
+            bits.append(f"{self.bathrooms} ba")
+        if self.sqft is not None:
+            bits.append(f"{self.sqft} sqft")
+        if self.address:
+            bits.append(self.address)
+        if self.parking is not None:
+            bits.append(f"parking={'Y' if self.parking else 'N'}")
+        if self.laundry:
+            bits.append(f"laundry={self.laundry}")
+        return " | ".join(bits) if bits else "ListingNormalized: (no key facts)"
+
+
+class PhotoInsights(BaseModel):
+    """Deterministic CV-derived insights from a folder of photos."""
+
+    model_config = ConfigDict(frozen=True, extra="ignore")
+
+    room_counts: dict[str, int] = Field(default_factory=dict, description="Counts per room type (kitchen, bath, etc.).")
+    amenities: dict[str, bool] = Field(default_factory=dict, description="Amenity presence flags.")
+    quality_flags: dict[str, float] = Field(default_factory=dict, description="Quality scores in [0,1].")
+    provider: str = Field(..., description="CV provider name.")
+    version: str = Field(..., description="Provider/model version string.")
+
+    @field_validator("room_counts")
+    @classmethod
+    def _non_negative_counts(cls, v: dict[str, int]) -> dict[str, int]:
+        for k, val in v.items():
+            if val < 0:
+                raise ValueError(f"room_counts[{k}] must be >= 0")
+        return v
+
+    @field_validator("quality_flags")
+    @classmethod
+    def _quality_0_1(cls, v: dict[str, float]) -> dict[str, float]:
+        for k, val in v.items():
+            if not (0.0 <= val <= 1.0):
+                raise ValueError(f"quality_flags[{k}] must be in [0,1]")
+        return v
+
+    def summary(self) -> str:
+        rooms = ", ".join(f"{k}:{v}" for k, v in sorted(self.room_counts.items()))
+        ams = ", ".join(k for k, v in sorted(self.amenities.items()) if v)
+        q = ", ".join(f"{k}:{v:.2f}" for k, v in sorted(self.quality_flags.items()))
+        return f"Rooms[{rooms}] | Amenities[{ams}] | Quality[{q}] via {self.provider}@{self.version}"
+
+
+# ============================================================
+# Fetch/cache models
+# ============================================================
+
+
+class HtmlSnapshot(BaseModel):
+    """
+    Cached, offline-first HTML snapshot.
+
+    Used as the hand-off contract from the fetcher to the parsers. Paths point
+    to files within the stable cache directory for the URL.
+    """
+
+    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True, extra="ignore")
+
+    url: str = Field(..., description="Original URL of the snapshot.")
+    fetched_at: datetime = Field(..., description="UTC timestamp when the snapshot was last fetched.")
+    status_code: int = Field(..., description="HTTP status code returned at fetch time.")
+    html_path: Path = Field(..., description="Filesystem path to the raw HTML file.")
+    tree_path: Path | None = Field(None, description="Path to pretty-printed DOM tree, if available.")
+    bytes_size: int = Field(..., ge=0, description="Size of the raw HTML in bytes.")
+    sha256: str = Field(..., description="SHA-256 digest of the raw HTML bytes.")
+
+
+class FetchPolicy(BaseModel):
+    """
+    Deterministic fetch policy for `html_fetcher` (offline-first).
+
+    Defines how the HTML fetcher behaves with respect to networking,
+    robots.txt, rendering, caching, and error handling.
+
+    Designed to keep ingestion reproducible and testable while still
+    allowing controlled overrides (e.g., enabling headless rendering).
+    """
+
+    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True, extra="ignore")
+
+    captcha_mode: Literal["strict", "soft", "off"] = Field(
+        "soft",
+        description=(
+            "Captcha/WAF handling mode:\n"
+            " - 'strict': raise an exception immediately\n"
+            " - 'soft': log a warning and continue if possible\n"
+            " - 'off': ignore captcha/WAF signals"
+        ),
+    )
+
+    min_body_text: int = Field(
+        400,
+        ge=0,
+        description="Minimum number of text characters required to consider a page 'real'. " "Helps detect placeholder or blocked pages.",
+    )
+
+    allow_network: bool = Field(
+        False,
+        description="If False, enforce offline-only (cache must already exist).",
+    )
+    allow_non_200: bool = Field(
+        False,
+        description="If False, raise on any HTTP status >= 400. " "If True, allow snapshot even with non-200 status codes.",
+    )
+    respect_robots: bool = Field(
+        True,
+        description="Whether to respect robots.txt before fetching online.",
+    )
+    timeout_s: float = Field(
+        15.0,
+        gt=0,
+        description="HTTP timeout in seconds for online fetches.",
+    )
+    user_agent: str = Field(
+        "AI-REA/0.2 (+deterministic-ingest)",
+        description="User-Agent string used in HTTP requests.",
+    )
+    cache_dir: Path = Field(
+        default=Path("data/cache"),
+        description="Directory where cached HTML and metadata files are stored.",
+    )
+
+    render_js: bool = Field(
+        False,
+        description="If True, attempt headless JS rendering with Playwright/Chromium.",
+    )
+    render_wait_s: float = Field(
+        8.0,
+        ge=0,
+        description="Maximum seconds to wait after navigation in render mode.",
+    )
+    render_wait_until: str = Field(
+        "networkidle",
+        description="Event to wait for in render mode. " "Valid values: 'load', 'domcontentloaded', 'networkidle'.",
+    )
+    render_selector: str | None = Field(
+        None,
+        description="Optional CSS selector to wait for in render mode before snapshot.",
+    )
+    save_screenshot: bool = Field(
+        False,
+        description="If True, save a PNG screenshot of the rendered page in the cache directory.",
+    )
+
+    strict_dom: bool = Field(
+        False,
+        description="If True, raise exceptions on DOM parse errors instead of ignoring them.",
+    )
+
+
+# ============================================================
+# Ingestion result (normalized outputs)
+# ============================================================
+
+
+class IngestResult(BaseModel):
+    """
+    Aggregated result from the listing ingest pipeline.
+
+    Contains:
+      - `listing`: the normalized facts parsed from HTML or text
+      - `photos`: deterministic CV-derived insights from the photo set
+      - `insights`: human-readable signals for the strategist (address, amenities, etc.)
+    """
+
+    listing: ListingNormalized = Field(..., description="Normalized listing facts parsed from HTML/text.")
+    photos: PhotoInsights = Field(..., description="Deterministic CV-derived insights from photos.")
+    insights: ListingInsights = Field(..., description="Signals extracted from listing text and photos.")
+
+    model_config = ConfigDict(frozen=True, extra="ignore")
+
+
+# ============================================================
+# Address parsing result
+# ============================================================
+
+
+@dataclass(frozen=True)
+class AddressResult(BaseModel):
+    """Best-effort structured postal address extracted from text/HTML."""
+
+    address_line: str | None = Field(
+        None,
+        description="Single-line street/city line if detected (e.g., '123 Main St, Springfield').",
+    )
+    postal_code: str | None = Field(
+        None,
+        description="Canonicalized postal/ZIP code if detected (e.g., 'H2X 1Y4', '02139', 'SW1A 1AA', '1234 AB').",
+    )
+    country_hint: Literal["CA", "US", "UK", "NL", "EU"] | None = Field(
+        None,
+        description="Heuristic hint based on the postal pattern (Canada/US/UK/NL or generic EU 5-digit).",
+    )

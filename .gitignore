@@ -114,3 +114,6 @@ Desktop.ini
 
 # Ignore any file or folder with "_ignore" anywhere in its name (recursively)
 **/*_ignore*
+
+# Ignore any file in the cache directories
+data/cache/**

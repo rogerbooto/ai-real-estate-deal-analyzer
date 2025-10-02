@@ -1,7 +1,13 @@
 # Testing & QA
 pytest>=8.3
 pytest-cov>=5.0
-ruff>=0.6
-mypy>=1.18
+
+# Linters & Type Checking
 ruff==0.6.9
+mypy>=1.18
 pre-commit==2.20.0
+
+# Type stubs (for mypy)
+types-requests
+types-beautifulsoup4
+types-python-dateutil

@@ -29,7 +29,7 @@ DEFAULT_GRID_STEPS: dict[str, int] = {k: 3 for k in _ORDER}
 def _grid_values(band: tuple[float, float, float], steps: int) -> list[float]:
     """
     Deterministic values per axis. For steps==3, we return [min, base, max].
-    (Hook left here if you extend to 5/7 point grids later.)
+    (Hook left here if extended to 5/7 point grids later.)
     """
     if steps != 3:
         raise ValueError("Only 3-step grids are supported in Milestone B (min/base/max).")

@@ -33,6 +33,7 @@ import re
 from collections.abc import Mapping
 from typing import Any
 
+from src.core.normalize.address import extract_address
 from src.schemas.models import ListingInsights
 
 # ----------------------------
@@ -124,7 +125,7 @@ def parse_listing_string(text: str) -> ListingInsights:
     """
     norm = " ".join(text.split())  # collapse whitespace for easier regex
 
-    address = _extract_address(norm)
+    address = extract_address(norm)
     amenities = _extract_keywords(norm, _AMENITY_KEYWORDS)
     condition = _extract_keywords(norm, _CONDITION_KEYWORDS)
     defects = _extract_keywords(norm, _DEFECT_KEYWORDS)
@@ -142,17 +143,6 @@ def parse_listing_string(text: str) -> ListingInsights:
 # ----------------------------
 # Internals
 # ----------------------------
-
-
-def _extract_address(text: str) -> str | None:
-    """Return a best-effort single-line address if found; otherwise None."""
-    m = _ADDRESS_RE.search(text)
-    if not m:
-        return None
-    # Clean and normalize spacing/commas
-    line = m.group("line").strip(" ,")
-    line = re.sub(r"\s{2,}", " ", line)
-    return line
 
 
 def _extract_keywords(text: str, dictionary: Mapping[str, Any]) -> list[str]:

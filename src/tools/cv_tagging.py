@@ -18,12 +18,12 @@ from __future__ import annotations
 import os
 from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, TypeAlias, cast
 
 from .vision.ontology import derive_amenities, map_raw_tags
 from .vision.provider_base import VisionProvider, run_batch
 
-JSONDict = dict[str, Any]
+JSONDict: TypeAlias = dict[str, Any]
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff"}
 
