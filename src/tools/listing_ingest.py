@@ -5,8 +5,9 @@ Listing ingest tool (URL or local file) → normalized contracts + synthesized i
 Pipeline (deterministic, offline-first by default):
   1) If URL is provided: core.fetch.fetch_html(policy) → cached HTML/DOM paths
   2) core.normalize.parse_any_to_normalized(path) → ListingNormalized
-  3) core.cv.build_photo_insights(photo_dir, use_ai=...) → PhotoInsights
-  4) core.insights.synthesize_listing_insights(listing, photos) → ListingInsights
+  3) (optional) Discover & download media to cache/<hash>/media
+  4) core.cv.build_photo_insights(photo_dir or media_dir, use_ai=...) → PhotoInsights
+  5) core.insights.synthesize_listing_insights(listing, photos) → ListingInsights
 
 This tool is the single integration point for agents/orchestrators and the CLI.
 """
@@ -14,12 +15,23 @@ This tool is the single integration point for agents/orchestrators and the CLI.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
-from src.core.cv import build_photo_insights
+from src.core.cv.photo_insights import build_photo_insights
 from src.core.fetch import fetch_html
+from src.core.fetch.cache import cache_paths
 from src.core.insights import synthesize_listing_insights
+from src.core.media.pipeline import collect_media
 from src.core.normalize import parse_any_to_normalized
-from src.schemas.models import FetchPolicy, IngestResult
+from src.schemas.models import (
+    FetchPolicy,
+    IngestResult,
+    ListingInsights,
+    ListingNormalized,
+    MediaBundle,
+    MediaKind,
+    PhotoInsights,
+)
 
 
 def ingest_listing(
@@ -29,43 +41,117 @@ def ingest_listing(
     photos_dir: Path | None = None,
     policy: FetchPolicy | None = None,
     use_ai: bool = False,
+    download_media: bool = True,
+    media_max_items: int = 64,
+    media_kinds: set[MediaKind] | None = None,  # <- set (matches collect_media)
 ) -> IngestResult:
     """
     Ingest a listing's artifacts and return durable models.
-
-    Args:
-        url: Optional URL to fetch (cache-first according to `policy`).
-        file: Optional local file path (HTML/XML/TXT). Used if `url` is None.
-        photos_dir: Optional directory of images for photo insights.
-        policy: FetchPolicy controlling offline/robots/rendering behavior.
-        use_ai: If True, request AI pass from the cv_tagging orchestrator.
-
-    Returns:
-        IngestResult(listing=ListingNormalized, photos=PhotoInsights, insights=ListingInsights)
-
-    Raises:
-        HtmlFetcherError and its subclasses for fetch errors (when url is provided).
-        File I/O exceptions if `file` cannot be read.
     """
+    if not url and not file:
+        raise ValueError("Either `url` or `file` must be provided.")
+
+    pol = policy or FetchPolicy()
+
+    snapshot = None
+    listing: ListingNormalized
+
     if url:
-        pol = policy or FetchPolicy()
-        snap = fetch_html(url, policy=pol)
-        # Prefer rendered tree if available, else raw tree, else raw html
-        doc_path = snap.tree_path or snap.html_path
-        listing = parse_any_to_normalized(doc_path)
-        listing = listing.model_copy(update={"source_url": url})
+        # Fetch (offline-first by policy), then parse normalized facts
+        snapshot = fetch_html(url, policy=pol)
+        doc_path = snapshot.tree_path or snapshot.html_path
+        listing = parse_any_to_normalized(doc_path).model_copy(update={"source_url": url})
     else:
-        if not file:
-            raise ValueError("Either `url` or `file` must be provided.")
+        assert file is not None
         listing = parse_any_to_normalized(file)
 
-    # Photo insights (safe defaults when no photos_dir)
-    if photos_dir and photos_dir.exists():
-        photos = build_photo_insights(photos_dir, use_ai=use_ai)
+    # Media: discover & download to cache/<hash>/media
+    cache_root = cache_paths(url or str(file), pol.cache_dir)
+    media_bundle: MediaBundle = MediaBundle()
+    if download_media:
+        media_bundle = collect_media(
+            url=listing.source_url or (url or ""),
+            snapshot=snapshot,
+            media_dir=cache_root["media_dir"],
+            policy=pol,
+            allowed_kinds=media_kinds,  # already a set or None
+            max_items=media_max_items,
+            referer=listing.source_url or url,
+            min_width=150,  # skip tiny images
+            min_height=150,  # skip tiny images
+            min_width_hint=150,  # prefer at least 150px wide if available
+            min_height_hint=150,  # prefer at least 150px high if available
+        )
+
+    # Photo insights: prefer explicit photos_dir, else use downloaded images if any
+    photos_path = photos_dir
+    if photos_path is None and any(a.kind == "image" for a in media_bundle.assets):
+        photos_path = cache_root["media_dir"]
+
+    if photos_path is not None:
+        photos = build_photo_insights(photos_path, use_ai=use_ai)
     else:
         photos = build_photo_insights(Path("__no_images__"), use_ai=use_ai)
 
-    # Synthesize ListingInsights (guaranteed non-empty address)
-    insights = synthesize_listing_insights(listing, photos)
+    insights: ListingInsights = synthesize_listing_insights(listing, photos)
 
-    return IngestResult(listing=listing, photos=photos, insights=insights)
+    return IngestResult(listing=listing, photos=photos, insights=insights, media=media_bundle)
+
+
+# ---------------------------
+# Agent-facing wrapper
+# ---------------------------
+
+
+def _policy_from_dict(d: dict[str, Any] | FetchPolicy | None) -> FetchPolicy:
+    """
+    Normalize an incoming policy that may be:
+      - a FetchPolicy instance,
+      - a plain dict of policy fields,
+      - or None (use defaults).
+    """
+    if isinstance(d, FetchPolicy):
+        return d
+    if not d:
+        return FetchPolicy()
+
+    return FetchPolicy(
+        captcha_mode=d.get("captcha_mode", "soft"),
+        min_body_text=int(d.get("min_body_text", 400)),
+        allow_network=bool(d.get("allow_network", False)),
+        allow_non_200=bool(d.get("allow_non_200", False)),
+        respect_robots=bool(d.get("respect_robots", True)),
+        timeout_s=float(d.get("timeout_s", 15.0)),
+        user_agent=str(d.get("user_agent", "AI-REA/0.2 (+deterministic-ingest)")),
+        cache_dir=Path(d.get("cache_dir", "data/raw")),
+        render_js=bool(d.get("render_js", False)),
+        render_wait_s=float(d.get("render_wait_s", 9.0)),
+        render_wait_until=str(d.get("render_wait_until", "networkidle")),
+        render_selector=(str(d["render_selector"]) if d.get("render_selector") else None),
+        save_screenshot=bool(d.get("save_screenshot", False)),
+        strict_dom=bool(d.get("strict_dom", False)),
+    )
+
+
+def run_listing_ingest_tool(
+    *,
+    url: str | None = None,
+    file: str | None = None,
+    photos_dir: str | None = None,
+    fetch_policy: dict[str, Any] | FetchPolicy | None = None,
+    use_ai: bool = False,
+) -> tuple[ListingNormalized, PhotoInsights]:
+    """
+    Agent-callable ingestion entrypoint.
+    Returns the typed models (callers can .model_dump() for dicts if needed).
+    """
+    pol = _policy_from_dict(fetch_policy)
+    result = ingest_listing(
+        url=url,
+        file=Path(file) if file else None,
+        photos_dir=Path(photos_dir) if photos_dir else None,
+        policy=pol,
+        use_ai=use_ai,
+        # agent path uses defaults for media flags; CLI exposes them explicitly
+    )
+    return result.listing, result.photos

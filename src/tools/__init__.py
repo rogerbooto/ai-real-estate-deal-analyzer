@@ -81,7 +81,7 @@ except Exception:  # pragma: no cover
 
 # Optional new ingest tool (only if present in your working tree)
 try:
-    from .listing_ingest_tool import run_listing_ingest_tool  # noqa: F401
+    from .listing_ingest import run_listing_ingest_tool  # noqa: F401
 except Exception:  # pragma: no cover
     run_listing_ingest_tool = None
 

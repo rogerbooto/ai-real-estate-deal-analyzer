@@ -26,9 +26,14 @@ def cache_paths(url: str, base_dir: Path) -> dict[str, Path]:
       - tree.rendered.html
       - page.png
       - meta.json
+      - media/   (directory for downloaded images/videos/docs)
     """
     h = _sha256(url)[:16]
     root = (base_dir / h).resolve()
+
+    media_dir = root / "media"
+    media_dir.mkdir(parents=True, exist_ok=True)
+
     return {
         "root": root,
         "html_raw": root / "index.raw.html",
@@ -37,4 +42,5 @@ def cache_paths(url: str, base_dir: Path) -> dict[str, Path]:
         "tree_rendered": root / "tree.rendered.html",
         "screenshot": root / "page.png",
         "meta": root / "meta.json",
+        "media_dir": media_dir,
     }

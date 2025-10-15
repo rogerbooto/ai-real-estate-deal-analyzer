@@ -3,14 +3,17 @@ from __future__ import annotations
 
 import os
 import random
+from pathlib import Path
 
 import pytest
 
 from src.tools.financial_model import run
 from tests.utils import (
+    DEFAULT_LISTING_HTML,
     default_theses,
     # Financial factories
     make_financial_inputs,
+    make_html_snapshot,
     make_hypothesis,
     make_hypothesis_set,
     make_listing_insights,
@@ -75,6 +78,27 @@ def theses_default():
 def baseline_forecast(baseline_financial_inputs):
     """Run the financial model once for reuse in report tests."""
     return run(baseline_financial_inputs)
+
+
+@pytest.fixture
+def html_snapshot_factory(tmp_path: Path):
+    """
+    Callable factory to create HtmlSnapshot files in a test's tmp path.
+
+    Usage:
+        snap = html_snapshot_factory("<html>...</html>", url="https://x/y")
+    """
+
+    def _factory(html: str = DEFAULT_LISTING_HTML, url: str = "https://example.com/listing/123"):
+        return make_html_snapshot(tmp_path, html=html, url=url)
+
+    return _factory
+
+
+@pytest.fixture
+def sample_html_snapshot(html_snapshot_factory):
+    """Convenience: default listing HTML snapshot."""
+    return html_snapshot_factory(DEFAULT_LISTING_HTML)
 
 
 # -------- Pytest markers --------

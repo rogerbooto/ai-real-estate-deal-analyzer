@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Literal
@@ -127,8 +126,8 @@ class FinancialInputs(BaseModel):
     )
     opex: OperatingExpenses = Field(..., description="Year 1 operating expenses with annual growth.")
     income: IncomeModel = Field(..., description="Revenue model (per-unit monthly inputs; annualized internally).")
-    refi: RefinancePlan = Field(RefinancePlan(), description="Refinance plan. Enabled by default; configurable.")
-    market: MarketAssumptions = Field(MarketAssumptions(), description="Market guardrails and cap-rate assumptions.")
+    refi: RefinancePlan = Field(default_factory=RefinancePlan, description="Refinance plan. Enabled by default; configurable.")
+    market: MarketAssumptions = Field(default_factory=MarketAssumptions, description="Market guardrails and cap-rate assumptions.")
     capex_reserve_upfront: float = Field(
         0.0, description="One-time upfront CapEx/reserves added to initial cash outlay (not recurring OPEX)."
     )
@@ -256,7 +255,6 @@ class InvestmentThesis(BaseModel):
 # =========================
 
 
-@dataclass(frozen=True)
 class MarketSnapshot(BaseModel):
     """
     Point-in-time market context used by scenario generation and guardrails.
@@ -288,7 +286,6 @@ class MarketSnapshot(BaseModel):
         return self.summary()
 
 
-@dataclass(frozen=True)
 class RegionalIncomeTable(BaseModel):
     """
     Reference rent & turnover table for a specific bedroom count in a region.
@@ -326,7 +323,6 @@ class RegionalIncomeTable(BaseModel):
 # =========================
 
 
-@dataclass(frozen=True)
 class MarketHypothesis(BaseModel):
     """
     A single “what-if” market hypothesis (deltas relative to a snapshot).
@@ -369,7 +365,6 @@ class MarketHypothesis(BaseModel):
         return self.summary()
 
 
-@dataclass(frozen=True)
 class HypothesisSet(BaseModel):
     """
     Immutable collection of `MarketHypothesis` items tied to a region and seed.
@@ -600,6 +595,152 @@ class FetchPolicy(BaseModel):
     )
 
 
+# =========================
+# Media (public contracts)
+# =========================
+
+# Canonical media type classification used across the app.
+MediaKind = Literal["image", "video", "floorplan", "document", "other"]
+
+# Where a media reference was discovered (for provenance & debugging).
+MediaSource = Literal["html", "mls_api", "feed", "manual", "unknown"]
+
+
+class MediaCandidate(BaseModel):
+    """
+    A discovered media reference BEFORE download.
+
+    Typical producers:
+      - HTML/DOM scanners (img/src, srcset, JSON-LD, OpenGraph)
+      - Site-specific script blobs (e.g., realtor.ca metadata)
+      - External feeds / MLS APIs
+
+    Notes:
+      - This object is purely a *pointer* with lightweight hints; it never holds file bytes.
+      - The downloader resolves, dedupes, and persists candidates to disk as MediaAsset.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="ignore")
+
+    url: str = Field(..., description="Absolute (preferred) or page-relative URL to the media.")
+    kind: MediaKind = Field(..., description='Media type, e.g., "image" or "video".')
+    source: MediaSource = Field("unknown", description="Provenance of the reference (html|mls_api|feed|manual|unknown).")
+
+    # Hints from the page to improve selection & ordering
+    mime_hint: str | None = Field(None, description="Best-effort MIME hint if present (e.g., 'image/jpeg').")
+    width_hint: int | None = Field(None, ge=1, description="Pixel width hint if advertised.")
+    height_hint: int | None = Field(None, ge=1, description="Pixel height hint if advertised.")
+    bytes_hint: int | None = Field(None, ge=1, description="Approximate bytes size hint if advertised.")
+    priority: float = Field(
+        0.0,
+        description=("Relative selection priority (higher is better). " "Finders may compute this from position, size, or site cues."),
+    )
+    alt_text: str | None = Field(None, description="Alt/title text associated with the media, if any.")
+    page_index: int | None = Field(None, ge=0, description="Page index in a multi-page gallery when known (0-based).")
+    referer_url: str | None = Field(None, description="The page URL that referenced this media (for polite fetching).")
+    attributes: dict[str, str] = Field(
+        default_factory=dict,
+        description="Arbitrary extra attributes captured at discovery time (e.g., data-*).",
+    )
+
+    # Define equality/hash by stable identity (url, kind, source)
+    def __hash__(self) -> int:
+        return hash((self.url, self.kind, self.source))
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, MediaCandidate):
+            return NotImplemented
+        return (self.url, self.kind, self.source) == (other.url, other.kind, other.source)
+
+
+class MediaAsset(BaseModel):
+    """
+    A persisted media file on disk AFTER download.
+
+    This represents the offline-first, canonical record of a media item:
+      - A stable local path in the cache
+      - Metadata for content type, size, image dimensions, and integrity hash
+    """
+
+    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True, extra="ignore")
+
+    local_path: Path = Field(..., description="Absolute path to the downloaded media under the cache media directory.")
+    url: str = Field(..., description="Original source URL used to fetch this asset.")
+    kind: MediaKind = Field(..., description='Media type, e.g., "image" or "video".')
+    source: MediaSource = Field(..., description="Provenance of the reference that produced this asset.")
+
+    content_type: str | None = Field(None, description="HTTP Content-Type (e.g., 'image/jpeg') if available.")
+    bytes_size: int = Field(..., ge=0, description="Size in bytes of the stored file.")
+    sha256: str = Field(..., min_length=32, max_length=128, description="Integrity hash of the stored file (hex).")
+
+    # Optional image metadata (None for non-images)
+    width: int | None = Field(None, ge=1, description="Pixel width if detectable (images only).")
+    height: int | None = Field(None, ge=1, description="Pixel height if detectable (images only).")
+
+    created_at: datetime = Field(..., description="Timestamp when this asset was saved to disk (UTC).")
+    warnings: list[str] = Field(default_factory=list, description="Non-fatal issues encountered during download or probing.")
+
+
+class MediaFinderResult(BaseModel):
+    """
+    Output of a MediaFinder: candidates discovered on a page/feed plus coarse flags.
+
+    Consumers (downloader/ingest) decide which candidates to fetch based on policy
+    (max items, types allowed) and heuristics (priority, dimensions).
+    """
+
+    model_config = ConfigDict(
+        frozen=True,  # makes model hashable (so sets/dicts work)
+        extra="ignore",
+    )
+
+    has_media: bool = Field(
+        False,
+        description="True if the page/feed indicates the presence of media.",
+    )
+    photo_count_hint: int | None = Field(
+        None,
+        ge=0,
+        description="If available, a count from site metadata (e.g., 'photos: 39').",
+    )
+    candidates: set[MediaCandidate] = Field(
+        default_factory=set,
+        description="Unique discovered media pointers (pre-download).",
+    )
+    notes: list[str] = Field(
+        default_factory=list,
+        description="Free-form notes for debugging or provenance.",
+    )
+
+    def merge(self, other: MediaFinderResult) -> MediaFinderResult:
+        """
+        Merge another MediaFinderResult into this one, deduplicating candidates.
+        Notes are concatenated.
+        """
+        merged_candidates = set(self.candidates) | set(other.candidates)
+        merged_notes = list({*self.notes, *other.notes})
+        return MediaFinderResult(
+            has_media=self.has_media or other.has_media,
+            photo_count_hint=self.photo_count_hint or other.photo_count_hint,
+            candidates=merged_candidates,
+            notes=merged_notes,
+        )
+
+
+class MediaBundle(BaseModel):
+    """
+    The final, offline-ready collection of media for a listing.
+
+    Produced after running the downloader on a set of MediaCandidates.
+    May be empty when a page has no media or fetching is disabled/offline.
+    """
+
+    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True, extra="ignore")
+
+    assets: list[MediaAsset] = Field(default_factory=list, description="Downloaded media assets stored locally.")
+    warnings: list[str] = Field(default_factory=list, description="Non-fatal issues during discovery or download.")
+
+
 # ============================================================
 # Ingestion result (normalized outputs)
 # ============================================================
@@ -610,16 +751,18 @@ class IngestResult(BaseModel):
     Aggregated result from the listing ingest pipeline.
 
     Contains:
-      - `listing`: the normalized facts parsed from HTML or text
-      - `photos`: deterministic CV-derived insights from the photo set
-      - `insights`: human-readable signals for the strategist (address, amenities, etc.)
+      - listing: normalized facts parsed from HTML or text
+      - photos: deterministic CV-derived insights from the photo set
+      - insights: human-readable signals for the strategist (address, amenities, etc.)
+      - media: downloaded media assets (if any)
     """
+
+    model_config = ConfigDict(frozen=True, extra="ignore")
 
     listing: ListingNormalized = Field(..., description="Normalized listing facts parsed from HTML/text.")
     photos: PhotoInsights = Field(..., description="Deterministic CV-derived insights from photos.")
     insights: ListingInsights = Field(..., description="Signals extracted from listing text and photos.")
-
-    model_config = ConfigDict(frozen=True, extra="ignore")
+    media: MediaBundle = Field(default_factory=MediaBundle, description="Downloaded media assets (if any).")
 
 
 # ============================================================
@@ -627,9 +770,10 @@ class IngestResult(BaseModel):
 # ============================================================
 
 
-@dataclass(frozen=True)
 class AddressResult(BaseModel):
     """Best-effort structured postal address extracted from text/HTML."""
+
+    model_config = ConfigDict(frozen=True, extra="ignore")
 
     address_line: str | None = Field(
         None,

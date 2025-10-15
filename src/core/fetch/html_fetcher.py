@@ -153,6 +153,19 @@ def fetch_html(url: str, *, policy: FetchPolicy | None = None) -> HtmlSnapshot:
         except Exception:
             return False
 
+    def _looks_like_waf_iframe(html: str) -> bool:
+        """Detect common WAF shells (e.g., Incapsula iframe) in rendered HTML."""
+        try:
+            s = BeautifulSoup(html, "lxml")
+            for fr in s.find_all("iframe", src=True, id=True):
+                if "_Incapsula_Resource" in fr.get("src", ""):
+                    return True
+            if s.find("iframe", src=lambda u: isinstance(u, str) and "_Incapsula_Resource" in u):
+                return True
+        except Exception:
+            pass
+        return False
+
     with fetcher_error_guard(strict_dom=pol.strict_dom):
         # Cache-first: rendered if asked, otherwise raw
         if pol.render_js and paths["html_rendered"].exists():
@@ -230,9 +243,28 @@ def fetch_html(url: str, *, policy: FetchPolicy | None = None) -> HtmlSnapshot:
                     rendered_bytes = None
                     rendered_html = None
 
+                # Post-render WAF check (Incapsula iframe etc.)
+                if rendered_html and _looks_like_waf_iframe(rendered_html):
+                    mode = getattr(pol, "captcha_mode", "soft")
+                    if mode == "strict":
+                        raise CaptchaBlockedError(f"WAF/CAPTCHA suspected in rendered page for {url}")
+                    elif mode == "soft":
+                        try:
+                            meta = json.loads(paths["meta"].read_text()) if paths["meta"].exists() else {}
+                        except Exception:
+                            meta = {}
+                        meta["captcha_suspected"] = True
+                        meta["captcha_in_rendered"] = True
+                        paths["meta"].write_text(json.dumps(meta), encoding="utf-8")
+                        rendered_bytes = None
+                        rendered_html = None
+                    else:  # "off"
+                        if not _looks_like_real_content(rendered_html):
+                            rendered_bytes = None
+                            rendered_html = None
+
                 # If rendered looks like real content, prefer and return it
                 if rendered_html and _looks_like_real_content(rendered_html):
-                    # also pretty-print RAW for debugging if possible
                     try:
                         soup_tmp = BeautifulSoup(content, "lxml")
                         paths["tree_raw"].write_text(soup_tmp.prettify(), encoding="utf-8")
@@ -249,7 +281,6 @@ def fetch_html(url: str, *, policy: FetchPolicy | None = None) -> HtmlSnapshot:
             # If we're here, raw looked like captcha and render didn't help (or not enabled)
             mode = getattr(pol, "captcha_mode", "soft")  # "strict" | "soft" | "off"
             if mode == "strict":
-                # pretty-print RAW for debugging, then raise
                 try:
                     soup_tmp = BeautifulSoup(content, "lxml")
                     paths["tree_raw"].write_text(soup_tmp.prettify(), encoding="utf-8")
@@ -257,7 +288,6 @@ def fetch_html(url: str, *, policy: FetchPolicy | None = None) -> HtmlSnapshot:
                     pass
                 raise CaptchaBlockedError(f"WAF/CAPTCHA suspected for {url} (status={status})")
             elif mode == "soft":
-                # annotate meta and proceed (best-effort)
                 try:
                     meta = json.loads(paths["meta"].read_text()) if paths["meta"].exists() else {}
                 except Exception:
@@ -278,7 +308,6 @@ def fetch_html(url: str, *, policy: FetchPolicy | None = None) -> HtmlSnapshot:
                 raise InvalidHtmlError(f"Failed to parse/pretty RAW HTML for {url}: {type(e).__name__}") from e
 
         # Optional JS render (normal path, when not already done above)
-
         if pol.render_js:
             try:
                 rendered_html = _render_page_with_playwright(
@@ -299,6 +328,26 @@ def fetch_html(url: str, *, policy: FetchPolicy | None = None) -> HtmlSnapshot:
                         raise InvalidHtmlError(f"Failed to parse/pretty RENDERED HTML for {url}: {type(e).__name__}") from e
             except Exception:
                 rendered_bytes = None
+                rendered_html = None
+
+            # Post-render WAF check in normal path
+            if rendered_bytes is not None and rendered_html is not None:
+                if _looks_like_waf_iframe(rendered_html):
+                    mode = getattr(pol, "captcha_mode", "soft")
+                    if mode == "strict":
+                        raise CaptchaBlockedError(f"WAF/CAPTCHA suspected in rendered page for {url}")
+                    elif mode == "soft":
+                        try:
+                            meta = json.loads(paths["meta"].read_text()) if paths["meta"].exists() else {}
+                        except Exception:
+                            meta = {}
+                        meta["captcha_suspected"] = True
+                        meta["captcha_in_rendered"] = True
+                        paths["meta"].write_text(json.dumps(meta), encoding="utf-8")
+                        rendered_bytes = None  # fall back to RAW
+                    else:  # "off"
+                        if not _looks_like_real_content(rendered_html):
+                            rendered_bytes = None
 
         # Choose snapshot
         if pol.render_js and rendered_bytes is not None:

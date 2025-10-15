@@ -4,7 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from src.schemas.models import FetchPolicy, IngestResult, ListingInsights, ListingNormalized
-from src.tools.listing_ingest_tool import run_listing_ingest_tool
+from src.tools.listing_ingest import run_listing_ingest_tool
 
 
 def _listing_to_insights_address_first(listing: ListingNormalized) -> ListingInsights:

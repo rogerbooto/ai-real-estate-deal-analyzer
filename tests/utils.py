@@ -6,6 +6,8 @@ Update values here to cascade across the test suite.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 # Project models
@@ -13,6 +15,7 @@ from src.schemas.models import (
     # Financial model types
     FinancialInputs,
     FinancingTerms,
+    HtmlSnapshot,
     HypothesisSet,
     IncomeModel,
     InvestmentThesis,
@@ -257,3 +260,42 @@ def make_financial_inputs(
 
 def default_theses() -> list[InvestmentThesis]:
     return list(DEFAULT_THESES)
+
+
+# -----------------------------
+# HTML snapshot helpers (NEW)
+# -----------------------------
+
+DEFAULT_LISTING_HTML = """<!doctype html>
+<html>
+  <head><title>Test Listing</title></head>
+  <body><img src="/img.jpg" alt="front"></body>
+</html>
+"""
+
+
+def make_html_snapshot(
+    tmp_dir: Path,
+    *,
+    html: str = DEFAULT_LISTING_HTML,
+    url: str = "https://example.com/listing/123",
+    filename: str = "index.raw.html",
+) -> HtmlSnapshot:
+    """
+    Write `html` to tmp_dir/filename and return a HtmlSnapshot pointing to it.
+    Useful for media finders and DOM parsers.
+    """
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    html_path = tmp_dir / filename
+    html_bytes = html.encode("utf-8")
+    html_path.write_bytes(html_bytes)
+
+    return HtmlSnapshot(
+        url=url,
+        fetched_at=datetime.now(timezone.utc),
+        status_code=200,
+        html_path=html_path,
+        tree_path=None,
+        bytes_size=len(html_bytes),
+        sha256="deadbeef",  # tests don't rely on this; fine to keep static
+    )
