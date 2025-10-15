@@ -1,11 +1,9 @@
-# ingest_cli.py
-
 from __future__ import annotations
 
 import argparse
 from pathlib import Path
 
-from src.schemas.models import FetchPolicy, MediaKind  # add MediaKind
+from src.schemas.models import FetchPolicy, MediaKind
 from src.tools.listing_ingest import ingest_listing
 
 
@@ -14,7 +12,7 @@ def _parse_media_kinds(val: str | None) -> set[MediaKind] | None:
         return None
     items = [v.strip().lower() for v in val.split(",") if v.strip()]
     valid: set[MediaKind] = {"image", "video", "floorplan", "document", "other"}
-    out = set()  # type: set[MediaKind]
+    out: set[MediaKind] = set()
     for it in items:
         if it not in valid:
             raise argparse.ArgumentTypeError(f"invalid media kind: {it!r}")
@@ -71,10 +69,24 @@ def main() -> int:
         media_kinds=media_kinds,
     )
 
-    # Minimal console summary (preserves your existing output)
+    # Minimal console summary
     images = sum(1 for a in result.media.assets if a.kind == "image")
     total = len(result.media.assets)
     print(f"media: {total} assets (images: {images})")
+
+    # Media insights summary
+    mi = result.media_insights
+    if mi:
+        print(
+            "media insights: \n"
+            f"total={mi.total_assets}, images={mi.image_count}, videos={mi.video_count}, "
+            f"docs={mi.document_count}, bytes={mi.bytes_total}, "
+            f"w[{mi.min_width}..{mi.max_width}] h[{mi.min_height}..{mi.max_height}] "
+            f"avg=({mi.avg_width}x{mi.avg_height}), "
+            f"orientations: L={mi.landscape_count} P={mi.portrait_count} S={mi.square_count}, "
+            f"dups={len(mi.duplicate_hashes)}, hero={mi.hero_sha256}"
+        )
+
     if args.pretty:
         from pprint import pprint
 

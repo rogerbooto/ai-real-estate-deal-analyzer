@@ -21,6 +21,7 @@ from src.core.cv.photo_insights import build_photo_insights
 from src.core.fetch import fetch_html
 from src.core.fetch.cache import cache_paths
 from src.core.insights import synthesize_listing_insights
+from src.core.media.insights import analyze_media
 from src.core.media.pipeline import collect_media
 from src.core.normalize import parse_any_to_normalized
 from src.schemas.models import (
@@ -29,6 +30,7 @@ from src.schemas.models import (
     ListingInsights,
     ListingNormalized,
     MediaBundle,
+    MediaInsights,
     MediaKind,
     PhotoInsights,
 )
@@ -95,7 +97,9 @@ def ingest_listing(
 
     insights: ListingInsights = synthesize_listing_insights(listing, photos)
 
-    return IngestResult(listing=listing, photos=photos, insights=insights, media=media_bundle)
+    media_insights: MediaInsights | None = analyze_media(media_bundle.assets) if media_bundle.assets else None
+
+    return IngestResult(listing=listing, photos=photos, insights=insights, media=media_bundle, media_insights=media_insights)
 
 
 # ---------------------------

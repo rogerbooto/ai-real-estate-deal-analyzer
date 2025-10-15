@@ -764,6 +764,8 @@ class IngestResult(BaseModel):
     insights: ListingInsights = Field(..., description="Signals extracted from listing text and photos.")
     media: MediaBundle = Field(default_factory=MediaBundle, description="Downloaded media assets (if any).")
 
+    media_insights: MediaInsights | None = Field(None, description="Summary analytics computed from downloaded media assets.")
+
 
 # ============================================================
 # Address parsing result
@@ -786,4 +788,65 @@ class AddressResult(BaseModel):
     country_hint: Literal["CA", "US", "UK", "NL", "EU"] | None = Field(
         None,
         description="Heuristic hint based on the postal pattern (Canada/US/UK/NL or generic EU 5-digit).",
+    )
+
+
+# =========================
+# Media insights (derived)
+# =========================
+
+
+class MediaInsights(BaseModel):
+    """
+    Descriptive analytics and derived information for a set of downloaded media assets.
+
+    This class provides summary statistics, dimensional ranges, and quality
+    indicators (like duplicates and warnings) to facilitate quick quality assurance
+    and aid in subsequent asset selection (e.g., choosing a hero image).
+    """
+
+    model_config = ConfigDict(frozen=True, extra="ignore")
+
+    # ---------------------------
+    # Totals and Volume
+    # ---------------------------
+    total_assets: int = Field(..., ge=0, description="Total count of all successfully downloaded media assets.")
+    image_count: int = Field(..., ge=0, description="Count of assets identified as images.")
+    video_count: int = Field(..., ge=0, description="Count of assets identified as videos.")
+    document_count: int = Field(..., ge=0, description="Count of assets identified as documents (e.g., PDF).")
+    other_count: int = Field(..., ge=0, description="Count of assets with kinds not covered by the standard types.")
+    bytes_total: int = Field(..., ge=0, description="Total aggregate size of all downloaded assets in bytes.")
+
+    # ---------------------------
+    # Image-only Dimensional Stats
+    # ---------------------------
+    min_width: int | None = Field(None, ge=1, description="Minimum width observed across all image assets.")
+    max_width: int | None = Field(None, ge=1, description="Maximum width observed across all image assets.")
+    min_height: int | None = Field(None, ge=1, description="Minimum height observed across all image assets.")
+    max_height: int | None = Field(None, ge=1, description="Maximum height observed across all image assets.")
+    avg_width: float | None = Field(None, description="Average width of all image assets.")
+    avg_height: float | None = Field(None, description="Average height of all image assets.")
+
+    # ---------------------------
+    # Image Orientation
+    # ---------------------------
+    portrait_count: int = Field(0, description="Count of images where height > width.")
+    landscape_count: int = Field(0, description="Count of images where width > height.")
+    square_count: int = Field(0, description="Count of images where width is approximately equal to height.")
+
+    # ---------------------------
+    # Quality and Selection
+    # ---------------------------
+    duplicate_hashes: list[str] = Field(
+        default_factory=list,
+        description="List of SHA256 hashes corresponding to assets that are exact duplicates (first hash seen is not included).",
+    )
+
+    hero_sha256: str | None = Field(
+        None, description="The SHA256 hash of the best-guess 'hero' image, typically chosen based on the largest area (width * height)."
+    )
+
+    warnings: list[str] = Field(
+        default_factory=list,
+        description="Non-fatal issues discovered while analyzing, such as skipped files due to small size, aspect ratio issues etc.",
     )
