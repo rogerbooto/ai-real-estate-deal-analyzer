@@ -1,3 +1,5 @@
+# src/ingest_cli.py
+
 from __future__ import annotations
 
 import argparse
@@ -32,6 +34,7 @@ def main() -> int:
     p.add_argument("--pretty", type=int, default=1)
     p.add_argument("--download-media", type=int, choices=(0, 1), default=1, help="Enable media discovery & download")
     p.add_argument("--max-media", type=int, default=64, help="Max media assets to fetch")
+    p.add_argument("--media-intel", type=int, default=0, help="Enable media intelligence (phash/quality/palette/hero)")
     p.add_argument(
         "--media-kinds",
         type=str,
@@ -67,6 +70,7 @@ def main() -> int:
         download_media=bool(args.download_media),
         media_max_items=int(args.max_media),
         media_kinds=media_kinds,
+        media_intel=bool(args.media_intel),
     )
 
     # Minimal console summary

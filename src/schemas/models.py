@@ -680,6 +680,11 @@ class MediaAsset(BaseModel):
     created_at: datetime = Field(..., description="Timestamp when this asset was saved to disk (UTC).")
     warnings: list[str] = Field(default_factory=list, description="Non-fatal issues encountered during download or probing.")
 
+    @property
+    def path(self) -> Path:
+        """Path property for easy consumption by media intelligence"""
+        return self.local_path
+
 
 class MediaFinderResult(BaseModel):
     """
@@ -739,6 +744,18 @@ class MediaBundle(BaseModel):
 
     assets: list[MediaAsset] = Field(default_factory=list, description="Downloaded media assets stored locally.")
     warnings: list[str] = Field(default_factory=list, description="Non-fatal issues during discovery or download.")
+
+    @property
+    def images(self) -> list[MediaAsset]:
+        return [a for a in self.assets if a.kind == "image"]
+
+    @property
+    def videos(self) -> list[MediaAsset]:
+        return [a for a in self.assets if a.kind == "video"]
+
+    @property
+    def floorplans(self) -> list[MediaAsset]:
+        return [a for a in self.assets if a.kind == "floorplan"]
 
 
 # ============================================================
@@ -805,7 +822,7 @@ class MediaInsights(BaseModel):
     and aid in subsequent asset selection (e.g., choosing a hero image).
     """
 
-    model_config = ConfigDict(frozen=True, extra="ignore")
+    model_config = ConfigDict(frozen=False, extra="ignore")
 
     # ---------------------------
     # Totals and Volume
@@ -842,11 +859,26 @@ class MediaInsights(BaseModel):
         description="List of SHA256 hashes corresponding to assets that are exact duplicates (first hash seen is not included).",
     )
 
-    hero_sha256: str | None = Field(
-        None, description="The SHA256 hash of the best-guess 'hero' image, typically chosen based on the largest area (width * height)."
-    )
-
     warnings: list[str] = Field(
         default_factory=list,
         description="Non-fatal issues discovered while analyzing, such as skipped files due to small size, aspect ratio issues etc.",
+    )
+
+    duplicates: list[list[str]] = Field(
+        default_factory=list,
+        description="Lists of SHA256 hashes that are visually similar (near-duplicates) based on perceptual hashing.",
+    )
+
+    image_quality: dict[str, dict[str, float]] = Field(
+        default_factory=dict,
+        description="Per-image quality metrics, including sharpness, brightness, and contrast.",
+    )
+
+    palettes: dict[str, list[str]] = Field(
+        default_factory=dict,
+        description="Color palettes extracted from images, represented as lists of hex color strings.",
+    )
+
+    hero_sha256: str | None = Field(
+        None, description="The SHA256 hash of the best-guess 'hero' image, typically chosen based on the largest area (width * height)."
     )

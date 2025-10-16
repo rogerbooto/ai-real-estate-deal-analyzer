@@ -21,7 +21,7 @@ from src.core.cv.photo_insights import build_photo_insights
 from src.core.fetch import fetch_html
 from src.core.fetch.cache import cache_paths
 from src.core.insights import synthesize_listing_insights
-from src.core.media.insights import analyze_media
+from src.core.media.insights import analyze_media, enrich_with_intelligence
 from src.core.media.pipeline import collect_media
 from src.core.normalize import parse_any_to_normalized
 from src.schemas.models import (
@@ -45,7 +45,8 @@ def ingest_listing(
     use_ai: bool = False,
     download_media: bool = True,
     media_max_items: int = 64,
-    media_kinds: set[MediaKind] | None = None,  # <- set (matches collect_media)
+    media_kinds: set[MediaKind] | None = None,
+    media_intel: bool = False,
 ) -> IngestResult:
     """
     Ingest a listing's artifacts and return durable models.
@@ -99,6 +100,10 @@ def ingest_listing(
 
     media_insights: MediaInsights | None = analyze_media(media_bundle.assets) if media_bundle.assets else None
 
+    # Run intelligence enrichment if enabled and we have images
+    if media_intel and media_insights and media_bundle.images:
+        enrich_with_intelligence(media_bundle, media_insights, enable=True)
+
     return IngestResult(listing=listing, photos=photos, insights=insights, media=media_bundle, media_insights=media_insights)
 
 
@@ -127,7 +132,7 @@ def _policy_from_dict(d: dict[str, Any] | FetchPolicy | None) -> FetchPolicy:
         respect_robots=bool(d.get("respect_robots", True)),
         timeout_s=float(d.get("timeout_s", 15.0)),
         user_agent=str(d.get("user_agent", "AI-REA/0.2 (+deterministic-ingest)")),
-        cache_dir=Path(d.get("cache_dir", "data/raw")),
+        cache_dir=Path(d.get("cache_dir", "data/cache")),
         render_js=bool(d.get("render_js", False)),
         render_wait_s=float(d.get("render_wait_s", 9.0)),
         render_wait_until=str(d.get("render_wait_until", "networkidle")),
