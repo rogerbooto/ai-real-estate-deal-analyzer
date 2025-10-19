@@ -12,10 +12,7 @@ import numpy as np
 from numpy.typing import NDArray
 from PIL import Image
 
-try:
-    _RESAMPLE_BICUBIC = Image.Resampling.BICUBIC  # Pillow >= 9.1
-except AttributeError:  # Pillow < 9.1
-    _RESAMPLE_BICUBIC = Image.BICUBIC
+_RESAMPLE_BICUBIC = Image.Resampling.BICUBIC
 
 
 # --- Public API --------------------------------------------------------------
