@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import cast
+from typing import Literal, cast
 
 import requests
 from bs4 import BeautifulSoup
@@ -68,7 +68,14 @@ def _render_page_with_playwright(
         ctx = browser.new_context(user_agent=ua)
         page = ctx.new_page()
         page.set_default_timeout(int(wait_s * 1000))
-        page.goto(url, wait_until=wait_until)
+
+        # Coerce to the Literal union accepted by Playwright
+        allowed: set[str] = {"commit", "domcontentloaded", "load", "networkidle"}
+        wu_str = wait_until if wait_until in allowed else "networkidle"
+        wu_lit = cast(Literal["commit", "domcontentloaded", "load", "networkidle"], wu_str)
+
+        page.goto(url, wait_until=wu_lit)
+
         if selector:
             try:
                 page.wait_for_selector(selector, timeout=int(wait_s * 1000))

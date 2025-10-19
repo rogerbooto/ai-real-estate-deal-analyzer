@@ -29,11 +29,11 @@ class PaletteColor:
 
 
 def load_bounded_thumbnail(path: Path, max_side: int = 512) -> Image.Image:
-    img = Image.open(path)
+    img: Image.Image = Image.open(path)
     try:
         from PIL import ImageOps
 
-        img = ImageOps.exif_transpose(img)
+        img = ImageOps.exif_transpose(img) or img
     except Exception:
         pass
     img = img.convert("RGB")
