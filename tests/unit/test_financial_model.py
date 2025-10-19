@@ -1,7 +1,7 @@
 # tests/unit/test_financial_model.py
 
+from src.core.finance import run_financial_model
 from src.schemas.models import FinancialForecast
-from src.tools.financial_model import run
 from tests.utils import (
     make_financial_inputs,
     make_financing_terms,
@@ -14,9 +14,9 @@ from tests.utils import (
 
 def test_run_financials_baseline_no_refi():
     fin = make_financial_inputs(do_refi=False, num_units=4)
-    out = run(fin)
+    out = run_financial_model(fin)
     assert isinstance(out, FinancialForecast)
-    # Stable fields in your model
+    # Stable fields in the model
     assert hasattr(out, "purchase") and out.purchase is not None
     assert out.refi is None  # no-refi path
     assert hasattr(out, "irr_10yr")
@@ -26,7 +26,7 @@ def test_run_financials_baseline_no_refi():
 
 def test_run_financials_with_refi():
     fin = make_financial_inputs(do_refi=True, num_units=4)
-    out = run(fin)
+    out = run_financial_model(fin)
     assert out.refi is not None
     assert getattr(out.refi, "year", None) == 5  # default from factory
 
@@ -42,6 +42,6 @@ def test_variations_override_specific_fields():
             "market": make_market_assumptions(cap_rate_floor=0.045),
         }
     )
-    out = run(fin)
+    out = run_financial_model(fin)
     assert isinstance(out, FinancialForecast)
     assert out.refi is not None and getattr(out.refi, "year", None) == 7

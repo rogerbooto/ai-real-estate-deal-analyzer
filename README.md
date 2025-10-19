@@ -4,7 +4,6 @@
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
 [![Release](https://img.shields.io/github/v/release/rogerbooto/ai-real-estate-deal-analyzer)](https://github.com/rogerbooto/ai-real-estate-deal-analyzer/releases)
 
-
 # The AI Real Estate Deal Analyzer
 
 An autonomous AI co-pilot that ingests a real estate listing and user-provided market data to perform a rigorous, Grant Cardone–inspired investment analysis, generating a comprehensive financial breakdown and a human-readable investment thesis.
@@ -30,9 +29,28 @@ Thesis verdict: CONDITIONAL
 ```
 
 ### Demo Artifacts
-- Sample input data: `data/sample/`
-- Example outputs: `artifacts/36_kelly_analysis.md` and `artifacts/36_kelly_analysis.pdf`
 
+* Sample input data: `data/sample/`
+* Example outputs: `artifacts/36_kelly_analysis.md` and `artifacts/36_kelly_analysis.pdf`
+
+---
+
+## Documentation Index
+
+This section links to in-depth READMEs for each `src/` subfolder.
+
+| Folder             | Description                                                                        | Link                                                   |
+| ------------------ | ---------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| **schemas/**       | Pydantic models defining all data contracts (inputs, forecasts, market scenarios). | [schemas/README.md](src/schemas/README.md)             |
+| **core/**          | Deterministic finance engine, normalization, CV bridge, and insights logic.        | [core/README.md](src/core/README.md)                   |
+| **tools/**         | Operational utilities (listing ingestion, CV tagging, vision providers).           | [tools/README.md](src/tools/README.md)                 |
+| **orchestrators/** | End-to-end pipeline coordinators for deterministic and LLM modes.                  | [orchestrators/README.md](src/orchestrators/README.md) |
+| **agents/**        | High-level wrappers managing listing, finance, and strategy tasks.                 | [agents/README.md](src/agents/README.md)               |
+| **reports/**       | Markdown report generator for forecasts and investment theses.                     | [reports/README.md](src/reports/README.md)             |
+| **inputs/**        | Input loading, validation, and environment override logic.                         | [inputs/README.md](src/inputs/README.md)               |
+| **market/**        | Market hypothesis and rejector utilities (V2 optional).                            | [market/README.md](src/market/README.md)               |
+
+> Relationships: `inputs → orchestrators → agents → core/tools → reports`, with `market` optional.
 
 ---
 
@@ -304,12 +322,14 @@ pytest -q
 All tests must pass before merging new code.
 
 Lint & types:
+
 ```bash
 ruff check .
 mypy --strict src
 ```
 
 Coverage is enforced via `pytest.ini` (90% minimum) and uploaded to Codecov in CI:
+
 ```bash
 # pytest.ini
 [pytest]
@@ -323,15 +343,23 @@ testpaths = tests
 
 ## Roadmap
 
-* **V1 (MVP):**
+* **V1 (MVP) — ✅ Implemented**
 
-  * Local text + photo ingestion
-  * Deterministic financial modeling
-  * Agent orchestration and thesis output
-* **V2+:**
+  * Local text + photo ingestion via `tools.listing_ingest` and `agents.listing_analyst`
+  * Deterministic financial modeling using `core.finance.engine`
+  * Agent orchestration and thesis output through `orchestrators.crew`
+  * Markdown report generation (`reports.generator`)
+  * Full test coverage (>90%) and CI/CD via GitHub Actions + Codecov
+  * Modular documentation across `schemas`, `core`, `tools`, `agents`, `orchestrators`, `reports`, `inputs`, and `market`
+  * Environment-driven configuration (`.env` with AIREAL_* flags)
 
-  * Live market data ingestion
-  * Streamlit or web UI
+* **V2+ (In Progress / Planned)**
+
+  * Integration of **Market Hypotheses** and **Rejector** modules into main orchestration
+  * Live market data ingestion (regional income, cap-rate drift, comps)
+  * Streamlit or web UI for interactive scenario exploration
   * Predictive modeling for valuation and rent growth
+  * CrewAI-based orchestration (LLM reasoning for Investment Thesis)
+  * Expanded scenario reporting and stress-test visualizations
 
 ---

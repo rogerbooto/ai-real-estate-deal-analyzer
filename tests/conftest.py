@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from src.tools.financial_model import run
+from src.core.finance import run_financial_model
 from tests.utils import (
     DEFAULT_LISTING_HTML,
     default_theses,
@@ -77,7 +77,7 @@ def theses_default():
 @pytest.fixture
 def baseline_forecast(baseline_financial_inputs):
     """Run the financial model once for reuse in report tests."""
-    return run(baseline_financial_inputs)
+    return run_financial_model(baseline_financial_inputs)
 
 
 @pytest.fixture

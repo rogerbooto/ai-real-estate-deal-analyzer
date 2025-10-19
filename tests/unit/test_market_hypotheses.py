@@ -2,6 +2,7 @@
 from dataclasses import FrozenInstanceError
 
 import pytest
+from pydantic import ValidationError
 
 from src.schemas.models import HypothesisSet
 from tests.utils import make_hypothesis, make_hypothesis_set
@@ -40,7 +41,8 @@ def test_market_hypothesis_as_dict_and_immutability():
     d = h.as_dict()
     assert d["prior"] == 0.5 and d["str_viability"] is False
 
-    with pytest.raises(FrozenInstanceError):
+    # Pydantic v2 raises ValidationError(type='frozen_instance'); keep FrozenInstanceError for compatibility
+    with pytest.raises((FrozenInstanceError, ValidationError)):
         h.prior = 0.6
 
 

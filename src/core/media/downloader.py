@@ -353,7 +353,11 @@ def download_media(
             continue
         except Exception:
             continue
-
-    resp.close()  # defensive, should be closed by context manager
+        finally:
+            if resp is not None:
+                try:
+                    resp.close()  # defensive, should be closed by context manager
+                except Exception:
+                    pass
 
     return assets

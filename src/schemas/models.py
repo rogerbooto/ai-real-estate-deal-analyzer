@@ -131,6 +131,13 @@ class FinancialInputs(BaseModel):
     capex_reserve_upfront: float = Field(
         0.0, description="One-time upfront CapEx/reserves added to initial cash outlay (not recurring OPEX)."
     )
+    income_is_estimated: bool = Field(
+        False,
+        description=(
+            "If True, the engine may apply conservative insight-driven adjustments to income. "
+            "Leave False to respect user-provided income verbatim."
+        ),
+    )
 
 
 # =========================

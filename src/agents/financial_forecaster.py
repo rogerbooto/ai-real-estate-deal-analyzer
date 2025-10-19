@@ -11,7 +11,7 @@ FinancialForecast for downstream consumption.
 Design
 ------
 - Deterministic: no external calls, no randomness.
-- Delegates all math to src/tools/financial_model.run().
+- Delegates all math to src.core.finance.run_financial_model().
 - Leaves domain rules (warnings, cap-rate floors, etc.) to the model.
 - Provides a clean seam to add optional AI reasoning in V2+ if needed.
 
@@ -22,8 +22,8 @@ forecast_financials(inputs, insights=None, horizon_years=10) -> FinancialForecas
 
 from __future__ import annotations
 
+from src.core.finance import run_financial_model
 from src.schemas.models import FinancialForecast, FinancialInputs, ListingInsights
-from src.tools.financial_model import run as run_financial_model
 
 
 def _clamp01(x: float) -> float:
