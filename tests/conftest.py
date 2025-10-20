@@ -11,6 +11,7 @@ from src.core.finance import run_financial_model
 from tests.utils import (
     DEFAULT_LISTING_HTML,
     default_theses,
+    make_document,
     # Financial factories
     make_financial_inputs,
     make_html_snapshot,
@@ -99,6 +100,43 @@ def html_snapshot_factory(tmp_path: Path):
 def sample_html_snapshot(html_snapshot_factory):
     """Convenience: default listing HTML snapshot."""
     return html_snapshot_factory(DEFAULT_LISTING_HTML)
+
+
+@pytest.fixture
+def document_factory(tmp_path: Path):
+    """
+    Callable factory to create a simple HTML or text document in tmp_path.
+
+    Usage:
+        html_doc = document_factory(html="<html>...</html>")
+        txt_doc  = document_factory(text="hello", filename="notes.txt")
+    """
+
+    def _factory(*, html: str | None = None, text: str | None = None, filename: str | None = None) -> Path:
+        return make_document(tmp_path, html=html, text=text, filename=filename)
+
+    return _factory
+
+
+@pytest.fixture
+def photo_dir(tmp_path: Path) -> Path:
+    """
+    Fixture that creates a deterministic photo directory with filenames
+    recognized by the heuristic tagger (for consistent test results).
+
+    Files created:
+      - kitchen_updated_dishwasher.jpg  → room:kitchen, amenity:dishwasher, quality:renovated_kitchen
+      - bathroom_1.jpg                  → room:bathroom
+      - kitchen_2.jpg                   → room:kitchen
+    """
+    pdir = tmp_path / "photos"
+    pdir.mkdir(parents=True, exist_ok=True)
+
+    (pdir / "kitchen_updated_dishwasher.jpg").write_bytes(b"\x00")
+    (pdir / "bathroom_1.jpg").write_bytes(b"\x00")
+    (pdir / "kitchen_2.jpg").write_bytes(b"\x00")
+
+    return pdir
 
 
 # -------- Pytest markers --------

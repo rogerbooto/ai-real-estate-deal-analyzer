@@ -262,8 +262,38 @@ def default_theses() -> list[InvestmentThesis]:
     return list(DEFAULT_THESES)
 
 
+def make_document(
+    tmp_dir: Path,
+    *,
+    html: str | None = None,
+    text: str | None = None,
+    filename: str | None = None,
+) -> Path:
+    """
+    Create a simple document in tmp_dir and return its Path.
+
+    - If `html` is provided, writes an .html file (unless a custom filename is given).
+    - Else if `text` is provided, writes a .txt file (unless a custom filename is given).
+    - Exactly one of `html` or `text` should be provided.
+    """
+    if (html is None) and (text is None):
+        raise ValueError("Provide exactly one of `html` or `text`.")
+
+    if html is not None:
+        name = filename or "doc.html"
+        content = html
+    else:
+        name = filename or "doc.txt"
+        content = text or ""
+
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    path = tmp_dir / name
+    path.write_text(content, encoding="utf-8")
+    return path
+
+
 # -----------------------------
-# HTML snapshot helpers (NEW)
+# HTML snapshot helpers
 # -----------------------------
 
 DEFAULT_LISTING_HTML = """<!doctype html>

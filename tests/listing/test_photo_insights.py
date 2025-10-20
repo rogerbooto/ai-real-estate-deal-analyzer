@@ -13,22 +13,17 @@ from __future__ import annotations
 from pathlib import Path
 
 from src.core.cv.photo_insights import build_photo_insights
-from src.listing.providers.cv_tools_adapter import ToolsCVProvider
 
 
-def test_counts_amenities_quality(tmp_path: Path):
+def test_counts_amenities_quality(photo_dir: Path):
     """
     We create filenames that the deterministic tagger recognizes:
       - 'kitchen_updated_dishwasher.jpg' → room:kitchen, condition:renovated_kitchen, amenity:dishwasher
       - 'bathroom_1.jpg'                 → room:bathroom
       - 'kitchen_2.jpg'                  → room:kitchen
     """
-    (tmp_path / "kitchen_updated_dishwasher.jpg").write_bytes(b"\x00")
-    (tmp_path / "bathroom_1.jpg").write_bytes(b"\x00")
-    (tmp_path / "kitchen_2.jpg").write_bytes(b"\x00")
 
-    provider = ToolsCVProvider(use_ai=False)  # deterministic-only, no external AI
-    ins = build_photo_insights(tmp_path, provider)
+    ins = build_photo_insights(photo_dir)
 
     # Rooms: 2 kitchens, 1 bath
     assert ins.room_counts.get("kitchen") == 2
@@ -43,13 +38,11 @@ def test_counts_amenities_quality(tmp_path: Path):
     assert 0.60 <= renovated <= 0.64
 
     # Provider metadata captured
-    assert ins.provider == "ToolsCVProvider"
     assert isinstance(ins.version, str) and len(ins.version) > 0
 
 
 def test_no_images_returns_empty(tmp_path: Path):
-    provider = ToolsCVProvider(use_ai=False)
-    ins = build_photo_insights(tmp_path, provider)
+    ins = build_photo_insights(tmp_path)
 
     assert ins.room_counts == {}
     # All known amenity keys present with False

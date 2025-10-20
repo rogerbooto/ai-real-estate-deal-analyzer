@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from src.core.normalize.listing_html import parse_listing_from_text, parse_listing_from_tree
+from src.core.normalize import parse_listing_from_text, parse_listing_from_tree
 
 
 def _write_html(tmp: Path, body: str) -> Path:
