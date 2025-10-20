@@ -191,6 +191,16 @@ def synthesize_listing_insights(listing: ListingNormalized, photos: PhotoInsight
     defects: list[str] = []  # keep empty until wired to explicit signals
     notes = _notes_from(listing, photos)
 
+    # Add a concise amenities roll-up note if any are present (sorted for determinism)
+    try:
+        present_amenities = sorted([k for k, v in (photos.amenities or {}).items() if v])
+    except Exception:
+        present_amenities = []
+    if present_amenities:
+        note = "Amenities present: " + ", ".join(present_amenities)
+        if note not in notes:
+            notes.append(note)
+
     return ListingInsights(
         address=address,
         amenities=amenities,

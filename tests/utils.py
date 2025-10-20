@@ -7,8 +7,12 @@ Update values here to cascade across the test suite.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from io import BytesIO
 from pathlib import Path
 from typing import Any
+
+import numpy as np
+from PIL import Image
 
 # Project models
 from src.schemas.models import (
@@ -50,9 +54,7 @@ DEFAULT_REFI = RefinancePlan(
 
 # Market policy defaults
 DEFAULT_MARKET_ASSUMPTIONS = MarketAssumptions(
-    cap_rate_purchase=None,
-    cap_rate_floor=0.05,
-    cap_rate_spread_target=0.015,
+    cap_rate_purchase=None, cap_rate_floor=0.05, cap_rate_spread_target=0.015, cap_rate_drift=0.03
 )
 
 # Listing insights defaults
@@ -78,6 +80,38 @@ DEFAULT_THESES: list[InvestmentThesis] = [
         ],
     ),
 ]
+
+
+def png_bytes(w: int = 2, h: int = 3) -> bytes:
+    """
+    Generate a PNG that doesn't compress to <1 KiB by using a gradient
+    and disabling PNG compression/optimization.
+    """
+    img = Image.new("RGB", (w, h))
+    # Fill with a simple gradient so pixels vary a lot (hard to compress)
+    pixels = [(x % 256, y % 256, (x * y) % 256) for y in range(h) for x in range(w)]
+    img.putdata(pixels)
+    buf = BytesIO()
+    # Disable compression/optimization to ensure the file exceeds 1 KiB
+    img.save(buf, format="PNG", optimize=False, compress_level=0)
+    return buf.getvalue()
+
+
+def make_gradient_img(path: Path, size: tuple[int, int], delta: int = 0) -> None:
+    """
+    Create a simple RGB gradient image so the pHash has meaningful structure.
+    `delta` lets us make a slightly different image without changing dimensions.
+    """
+    w, h = size
+    arr = np.zeros((h, w, 3), dtype=np.uint8)
+    # Gradient with a small delta to perturb content deterministically
+    for y in range(h):
+        for x in range(w):
+            arr[y, x, 0] = (x + delta) % 256
+            arr[y, x, 1] = (y) % 256
+            arr[y, x, 2] = ((x * y) + delta) % 256
+    Image.fromarray(arr, mode="RGB").save(path, format="PNG")
+
 
 # -----------------------------
 # Snapshot/Hypotheses factories
@@ -227,6 +261,7 @@ def make_market_assumptions(**overrides: Any) -> MarketAssumptions:
         cap_rate_purchase=overrides.get("cap_rate_purchase", base.cap_rate_purchase),
         cap_rate_floor=overrides.get("cap_rate_floor", base.cap_rate_floor),
         cap_rate_spread_target=overrides.get("cap_rate_spread_target", base.cap_rate_spread_target),
+        cap_rate_drift=overrides.get("cap_rate_drift", base.cap_rate_drift),
     )
 
 

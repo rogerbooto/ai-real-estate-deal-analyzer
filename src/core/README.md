@@ -51,7 +51,7 @@
   Main underwriting entrypoint; returns forecast with `YearBreakdown[]` and `PurchaseMetrics`.
 * `amortization_schedule(principal, rate, years, *, io_years=0) -> list[dict]`
   Deterministic monthly schedule; supports interest-only phase before amortization.
-* `xirr(cashflows: list[tuple[datetime,date|str,float]]) -> float`
+* `irr(cashflows: list[tuple[datetime,date|str,float]]) -> float`
   Date-aware IRR used by engine; expects signed cash flows.
 
 ### Normalize

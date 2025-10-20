@@ -12,8 +12,10 @@ def test_generate_report_contains_key_sections(
     # Use ONE thesis (generator expects a single InvestmentThesis, not a list)
     thesis = theses_default[0] if theses_default else None
 
+    base_forcast = baseline_forecast()
+
     # Generate markdown using (insights, forecast, thesis)
-    md = generate_report(listing_insights_baseline, baseline_forecast, thesis)
+    md = generate_report(listing_insights_baseline, base_forcast, thesis)
 
     # Core sections / wording-safe checks
     assert isinstance(md, str) and md.strip()
@@ -24,7 +26,7 @@ def test_generate_report_contains_key_sections(
     assert "Returns" in md
 
     # If the forecast includes a refi, ensure the section appears
-    if baseline_forecast.refi is not None:
+    if base_forcast.refi is not None:
         assert "Refinance" in md
 
     # Year markers commonly present in pro-forma tables
@@ -33,5 +35,5 @@ def test_generate_report_contains_key_sections(
 
     # Persist the report via the API: write_report(insights, path, forecast, thesis=?)
     out_path = tmp_path / "investment_analysis.md"
-    write_report(path=out_path, insights=listing_insights_baseline, forecast=baseline_forecast, thesis=thesis)
+    write_report(path=out_path, insights=listing_insights_baseline, forecast=base_forcast, thesis=thesis)
     assert out_path.exists() and out_path.read_text(encoding="utf-8").strip()

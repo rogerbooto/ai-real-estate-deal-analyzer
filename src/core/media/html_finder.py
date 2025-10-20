@@ -209,7 +209,24 @@ class HtmlMediaFinder:
                         )
                     )
 
-        # 4) <source> in <picture>/<video>
+        # 4) <video src> and <source> in <picture>/<video>
+        # 4a) <video src="...">
+        for v in soup.find_all("video"):
+            s = v.get("src")
+            if s:
+                au = _absolutize(s, base_url)
+                if au:
+                    candidates.append(
+                        MediaCandidate(
+                            url=au,
+                            kind=_guess_kind_from_ext(au),  # likely "video" from .mp4, etc.
+                            source=self.SOURCE,
+                            priority=650.0,  # between <img src> (700) and <source> (600)
+                            referer_url=base_url,
+                        )
+                    )
+
+        # 4b) <source> in <picture>/<video>
         for src in soup.find_all("source"):
             srcset = src.get("srcset")
             if srcset:

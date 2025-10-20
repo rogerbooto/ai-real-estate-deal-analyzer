@@ -6,7 +6,7 @@ import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 
 import numpy as np
 from numpy.typing import NDArray
@@ -152,7 +152,7 @@ def extract_palette(path: Path, k: int = 5, *, thumb_side: int = 256, max_iter: 
     a: NDArray[np.uint8] = np.asarray(img, dtype=np.uint8)
     pixels: NDArray[np.float32] = a.reshape(-1, 3).astype(np.float32)
 
-    # k-means++ initialization
+    # k-means++ initialization (robust)
     rng = np.random.default_rng(42)
     centers: NDArray[np.float32] = np.empty((k, 3), dtype=np.float32)
     # first center
@@ -165,7 +165,18 @@ def extract_palette(path: Path, k: int = 5, *, thumb_side: int = 256, max_iter: 
         diff = pixels[:, None, :] - centers[None, :ci, :]
         dist2 = np.sum(diff * diff, axis=2)
         d2 = np.minimum(d2, dist2.min(axis=1))
-        probs = d2 / (d2.sum() + 1e-8)
+
+        # robust probabilities: handle zeros/NaNs/Infs and renormalize
+        probs: NDArray[np.float64] = d2.astype(np.float64)  # widen annotation (no fixed shape)
+        probs[~np.isfinite(probs)] = 0.0
+        probs = cast(NDArray[np.float64], np.clip(probs, 0.0, None))  # clip returns array with unknown shape meta
+
+        s = probs.sum()
+        if not np.isfinite(s) or s <= 0.0:
+            probs = np.full(pixels.shape[0], 1.0 / float(pixels.shape[0]), dtype=np.float64)
+        else:
+            probs /= s
+
         idx = rng.choice(pixels.shape[0], p=probs)
         centers[ci] = pixels[idx]
 

@@ -15,7 +15,7 @@ def test_write_report_creates_md_file(
 
     out_file = tmp_path / "investment_analysis.md"
 
-    write_report(path=out_file, insights=listing_insights_baseline, forecast=baseline_forecast, thesis=thesis)
+    write_report(path=out_file, insights=listing_insights_baseline, forecast=baseline_forecast(), thesis=thesis)
 
     # File should exist and be non-empty
     assert out_file.exists()

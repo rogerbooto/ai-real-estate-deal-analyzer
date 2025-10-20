@@ -14,12 +14,14 @@ from tests.utils import (
     make_document,
     # Financial factories
     make_financial_inputs,
+    make_gradient_img as _make_gradient_img,
     make_html_snapshot,
     make_hypothesis,
     make_hypothesis_set,
     make_listing_insights,
     make_market_assumptions,
     make_snapshot,
+    png_bytes as _make_png,
 )
 
 
@@ -50,24 +52,39 @@ def sample_hypothesis_set():
 # -------- Financial fixtures --------
 @pytest.fixture
 def baseline_financial_inputs():
-    """Canonical baseline inputs used in financial tests (no refi)."""
-    return make_financial_inputs(do_refi=False, num_units=4)
+    """Factory for canonical baseline inputs (no refi)."""
+
+    def _factory(**overrides):
+        # allow optional overrides if a test wants to tweak something
+        fi = make_financial_inputs(do_refi=False, num_units=4)
+        return fi.model_copy(update=overrides) if overrides else fi
+
+    return _factory
 
 
 @pytest.fixture
-def refi_financial_inputs():
-    """Same as baseline but with a refinance enabled."""
-    return make_financial_inputs(do_refi=True, num_units=4)
+def baseline_forecast():
+    """Factory to run the financial model on provided inputs."""
 
+    def _factory(fi=None, *, insights=None, horizon_years=None):
+        # If not provided, build a default inputs bundle
+        if fi is None:
+            fi = make_financial_inputs(do_refi=False, num_units=4)
+        if horizon_years is None:
+            return run_financial_model(fi, insights=insights)
+        return run_financial_model(fi, insights=insights, horizon_years=horizon_years)
 
-@pytest.fixture
-def listing_insights_baseline():
-    return make_listing_insights()
+    return _factory
 
 
 @pytest.fixture
 def market_assumptions_baseline():
-    return make_market_assumptions()
+    """Factory for baseline market assumptions (overridable)."""
+
+    def _factory(**overrides):
+        return make_market_assumptions(**overrides)
+
+    return _factory
 
 
 @pytest.fixture
@@ -76,9 +93,8 @@ def theses_default():
 
 
 @pytest.fixture
-def baseline_forecast(baseline_financial_inputs):
-    """Run the financial model once for reuse in report tests."""
-    return run_financial_model(baseline_financial_inputs)
+def listing_insights_baseline():
+    return make_listing_insights()
 
 
 @pytest.fixture
@@ -87,11 +103,18 @@ def html_snapshot_factory(tmp_path: Path):
     Callable factory to create HtmlSnapshot files in a test's tmp path.
 
     Usage:
-        snap = html_snapshot_factory("<html>...</html>", url="https://x/y")
+        snap = html_snapshot_factory(html="<html>...</html>", url="https://x/y")
+        snap = html_snapshot_factory(html="<html>...</html>", url="https://x/y", base_dir=some_tmp_path)
     """
 
-    def _factory(html: str = DEFAULT_LISTING_HTML, url: str = "https://example.com/listing/123"):
-        return make_html_snapshot(tmp_path, html=html, url=url)
+    def _factory(
+        html: str = DEFAULT_LISTING_HTML,
+        url: str = "https://example.com/listing/123",
+        *,
+        base_dir: Path | None = None,
+    ):
+        target_dir = base_dir or tmp_path
+        return make_html_snapshot(target_dir, html=html, url=url)
 
     return _factory
 
@@ -137,6 +160,30 @@ def photo_dir(tmp_path: Path) -> Path:
     (pdir / "kitchen_2.jpg").write_bytes(b"\x00")
 
     return pdir
+
+
+@pytest.fixture
+def png_bytes():
+    """
+    Fixture that returns a callable to generate PNG bytes with low compression.
+    Usage:
+        data = png_bytes(64, 64)
+    """
+    return _make_png
+
+
+@pytest.fixture
+def make_gradient_img():
+    """
+    Fixture that returns a callable to generate gradient images at a given path.
+    Usage:
+        make_gradient_img(path, (w, h), delta=0)
+    """
+
+    def _factory(path: Path, size: tuple[int, int], delta: int = 0) -> None:
+        _make_gradient_img(path=path, size=size, delta=delta)
+
+    return _factory
 
 
 # -------- Pytest markers --------

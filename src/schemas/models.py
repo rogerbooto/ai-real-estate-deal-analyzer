@@ -805,6 +805,14 @@ class AddressResult(BaseModel):
         None,
         description="Single-line street/city line if detected (e.g., '123 Main St, Springfield').",
     )
+    city: str | None = Field(
+        None,
+        description="Detected city or locality name if available (e.g., 'Toronto', 'Springfield').",
+    )
+    state_province: str | None = Field(
+        None,
+        description="Two-letter state/province/territory code when present (e.g., 'IL', 'BC').",
+    )
     postal_code: str | None = Field(
         None,
         description="Canonicalized postal/ZIP code if detected (e.g., 'H2X 1Y4', '02139', 'SW1A 1AA', '1234 AB').",

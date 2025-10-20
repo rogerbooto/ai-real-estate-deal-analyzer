@@ -3,10 +3,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from datetime import datetime
-from io import BytesIO
 from pathlib import Path
-
-from PIL import Image
 
 from src.core.fetch.cache import _sha256
 from src.core.media.downloader import download_media
@@ -14,21 +11,6 @@ from src.schemas.models import (
     FetchPolicy,  # use real policy to drive UA/timeout/allow_non_200
     MediaCandidate,
 )
-
-
-def _png_bytes(w: int = 2, h: int = 3) -> bytes:
-    """
-    Generate a PNG that doesn't compress to <1 KiB by using a gradient
-    and disabling PNG compression/optimization.
-    """
-    img = Image.new("RGB", (w, h))
-    # Fill with a simple gradient so pixels vary a lot (hard to compress)
-    pixels = [(x % 256, y % 256, (x * y) % 256) for y in range(h) for x in range(w)]
-    img.putdata(pixels)
-    buf = BytesIO()
-    # Disable compression/optimization to ensure the file exceeds 1 KiB
-    img.save(buf, format="PNG", optimize=False, compress_level=0)
-    return buf.getvalue()
 
 
 class _FakeResp:
@@ -56,9 +38,9 @@ class _FakeResp:
             raise requests.HTTPError(f"HTTP {self.status_code}")
 
 
-def test_download_image_success(monkeypatch, tmp_path: Path) -> None:
+def test_download_image_success(monkeypatch, tmp_path: Path, png_bytes) -> None:
     # --- Arrange: fake PNG response and capture headers
-    png = _png_bytes(64, 64)
+    png = png_bytes(64, 64)
     content_type = "image/png"
     digest = _sha256(png)
     seen_headers: dict[str, str] | None = None
@@ -120,13 +102,13 @@ def test_download_image_success(monkeypatch, tmp_path: Path) -> None:
     assert isinstance(a.created_at, datetime)
 
 
-def test_coercion_pre_request_filters_declared_kind(monkeypatch, tmp_path: Path) -> None:
+def test_coercion_pre_request_filters_declared_kind(monkeypatch, tmp_path: Path, png_bytes) -> None:
     """
     PRE-REQUEST filter: If the candidate's *declared* kind is not in allowed_kinds,
     the downloader must NOT issue any HTTP request.
     """
     # Any fake image; we should never download it
-    png = _png_bytes(64, 64)
+    png = png_bytes(64, 64)
 
     called = {"get": False}
 
@@ -165,13 +147,13 @@ def test_coercion_pre_request_filters_declared_kind(monkeypatch, tmp_path: Path)
     assert not media_dir.exists() or not any(media_dir.iterdir()), "No files should have been created"
 
 
-def test_coercion_post_response_skips_after_content_type_coercion(monkeypatch, tmp_path: Path) -> None:
+def test_coercion_post_response_skips_after_content_type_coercion(monkeypatch, tmp_path: Path, png_bytes) -> None:
     """
     POST-RESPONSE coercion: If the server returns Content-Type that coerces the kind
     to a disallowed category, the downloader should make the request (pre-filter passes)
     but skip creating an asset AFTER coercion.
     """
-    png = _png_bytes(64, 64)
+    png = png_bytes(64, 64)
     last_headers: dict[str, str] | None = None
 
     def fake_get(url: str, *, headers: dict[str, str], timeout: float, stream: bool):
@@ -216,3 +198,78 @@ def test_coercion_post_response_skips_after_content_type_coercion(monkeypatch, t
 
     # No files created
     assert not media_dir.exists() or not any(media_dir.iterdir()), "No files should have been created"
+
+
+def test_skip_small_file_after_download(monkeypatch, tmp_path: Path):
+    # Return a <1KiB body to trigger "empty_file" drop
+    body = b"x" * 512
+
+    class _R:
+        status_code = 200
+        headers = {"Content-Type": "image/png"}
+
+        def iter_content(self, chunk_size=1024):
+            yield body
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr("src.core.media.downloader.requests.get", lambda *a, **k: _R())
+    assets = download_media(
+        candidates=[MediaCandidate(url="u", kind="image", source="html")],
+        media_dir=tmp_path / "m",
+        policy=FetchPolicy(allow_network=True, timeout_s=1.0, user_agent="t", cache_dir=tmp_path),
+    )
+    assert assets == []
+
+
+def test_network_disabled_skips_requests(monkeypatch, tmp_path: Path):
+    called = {"get": False}
+
+    def fake_get(*a, **k):
+        called["get"] = True
+        return _FakeResp(200, {"Content-Type": "image/png"})
+
+    monkeypatch.setattr("src.core.media.downloader.requests.get", fake_get)
+
+    cand = MediaCandidate(url="https://x/img.png", kind="image", source="html")
+    assets = download_media(
+        candidates=[cand],
+        media_dir=tmp_path / "m",
+        policy=FetchPolicy(allow_network=False, allow_non_200=False, timeout_s=3.0, user_agent="UA", cache_dir=tmp_path),
+    )
+    assert assets == []
+    assert called["get"] is False
+
+
+def test_non_200_with_allow_non_200_true(monkeypatch, tmp_path: Path):
+    def fake_get(*a, **k):
+        return _FakeResp(404, {"Content-Type": "image/png"})
+
+    monkeypatch.setattr("src.core.media.downloader.requests.get", fake_get)
+
+    cand = MediaCandidate(url="https://x/miss.png", kind="image", source="html")
+    assets = download_media(
+        candidates=[cand],
+        media_dir=tmp_path / "m",
+        policy=FetchPolicy(allow_network=True, allow_non_200=True, timeout_s=3.0, user_agent="UA", cache_dir=tmp_path),
+    )
+    # Should be skipped (no crash) when 404 allowed
+    assert assets == []
+
+
+def test_content_type_filtered_post_response(monkeypatch, tmp_path: Path):
+    # Response advertises video, while only images allowed -> must skip
+    def fake_get(*a, **k):
+        return _FakeResp(200, {"Content-Type": "video/mp4"})
+
+    monkeypatch.setattr("src.core.media.downloader.requests.get", fake_get)
+
+    cand = MediaCandidate(url="https://x/a.mp4", kind="document", source="html")  # declared doc, coerces to video
+    assets = download_media(
+        candidates=[cand],
+        media_dir=tmp_path / "m",
+        policy=FetchPolicy(allow_network=True, allow_non_200=True, timeout_s=3.0, user_agent="UA", cache_dir=tmp_path),
+        allowed_kinds={"image"},  # images only
+    )
+    assert assets == []  # skipped after coercion

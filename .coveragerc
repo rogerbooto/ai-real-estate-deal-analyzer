@@ -1,0 +1,23 @@
+[run]
+branch = True
+omit =
+    # --- Network / Playwright / External I/O ---
+    src/core/fetch/html_fetcher.py
+    src/core/fetch/robots.py
+    src/core/fetch/errors.py
+
+    # --- Media and vision providers (external dependencies) ---
+    src/core/media/insights.py
+    src/core/media/pipeline.py
+    src/tools/vision/openai_provider.py
+    src/tools/vision/provider_base.py
+
+    # --- Optional glue / mock utilities ---
+    src/tools/vision/mock_provider.py
+    src/core/media/__init__.py
+    src/core/cv/__init__.py
+
+[report]
+show_missing = True
+skip_covered = True
+precision = 1

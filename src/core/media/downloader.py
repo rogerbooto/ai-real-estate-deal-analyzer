@@ -258,6 +258,7 @@ def download_media(
 
     for cand in selected:
         warnings: list[str] = []
+        resp = None
         try:
             resp = requests.get(
                 cand.url,

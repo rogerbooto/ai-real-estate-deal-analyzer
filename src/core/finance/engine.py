@@ -293,7 +293,7 @@ def run_financial_model(
     terminal_equity = max(0.0, EQUITY_LTV * term.est_value - term.ending_balance)
     cashflows[-1] += terminal_equity
 
-    irr_10yr = irr(cashflows)
+    irr_10yr_val = irr(cashflows) or 0.0  # <- coalesce None to 0.0
     equity_multiple_10yr = (sum(cf for cf in cashflows[1:]) / (-cashflows[0])) if cashflows[0] < 0 else 0.0
 
     # Warnings
@@ -307,7 +307,7 @@ def run_financial_model(
         purchase=purchase_metrics,
         years=years,
         refi=refi_event,
-        irr_10yr=irr_10yr,
+        irr_10yr=irr_10yr_val,  # <- use the coalesced value
         equity_multiple_10yr=equity_multiple_10yr,
         warnings=warnings,
     )

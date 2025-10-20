@@ -60,31 +60,41 @@ def extract_address(text: str) -> str | None:
 
     Builds a single line by joining the available parts from parse_address()
     in this order: street line, postal/ZIP, country hint. Any missing part
-    is simply omitted (no '<unknown*>' placeholders). Returns None if all
-    parts are missing.
+    is simply omitted. Returns None if all parts are missing.
     """
     res = parse_address(text)
+    if res is None:
+        return None
     parts = [res.address_line or "", res.postal_code or "", res.country_hint or ""]
     line = ", ".join(p for p in parts if p.strip())
     return line or None
 
 
-def parse_address(text: str) -> AddressResult:
+def parse_address(text: str | None, country_hint: str | None = None) -> AddressResult | None:
     """
-    Parse a possibly multi-line blob for a best-effort street line and postal/ZIP.
+    Parse a possibly multi-line blob for a best-effort street line, postal/ZIP,
+    and (US/CA) city + state/province when present.
 
     Strategy:
       1) Normalize whitespace.
       2) Detect postal/ZIP by prioritized regexes (CA → UK → NL → US → EU 5-digit).
       3) Detect a street-like line via a permissive street regex.
-      4) Return structured AddressResult (empty strings for missing parts are fine).
+      4) For US/CA, attempt to extract a city token and two-letter state/province
+         before the postal code (supports both 'City, ST 12345' and 'City ST 12345').
+      5) If no meaningful component is found, return None.
     """
+    if text is None:
+        return None
+    s = text.strip()
+    if not s:
+        return None
+
     blob = (text or "").replace("\r", " ").replace("\n", " ").replace("\t", " ")
     blob = re.sub(r"\s{2,}", " ", blob).strip()
 
-    postal_code, country_hint = _detect_postal(blob)
+    postal_code, country = _detect_postal(blob)
 
-    street_line = None
+    street_line: str | None = None
     street_iter = list(_STREET_RE.finditer(blob))
     if street_iter:
         if postal_code:
@@ -96,11 +106,33 @@ def parse_address(text: str) -> AddressResult:
         else:
             street_line = _clean_line(street_iter[0].group("line"))
 
-    # Allow empty strings for any missing piece
+    # City + state/province extraction for US/CA
+    city: str | None = None
+    state_province: str | None = None
+    if country in {"US", "CA"} and postal_code:
+        # Try a few common shapes near the postal code
+        pc_esc = re.escape(postal_code)
+        patterns = [
+            rf"\b([A-Za-z .'\-]+?),\s*([A-Z]{{2}})\s*{pc_esc}\b",  # "City, ST 12345"
+            rf"\b([A-Za-z .'\-]+)\s+([A-Z]{{2}})\s*{pc_esc}\b",  # "City ST 12345"
+        ]
+        for pat in patterns:
+            m = re.search(pat, blob)
+            if m:
+                city = m.group(1).strip(" ,")
+                state_province = m.group(2).upper()
+                break
+
+    # If nothing meaningful was detected, return None (e.g., "???")
+    if not (street_line or postal_code or city):
+        return None
+
     return AddressResult(
         address_line=street_line or "",
+        city=city,
+        state_province=state_province,
         postal_code=postal_code or "",
-        country_hint=country_hint or None,
+        country_hint=country or None,
     )
 
 
@@ -127,7 +159,6 @@ def _clean_line(line: str, postal_code: str | None = None) -> str:
 
     # Drop trailing single letters (like stray 'E')
     line = re.sub(r",?\s+[A-Z]\b$", "", line, flags=re.IGNORECASE)
-
     return line
 
 
