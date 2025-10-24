@@ -151,6 +151,56 @@ _STATE_PROVINCE_NAME_TO_CODE = {
     "YUKON": "YT",
 }
 
+_STATE_PROVINCE_CODES_SET: set[str] = set(_US_CA_STATE_PROVINCE_CODES.split("|"))
+
+_PUNCT_STRIP_RE = re.compile(r"[,\.\-;:()\[\]{}]")
+
+
+def _tokenize_upper(s: str) -> list[str]:
+    # Split on whitespace, strip lightweight punctuation, uppercase
+    out: list[str] = []
+    for raw in s.split():
+        tok = _PUNCT_STRIP_RE.sub("", raw).strip().upper()
+        if tok:
+            out.append(tok)
+    return out
+
+
+def _choose_state_province(candidate: str | None, search_space: str) -> str | None:
+    """
+    Prefer a 2-letter code if present; otherwise map a full name to its code.
+    Search order:
+      1) tokens from candidate (if any)
+      2) tokens from the broader search space (blob/scoped_blob)
+      3) regex match of any full name in the broader search space
+    """
+    # 1) Try tokens from candidate first (most targeted)
+    if candidate:
+        for tok in _tokenize_upper(candidate):
+            if tok in _STATE_PROVINCE_CODES_SET:
+                return tok
+
+    # 2) Then scan tokens from the broader text
+    for tok in _tokenize_upper(search_space):
+        if tok in _STATE_PROVINCE_CODES_SET:
+            return tok
+
+    # 3) Finally, look for full names (multi-word handled) in the broader text
+    #    Iterate names by descending length to prefer "NEW BRUNSWICK" over a stray "NEW"
+    for name in sorted(_STATE_PROVINCE_NAME_TO_CODE.keys(), key=len, reverse=True):
+        # Word-boundary regex, case-insensitive, accepts accents already present in the dict (e.g., QUÉBEC)
+        if re.search(rf"\b{name}\b", search_space, flags=re.IGNORECASE):
+            return _STATE_PROVINCE_NAME_TO_CODE[name]
+
+    # If nothing found, return a cleaned 2-letter candidate if it already looks like a code
+    if candidate:
+        cand = candidate.strip(" ,.-").upper()
+        if cand in _STATE_PROVINCE_CODES_SET:
+            return cand
+
+    return None
+
+
 # ----------------------------
 # Public API
 # ----------------------------
@@ -261,23 +311,13 @@ def parse_address(text: str | None, soup: BeautifulSoup | None = None) -> Addres
 
     # --- Clean / detect state or province ---
     if state_province:
-        state_province = (state_province or "").strip(" ,.-").upper()
-
-        # If missing or uncertain, search the blob for any known province/state token
-        for key in _STATE_PROVINCE_NAME_TO_CODE:
-            # Search both full name and 2-letter code
-            pattern = rf"\b{re.escape(key)}\b"
-            if re.search(pattern, state_province, flags=re.IGNORECASE):
-                state_province = _STATE_PROVINCE_NAME_TO_CODE[key]
-                break
-
-        if not state_province:
-            code_match = re.search(rf"\b({_US_CA_STATE_PROVINCE_CODES})\b", state_province, flags=re.IGNORECASE)
-            if code_match:
-                state_province = code_match.group(1).upper()
+        state_province = _choose_state_province(state_province, scoped_blob)
 
         # Final whitespace / punctuation cleanup
-        state_province = state_province.strip(" ,.-")
+        if isinstance(state_province, str):
+            state_province = state_province.strip(" ,.-")
+        else:
+            state_province = None
 
     # Final check
     if not (street_line or postal_code or city):
