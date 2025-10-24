@@ -33,7 +33,7 @@ import re
 from collections.abc import Mapping
 from typing import Any
 
-from src.core.normalize.address import extract_address
+from src.core.normalize.address import parse_address
 from src.schemas.models import ListingInsights
 
 # ----------------------------
@@ -125,14 +125,14 @@ def parse_listing_string(text: str) -> ListingInsights:
     """
     norm = " ".join(text.split())  # collapse whitespace for easier regex
 
-    address = extract_address(norm)
+    address_result = parse_address(norm)
     amenities = _extract_keywords(norm, _AMENITY_KEYWORDS)
     condition = _extract_keywords(norm, _CONDITION_KEYWORDS)
     defects = _extract_keywords(norm, _DEFECT_KEYWORDS)
     notes = _compose_notes(norm)
 
     return ListingInsights(
-        address=address,
+        address=address_result.address_line if address_result else None,
         amenities=sorted(set(amenities)),
         condition_tags=sorted(set(condition)),
         defects=sorted(set(defects)),

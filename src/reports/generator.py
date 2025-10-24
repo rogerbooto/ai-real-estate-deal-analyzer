@@ -7,6 +7,7 @@ from src.schemas.models import (
     FinancialForecast,
     InvestmentThesis,
     ListingInsights,
+    MediaInsights,
     PurchaseMetrics,
     RefiEvent,
     YearBreakdown,
@@ -182,6 +183,76 @@ def _render_methodology() -> str:
         "- LTV comparisons use a small epsilon to avoid floating-point edge cases.",
         "- This report shows the full horizon; refi years are marked when available.",
     ]
+    return "\n".join(lines) + "\n"
+
+
+# -----------------------
+# Media section
+# -----------------------
+
+
+def _render_media_overview(mi: MediaInsights | None) -> str:
+    """
+    Render a concise summary of downloaded media and derived analytics.
+    """
+    if not mi:
+        return ""
+
+    lines: list[str] = [
+        _section("Media Overview"),
+        f"- **Total Assets:** {mi.total_assets} &nbsp;&nbsp;"
+        f"(images: {mi.image_count}, videos: {mi.video_count}, docs: {mi.document_count}, other: {mi.other_count})",
+        f"- **Total Size:** {mi.bytes_total:,} B",
+    ]
+
+    if mi.image_count > 0:
+        dims = []
+        if mi.min_width is not None and mi.max_width is not None:
+            dims.append(f"width {int(mi.min_width)}–{int(mi.max_width)}")
+        if mi.min_height is not None and mi.max_height is not None:
+            dims.append(f"height {int(mi.min_height)}–{int(mi.max_height)}")
+        if mi.avg_width is not None and mi.avg_height is not None:
+            dims.append(f"avg ≈ {mi.avg_width:.0f}×{mi.avg_height:.0f}")
+        if dims:
+            lines.append(f"- **Image Dimensions:** {', '.join(dims)}")
+        lines.append(f"- **Orientation:** landscape {mi.landscape_count}, portrait {mi.portrait_count}, square {mi.square_count}")
+
+    # Duplicates / near-duplicates
+    dup_exact = len(mi.duplicate_hashes)
+    dup_clusters = len(mi.duplicates)
+    if dup_exact or dup_clusters:
+        bits = []
+        if dup_exact:
+            bits.append(f"{dup_exact} exact")
+        if dup_clusters:
+            bits.append(f"{dup_clusters} similar clusters")
+        lines.append(f"- **Duplicates:** {', '.join(bits)}")
+
+    # Hero
+    if mi.hero_sha256:
+        lines.append(f"- **Hero Image:** `{mi.hero_sha256}`")
+
+    # Palette (prefer hero’s palette if present)
+    palette_samples: list[str] = []
+    if mi.palettes:
+        if mi.hero_sha256 and mi.hero_sha256 in mi.palettes:
+            palette_samples = mi.palettes[mi.hero_sha256][:5]
+        else:
+            # take the first palette available
+            first_key = next(iter(mi.palettes.keys()))
+            palette_samples = mi.palettes[first_key][:5]
+    if palette_samples:
+        swatches = " ".join(f"`{hx}`" for hx in palette_samples)
+        lines.append(f"- **Color Palette:** {swatches}")
+
+    # Warnings
+    if mi.warnings:
+        lines.append("- **Media Warnings:**")
+        for w in mi.warnings[:8]:  # keep tidy
+            lines.append(f"  - {w}")
+        if len(mi.warnings) > 8:
+            lines.append(f"  - (+{len(mi.warnings) - 8} more)")
+
     return "\n".join(lines) + "\n"
 
 
@@ -435,6 +506,8 @@ def generate_report(
     forecast: FinancialForecast,
     thesis: InvestmentThesis | None = None,
     title_override: str | None = None,
+    *,
+    media_insights: MediaInsights | None = None,
 ) -> str:
     """
     Generate a professional Markdown report that summarizes the investment analysis.
@@ -443,6 +516,7 @@ def generate_report(
       - Header: property summary (address, amenities, notes)
       - Purchase Metrics: cap rate, CoC, DSCR, debt service, acquisition cash, spread
       - Forecasting Methodology: baseline, stress-test, NOI-based formulas and refi rule
+      - Media Overview (if available)
       - Pro Forma (Summary): annual table of GSI, GOI, OPEX, NOI, DS, CF, DSCR, Ending Balance (horizon-aware title)
       - Valuation – Baseline table
       - Valuation – Stress-Test table
@@ -464,6 +538,7 @@ def generate_report(
         header,
         _render_purchase_metrics(forecast.purchase),
         _render_methodology(),
+        _render_media_overview(media_insights),
         _render_thesis(thesis) if thesis else "",
         _render_year_table(forecast.years),
         _render_valuation_table_baseline(forecast.years, forecast),
@@ -477,10 +552,17 @@ def generate_report(
     return "\n".join(part for part in parts if part).strip() + "\n"
 
 
-def write_report(path: str, insights: ListingInsights | None, forecast: FinancialForecast, thesis: InvestmentThesis | None = None) -> None:
+def write_report(
+    path: str,
+    insights: ListingInsights | None,
+    forecast: FinancialForecast,
+    thesis: InvestmentThesis | None = None,
+    *,
+    media_insights: MediaInsights | None = None,
+) -> None:
     """
     Convenience helper to write the generated report to disk.
     """
-    md = generate_report(insights, forecast, thesis=thesis)
+    md = generate_report(insights, forecast, thesis=thesis, media_insights=media_insights)
     with open(path, "w", encoding="utf-8") as f:
         f.write(md)

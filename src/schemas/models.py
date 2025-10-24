@@ -421,7 +421,7 @@ class ListingNormalized(BaseModel):
     source_url: str | None = None
     title: str | None = None
     price: float | None = Field(default=None, ge=0, description="Monthly rent or list price; currency-agnostic float.")
-    address: str | None = None
+    address: str | None = None  # keept for backward compatibility (single-line summary)
 
     bedrooms: float | None = Field(default=None, ge=0, description="Allow 0 for studio; 0.5 for den/loft if detected.")
     bathrooms: float | None = Field(default=None, ge=0)
@@ -440,24 +440,38 @@ class ListingNormalized(BaseModel):
         description="Postal/ZIP code derived from listing text/HTML when available.",
     )
 
+    address_structure: AddressResult | None = Field(
+        None,
+        description="Structured address components parsed via usaddress or postal libraries.",
+    )
+
     def summary(self) -> str:
         bits: list[str] = []
         if self.title:
             bits.append(self.title)
         if self.price is not None:
             bits.append(f"price={self.price:,.0f}")
+
+        # Prefer structured fragments if present
+        if self.address_structure and (self.address_structure.city or self.address_structure.state_province):
+            city = self.address_structure.city or ""
+            st = self.address_structure.state_province or ""
+            pc = self.address_structure.postal_code or ""
+            loc = " ".join(x for x in [city, st, pc] if x)
+            if loc:
+                bits.append(loc)
+
+        # Fall back to flat address if no struct info
+        if self.address and not any(" " in s for s in bits[-1:]):  # avoid duplicating location-ish tokens
+            bits.append(self.address)
+
+        # existing bedroom/bath/sqft/etc
         if self.bedrooms is not None:
             bits.append(f"{self.bedrooms} bd")
         if self.bathrooms is not None:
             bits.append(f"{self.bathrooms} ba")
         if self.sqft is not None:
             bits.append(f"{self.sqft} sqft")
-        if self.address:
-            bits.append(self.address)
-        if self.parking is not None:
-            bits.append(f"parking={'Y' if self.parking else 'N'}")
-        if self.laundry:
-            bits.append(f"laundry={self.laundry}")
         return " | ".join(bits) if bits else "ListingNormalized: (no key facts)"
 
 
@@ -804,6 +818,11 @@ class AddressResult(BaseModel):
     address_line: str | None = Field(
         None,
         description="Single-line street/city line if detected (e.g., '123 Main St, Springfield').",
+    )
+    civic_number: str | None = Field(None, description="Detected civic number")
+    unit_suite: str | None = Field(
+        None,
+        description="Detected unit, apartment, or suite number/designator (e.g., '601', 'Apt 12').",
     )
     city: str | None = Field(
         None,

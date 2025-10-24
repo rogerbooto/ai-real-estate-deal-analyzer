@@ -16,7 +16,7 @@ from pathlib import Path
 from bs4 import BeautifulSoup
 from pydantic import ValidationError
 
-from src.core.normalize.address import extract_address
+from src.core.normalize.address import parse_address
 from src.schemas.models import ListingNormalized
 
 # ---------- Regex & keyword tables ----------
@@ -92,6 +92,7 @@ def parse_listing_from_tree(tree: str | Path) -> ListingNormalized:
     Parse a listing from an HTML/XML DOM string or file path → ListingNormalized.
     Unknown fields remain None; returns a valid object even on partial info.
     """
+
     html = Path(tree).read_text(encoding="utf-8") if isinstance(tree, Path) else tree
     soup = BeautifulSoup(html, "lxml")
 
@@ -100,8 +101,26 @@ def parse_listing_from_tree(tree: str | Path) -> ListingNormalized:
 
     bds, bas, sqft_i, prc, yr = _extract_common(text, notes)
 
-    # Best-effort address from flattened text
-    addr = extract_address(text)
+    # Structured address first (targeted → fallback)
+    addr_res = parse_address(text=text, soup=soup)
+    # Compose the legacy single-line address string from the structured parts, if present
+    addr_line = None
+    postal_code = None
+    if addr_res:
+        addr_line = (
+            ", ".join(
+                p
+                for p in [
+                    addr_res.address_line or "",
+                    addr_res.postal_code or "",
+                    addr_res.state_province or "",
+                    addr_res.country_hint or "",
+                ]
+                if p
+            )
+            or None
+        )
+        postal_code = addr_res.postal_code or None
 
     title = soup.title.string.strip() if soup.title and soup.title.string else None
     lt = text.lower()
@@ -113,7 +132,10 @@ def parse_listing_from_tree(tree: str | Path) -> ListingNormalized:
     try:
         return ListingNormalized(
             title=title or None,
-            address=addr,
+            source_url=None,  # if available upstream, set it there
+            address=addr_line,
+            address_structure=addr_res,
+            postal_code=postal_code,  # keep easy access
             price=prc,
             bedrooms=bds,
             bathrooms=bas,
@@ -126,9 +148,11 @@ def parse_listing_from_tree(tree: str | Path) -> ListingNormalized:
             notes="; ".join(notes) if notes else None,
         )
     except ValidationError:
-        # Partial dict fallback
         data = {
             "title": title or None,
+            "address": addr_line,
+            "address_struct": addr_res,  # NEW
+            "postal_code": postal_code,
             "price": prc,
             "bedrooms": bds,
             "bathrooms": bas,
