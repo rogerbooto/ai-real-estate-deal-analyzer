@@ -1,4 +1,6 @@
 # src/core/normalize/listing_text.py
+
+
 """
 Deterministic listing normalizer (plain text → ListingNormalized).
 """
@@ -10,15 +12,21 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
+# Centralized parsing utilities
+from src.schemas.labels import (
+    LAUNDRY_PHRASE_MAP,
+    AmenityLabel,
+    detect_cooling,
+    detect_heating,
+    has_any_parking_specific,
+    normalize_amenities_from_text,
+)
 from src.schemas.models import ListingNormalized
 
-from .listing_html import (  # reuse regexes/helpers for single-source-of-truth logic
+# Reuse shared regexes and numeric helpers from listing_html for consistency
+from .listing_html import (
     _BATH_RE,
     _BED_RE,
-    _COOL_KEYS,
-    _HEAT_KEYS,
-    _LAUNDRY_TABLE,
-    _PARKING_RE,
     _PRICE_RE,
     _SQFT_RE,
     _YEAR_RE,
@@ -28,6 +36,7 @@ from .listing_html import (  # reuse regexes/helpers for single-source-of-truth 
 
 
 def _extract_common(text: str, notes: list[str]) -> tuple[float | None, float | None, int | None, float | None, int | None]:
+    """Extract basic numeric and textual features from raw listing text."""
     bed = _BED_RE.search(text)
     bath = _BATH_RE.search(text)
     sqft = _SQFT_RE.search(text)
@@ -55,17 +64,31 @@ def _extract_common(text: str, notes: list[str]) -> tuple[float | None, float | 
 def parse_listing_from_text(doc: str | Path) -> ListingNormalized:
     """
     Parse a listing from a plain-text string or file path → ListingNormalized.
+    Uses centralized label helpers for amenities, heating, cooling, and laundry.
     """
     text = Path(doc).read_text(encoding="utf-8") if isinstance(doc, Path) else doc
+    lt = text.lower()
     notes: list[str] = ["Parsed from plain text."]
 
     bds, bas, sqft_i, prc, yr = _extract_common(text, notes)
 
-    lt = text.lower()
-    parking = bool(_PARKING_RE.search(text))
-    laundry = next((v for k, v in _LAUNDRY_TABLE.items() if k in lt), None)
-    heating = next((k for k in _HEAT_KEYS if k in lt), None)
-    cooling = next((k for k in _COOL_KEYS if k in lt), None)
+    # Centralized amenity parsing
+    amenities_found = normalize_amenities_from_text(lt)
+
+    # parking: True if any specific parking amenity present
+    parking = has_any_parking_specific(amenities_found) or None
+
+    laundry: str | None = None
+
+    # laundry: prefer explicit amenity, else fall back to phrase map
+    if AmenityLabel.in_unit_laundry in amenities_found:
+        laundry = "in-unit"
+    else:
+        laundry = next((v for k, v in LAUNDRY_PHRASE_MAP.items() if k in lt), None)
+
+    # heating/cooling via centralized detectors
+    heating = detect_heating(lt)
+    cooling = detect_cooling(lt)
 
     try:
         return ListingNormalized(
@@ -74,7 +97,7 @@ def parse_listing_from_text(doc: str | Path) -> ListingNormalized:
             bathrooms=bas,
             sqft=sqft_i,
             year_built=yr,
-            parking=parking or None,
+            parking=parking,
             laundry=laundry,
             heating=heating,
             cooling=cooling,
@@ -87,7 +110,7 @@ def parse_listing_from_text(doc: str | Path) -> ListingNormalized:
             "bathrooms": bas,
             "sqft": sqft_i,
             "year_built": yr,
-            "parking": parking or None,
+            "parking": parking,
             "laundry": laundry,
             "heating": heating,
             "cooling": cooling,

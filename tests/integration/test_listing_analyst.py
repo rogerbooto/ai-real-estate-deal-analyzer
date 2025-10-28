@@ -19,7 +19,7 @@ from src.agents.listing_analyst import analyze_listing
 
 def test_listing_analyst_text_only(tmp_path):
     txt = tmp_path / "listing.txt"
-    txt.write_text("123 Maple St.\nAmenities: parking, balcony\nNotes: quiet block")
+    txt.write_text("123 Maple St., Moncton, New Brunswick, E1A 0B9, Canada.\nAmenities: parking, balcony\nNotes: quiet block")
 
     out = analyze_listing(listing_txt_path=str(txt), photos_folder=None)
     assert out.address is not None
@@ -38,7 +38,7 @@ def test_listing_analyst_with_photos_uses_orchestrator(tmp_path, monkeypatch):
 
     # Minimal text
     txt = tmp_path / "listing.txt"
-    txt.write_text("456 Oak Ave\nAmenities: dishwasher\nNotes: updated kitchen")
+    txt.write_text("456 Oak Ave, Moncton, New Brunswick, E1A 0B9, Canada.\nAmenities: dishwasher\nNotes: updated kitchen")
 
     # Photos (recursive)
     photos = tmp_path / "photos"

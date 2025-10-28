@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+from pprint import pprint
 
 from src.schemas.models import FetchPolicy, MediaKind
 from src.tools.listing_ingest import ingest_listing
@@ -92,9 +93,11 @@ def main() -> int:
         )
 
     if args.pretty:
-        from pprint import pprint
-
-        pprint(result.listing.model_dump(), indent=2, width=120, compact=True)
+        dump = result.listing.model_dump()
+        # optionally print a focused view of the structured address
+        if dump.get("address_struct"):
+            print("address_struct:", dump["address_struct"])
+        pprint(dump, indent=2, width=120, compact=True)
 
     return 0
 

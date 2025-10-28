@@ -8,6 +8,7 @@ python-dotenv>=1.0.1
 # Web & Data
 beautifulsoup4>=4.12.3
 requests>=2.31.0
+usaddress>=0.5.10    # For high-accuracy US/CA address parsing
 
 # Image Processing (ensure BICUBIC constant and modern Resampling)
 pillow>=9.1.0,<11.0.0

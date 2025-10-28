@@ -5,7 +5,7 @@ Unit tests for src/tools/listing_ingest.py
 Covers:
   - Suffix-based parser selection (HTML vs text).
   - Source URL behavior on file-based ingest (None).
-  - Photo insights integration using ingest_listing which calls tag_photos internally.
+  - Photo insights integration using ingest_listing which calls tag_images internally.
 """
 
 from __future__ import annotations

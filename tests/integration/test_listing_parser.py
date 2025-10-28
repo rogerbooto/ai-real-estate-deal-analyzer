@@ -1,4 +1,4 @@
-# tests/test_listing_parser.py
+# tests/integration/test_listing_parser.py
 from src.tools.listing_parser import parse_listing_string
 
 
@@ -14,5 +14,5 @@ def test_parse_listing_string_basics():
     assert "parking" in insights.amenities
     assert "updated kitchen" in insights.condition_tags
     assert "fresh paint" in insights.condition_tags
-    assert "water damage" in insights.defects or "mold" not in insights.defects  # at least one defect mapped
+    assert "water_leak_suspected" in insights.defects or "mold" not in insights.defects  # at least one defect mapped
     assert any("triplex" in n.lower() for n in insights.notes)

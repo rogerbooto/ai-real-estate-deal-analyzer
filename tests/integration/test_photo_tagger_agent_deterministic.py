@@ -1,4 +1,4 @@
-# tests/test_photo_tagger_agent_deterministic.py
+# tests/integration/test_photo_tagger_agent_deterministic.py
 """
 PhotoTaggerAgent — Deterministic Mode
 
@@ -32,10 +32,10 @@ def test_agent_deterministic_only(tmp_path, monkeypatch):
     # Kitchen island should be detected from filename
     k_labels = {(t["category"], t["label"]) for t in by_id[k.name]["tags"]}
     assert ("room_type", "kitchen") in k_labels
-    assert ("feature", "kitchen_island") in k_labels
+    assert ("material", "kitchen_island") in k_labels
 
     # Non-image flagged unreadable
-    assert "unreadable" in by_id[w.name]["quality_flags"]
+    assert by_id[w.name]["readable"] is False
 
     # Amenities derived from feature
     roll = out["rollup"]

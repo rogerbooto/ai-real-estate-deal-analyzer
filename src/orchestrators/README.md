@@ -32,7 +32,7 @@
 ### Computer Vision Orchestrator
 
 * `run_cv_tagging(photo_paths: list[str|Path], *, use_ai: bool | None = None) -> dict`
-  Wrapper over `tools/cv_tagging.tag_photos()` with built-in retry, logging, and optional provider selection.
+  Wrapper over `tools/cv_tagging.tag_images()` with built-in retry, logging, and optional provider selection.
   Used when `AIREAL_PHOTO_AGENT=0` to bypass agent layer.
 
 ### CrewAI Orchestrator (V2)

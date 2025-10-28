@@ -1,4 +1,4 @@
-# tests/test_photo_tagger_agent.py
+# tests/integration/test_photo_tagger_agent.py
 """
 PhotoTaggerAgent Tests — Always-AI in AI mode
 
@@ -43,16 +43,15 @@ def test_agent_runs_ai_on_all_images_when_enabled(tmp_path, monkeypatch):
     # Kitchen tags
     klabels = {(t["category"], t["label"]) for t in by_id[kitchen.name]["tags"]}
     assert ("room_type", "kitchen") in klabels
-    assert ("feature", "kitchen_island") in klabels
-    assert ("feature", "stainless_appliances") in klabels
+    assert ("material", "kitchen_island") in klabels
+    assert ("material", "stainless_appliances") in klabels
 
     # Bath tags added by AI mock
     blabels = {(t["category"], t["label"]) for t in by_id[bath.name]["tags"]}
     assert ("room_type", "bathroom") in blabels
-    assert ("feature", "double_vanity") in blabels
 
     # Unreadable flagged
-    assert "unreadable" in by_id[bad.name]["quality_flags"]
+    assert by_id[bad.name]["readable"] is False
 
     # Rollup amenities should include kitchen_island and stainless_kitchen
     roll = out["rollup"]

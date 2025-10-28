@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from datetime import datetime
+from enum import Enum
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -421,7 +422,7 @@ class ListingNormalized(BaseModel):
     source_url: str | None = None
     title: str | None = None
     price: float | None = Field(default=None, ge=0, description="Monthly rent or list price; currency-agnostic float.")
-    address: str | None = None
+    address: str | None = None  # keept for backward compatibility (single-line summary)
 
     bedrooms: float | None = Field(default=None, ge=0, description="Allow 0 for studio; 0.5 for den/loft if detected.")
     bathrooms: float | None = Field(default=None, ge=0)
@@ -440,25 +441,72 @@ class ListingNormalized(BaseModel):
         description="Postal/ZIP code derived from listing text/HTML when available.",
     )
 
+    address_structure: AddressResult | None = Field(
+        None,
+        description="Structured address components parsed via usaddress or postal libraries.",
+    )
+
     def summary(self) -> str:
         bits: list[str] = []
         if self.title:
             bits.append(self.title)
         if self.price is not None:
             bits.append(f"price={self.price:,.0f}")
+
+        # Prefer structured fragments if present
+        if self.address_structure and (self.address_structure.city or self.address_structure.state_province):
+            city = self.address_structure.city or ""
+            st = self.address_structure.state_province or ""
+            pc = self.address_structure.postal_code or ""
+            loc = " ".join(x for x in [city, st, pc] if x)
+            if loc:
+                bits.append(loc)
+
+        # Fall back to flat address if no struct info
+        if self.address and not any(" " in s for s in bits[-1:]):  # avoid duplicating location-ish tokens
+            bits.append(self.address)
+
+        # existing bedroom/bath/sqft/etc
         if self.bedrooms is not None:
             bits.append(f"{self.bedrooms} bd")
         if self.bathrooms is not None:
             bits.append(f"{self.bathrooms} ba")
         if self.sqft is not None:
             bits.append(f"{self.sqft} sqft")
-        if self.address:
-            bits.append(self.address)
-        if self.parking is not None:
-            bits.append(f"parking={'Y' if self.parking else 'N'}")
-        if self.laundry:
-            bits.append(f"laundry={self.laundry}")
         return " | ".join(bits) if bits else "ListingNormalized: (no key facts)"
+
+
+class ParkingType(str, Enum):
+    garage = "garage"
+    driveway = "driveway"
+    street = "street"
+    none = "none"
+    unknown = "unknown"
+
+
+class DetectedLabelModel(BaseModel):
+    """Closed-set amenity/defect detection for a single image."""
+
+    model_config = ConfigDict(frozen=True, extra="ignore")
+
+    name: str = Field(..., description="Canonical ontology label.")
+    category: Literal["amenity", "defect"] = Field(..., description="Closed-set type.")
+    confidence: float = Field(..., ge=0.0, le=1.0, description="Model confidence in [0,1].")
+    evidence: list[str] | None = Field(default=None, description="Optional textual/visual evidence ids.")
+    rationale: str | None = Field(default=None, description="Short model rationale (if available).")
+
+
+class ParkingSummary(BaseModel):
+    """Listing-level parking inference derived from image detections."""
+
+    model_config = ConfigDict(frozen=True, extra="ignore")
+
+    parking_type: Literal["garage", "driveway", "street", "none", "unknown"] | None = Field(
+        default=None, description="Best guess of primary parking type."
+    )
+    parking_spots: int | None = Field(default=None, ge=0, description="Conservative spot estimate, capped at 3.")
+    ev_charging: bool = Field(default=False, description="EV charging likely present.")
+    rationale: str | None = Field(default=None, description="One-line reason for the above.")
 
 
 class PhotoInsights(BaseModel):
@@ -472,6 +520,32 @@ class PhotoInsights(BaseModel):
     provider: str = Field(..., description="CV provider name.")
     version: str = Field(..., description="Provider/model version string.")
 
+    image_index: dict[str, str] = Field(default_factory=dict, description="Map sha256 → absolute path for every processed image.")
+    image_labels: dict[str, list[str]] = Field(default_factory=dict, description="Generic room/material labels per image sha256.")
+    image_detections: dict[str, list[DetectedLabelModel]] = Field(
+        default_factory=dict, description="Amenities/defects detections per image sha256."
+    )
+    amenity_counts: dict[str, int] = Field(default_factory=dict, description="How many distinct images exhibited each amenity label.")
+    defect_counts: dict[str, int] = Field(default_factory=dict, description="How many distinct images exhibited each defect label.")
+    parking: ParkingSummary | None = Field(default=None, description="Derived listing-level parking summary.")
+    ontology_version: str | None = Field(default=None, description="Ontology version string used for closed-set labels.")
+
+    images_total: int = Field(
+        default=0,
+        ge=0,
+        description="Number of processed images.",
+    )
+    detections_total: int = Field(
+        default=0,
+        ge=0,
+        description="Total number of detections across images.",
+    )
+    provenance: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Provider/params/cache metadata for reproducibility.",
+    )
+
+    # ---- validators ----
     @field_validator("room_counts")
     @classmethod
     def _non_negative_counts(cls, v: dict[str, int]) -> dict[str, int]:
@@ -486,6 +560,15 @@ class PhotoInsights(BaseModel):
         for k, val in v.items():
             if not (0.0 <= val <= 1.0):
                 raise ValueError(f"quality_flags[{k}] must be in [0,1]")
+        return v
+
+    # ---- new validators ----
+    @field_validator("amenity_counts", "defect_counts")
+    @classmethod
+    def _non_negative_label_counts(cls, v: dict[str, int]) -> dict[str, int]:
+        for k, val in v.items():
+            if val < 0:
+                raise ValueError(f"label_counts[{k}] must be >= 0")
         return v
 
     def summary(self) -> str:
@@ -804,6 +887,11 @@ class AddressResult(BaseModel):
     address_line: str | None = Field(
         None,
         description="Single-line street/city line if detected (e.g., '123 Main St, Springfield').",
+    )
+    civic_number: str | None = Field(None, description="Detected civic number")
+    unit_suite: str | None = Field(
+        None,
+        description="Detected unit, apartment, or suite number/designator (e.g., '601', 'Apt 12').",
     )
     city: str | None = Field(
         None,

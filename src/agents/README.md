@@ -44,7 +44,7 @@
 
 * `tag_listing_photos(photo_paths: list[str|Path], *, use_ai: bool | None = None) -> dict`
 
-  * Delegates to `tools.cv_tagging.tag_photos()`.
+  * Delegates to `src.core.cv.runner.tag_images()`.
   * Acts as a policy layer controlled by `AIREAL_PHOTO_AGENT`.
 
 ### Listing Ingest Agent
