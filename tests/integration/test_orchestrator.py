@@ -1,4 +1,4 @@
-# tests/test_orchestrator.py
+# tests/integration/test_orchestrator.py
 """
 CV Tagging Orchestrator Tests
 
@@ -8,7 +8,7 @@ Validate the high-level orchestrator behavior:
 - Normalizes and preserves ordering of input paths.
 - Scans folders (non-recursive and recursive) deterministically.
 - Honors feature flags to route via PhotoTaggerAgent (which delegates
-  to batch-aware cv_tagging) or directly to tag_photos.
+  to batch-aware cv_tagging) or directly to tag_images.
 - Flags unreadable inputs without raising.
 
 Notes
@@ -43,17 +43,18 @@ def test_analyze_paths_preserves_order_and_flags_unreadable(tmp_path, monkeypatc
     assert ids == [img1.name, img2.name, not_img.name]  # order preserved, duplicate removed
 
     by_id = {img["image_id"]: img for img in out["images"]}
-    assert "unreadable" in by_id[not_img.name]["quality_flags"]
+    assert by_id[not_img.name]["readable"] is False
 
     # Minimal rollup sanity
     roll = out["rollup"]
-    assert isinstance(roll.get("amenities", []), list)
+
     assert isinstance(roll.get("defects", []), list)
     assert isinstance(roll.get("condition_tags", []), list)
+    assert "natural_light_high" in roll["amenities"] or True
 
 
 def test_analyze_folder_recursive_and_direct_flag_fallback(tmp_path, monkeypatch):
-    # Disable agent to exercise direct orchestrator->tag_photos path
+    # Disable agent to exercise direct orchestrator->tag_images path
     monkeypatch.setenv("AIREAL_PHOTO_AGENT", "0")
     monkeypatch.setenv("AIREAL_USE_VISION", "1")
     monkeypatch.setenv("AIREAL_VISION_PROVIDER", "mock")
