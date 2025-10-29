@@ -1,0 +1,11 @@
+{
+  "address": "123 Maple Avenue, Moncton, NB",
+  "amenities": ["parking", "in-unit laundry", "heating:electric"],
+  "condition_tags": ["renovated", "good natural light"],
+  "defects": [],
+  "notes": [
+    "2 BR • 1 BA • 950 sqft",
+    "vision:local@v1",
+    "Amenities present: parking, in_unit_laundry"
+  ]
+}

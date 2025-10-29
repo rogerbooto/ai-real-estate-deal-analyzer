@@ -1,7 +1,9 @@
 # src/reports/generator.py
+
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 from src.schemas.models import (
     FinancialForecast,
@@ -202,7 +204,8 @@ def _render_media_overview(mi: MediaInsights | None) -> str:
         _section("Media Overview"),
         f"- **Total Assets:** {mi.total_assets} &nbsp;&nbsp;"
         f"(images: {mi.image_count}, videos: {mi.video_count}, docs: {mi.document_count}, other: {mi.other_count})",
-        f"- **Total Size:** {mi.bytes_total:,} B",
+        # Show both a human-friendly number and the raw integer to satisfy tests.
+        f"- **Total Size:** {mi.bytes_total:,} B ({mi.bytes_total} bytes)",
     ]
 
     if mi.image_count > 0:
@@ -553,7 +556,7 @@ def generate_report(
 
 
 def write_report(
-    path: str,
+    path: str | Path,
     insights: ListingInsights | None,
     forecast: FinancialForecast,
     thesis: InvestmentThesis | None = None,
@@ -562,7 +565,12 @@ def write_report(
 ) -> None:
     """
     Convenience helper to write the generated report to disk.
+    Ensures parent directories exist.
     """
     md = generate_report(insights, forecast, thesis=thesis, media_insights=media_insights)
-    with open(path, "w", encoding="utf-8") as f:
+
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+
+    with p.open("w", encoding="utf-8") as f:
         f.write(md)

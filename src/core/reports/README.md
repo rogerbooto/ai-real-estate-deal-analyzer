@@ -11,7 +11,7 @@
 * **Imports:**
 
   ```python
-  from src.reports.generator import generate_report, _fmt_currency, _fmt_pct
+  from src.core.reports.generator import generate_report, _fmt_currency, _fmt_pct
   ```
 
 ### Report Generator
@@ -38,7 +38,7 @@
 ### 1) Generate Markdown report
 
 ```python
-from src.reports.generator import generate_report
+from src.core.reports.generator import generate_report
 from src.schemas.models import FinancialForecast, InvestmentThesis
 
 report_md = generate_report(forecast=my_forecast, thesis=my_thesis, output_path="./artifacts/report.md")
@@ -48,7 +48,7 @@ print(report_md[:300])  # preview first lines
 ### 2) Custom formatting
 
 ```python
-from src.reports.generator import _fmt_currency, _fmt_pct
+from src.core.reports.generator import _fmt_currency, _fmt_pct
 
 print(_fmt_currency(12345.678))  # "$12,345.68"
 print(_fmt_pct(0.0567))          # "5.67%"

@@ -117,3 +117,4 @@ Desktop.ini
 
 # Ignore any file in the cache directories
 data/cache/**
+out/**

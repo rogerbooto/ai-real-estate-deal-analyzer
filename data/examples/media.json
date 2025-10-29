@@ -1,0 +1,37 @@
+{
+  "total_assets": 4,
+  "image_count": 3,
+  "video_count": 0,
+  "document_count": 1,
+  "other_count": 0,
+  "bytes_total": 1854321,
+
+  "min_width": 1024,
+  "max_width": 4032,
+  "min_height": 768,
+  "max_height": 3024,
+  "avg_width": 2680.0,
+  "avg_height": 1872.0,
+
+  "portrait_count": 1,
+  "landscape_count": 2,
+  "square_count": 0,
+
+  "duplicate_hashes": [],
+  "warnings": [],
+  "duplicates": [],
+
+  "image_quality": {
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": { "sharpness": 0.81, "brightness": 0.62, "contrast": 0.58 },
+    "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb": { "sharpness": 0.77, "brightness": 0.55, "contrast": 0.60 },
+    "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc": { "sharpness": 0.72, "brightness": 0.50, "contrast": 0.52 }
+  },
+
+  "palettes": {
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": ["#e7e3df", "#9a7b5f", "#2f2a27", "#c4b39b", "#6a5340"],
+    "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb": ["#dfe8f5", "#5677a5", "#2a3542", "#9fb6d1", "#7a8da6"],
+    "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc": ["#f3efe6", "#b4936a", "#3a332a", "#ddc9aa", "#7f674e"]
+  },
+
+  "hero_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+}

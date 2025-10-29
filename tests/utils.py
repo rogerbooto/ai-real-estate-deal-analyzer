@@ -6,7 +6,14 @@ Update values here to cascade across the test suite.
 
 from __future__ import annotations
 
+import os
+import runpy
+import subprocess
+import sys
+from collections.abc import Iterable
+from contextlib import contextmanager
 from datetime import datetime, timezone
+from hashlib import sha256
 from io import BytesIO
 from pathlib import Path
 from typing import Any
@@ -17,6 +24,7 @@ from PIL import Image
 # Project models
 from src.schemas.models import (
     # Financial model types
+    FinancialForecast,
     FinancialInputs,
     FinancingTerms,
     HtmlSnapshot,
@@ -28,8 +36,11 @@ from src.schemas.models import (
     MarketHypothesis,
     MarketSnapshot,
     OperatingExpenses,
+    PhotoInsights,
+    PurchaseMetrics,
     RefinancePlan,
     UnitIncome,
+    YearBreakdown,
 )
 
 # -----------------------------
@@ -364,3 +375,249 @@ def make_html_snapshot(
         bytes_size=len(html_bytes),
         sha256="deadbeef",  # tests don't rely on this; fine to keep static
     )
+
+
+def sha256_of(path: Path) -> str:
+    """
+    Compute a deterministic SHA-256 for a file path.
+    If file is missing, hash a sentinel string so the key is still stable.
+    """
+    if path.exists():
+        data = path.read_bytes() + str(path.name).encode("utf-8")  # add filename for uniqueness
+    else:
+        data = b"missing-" + str(path.name).encode("utf-8")
+    return sha256(data).hexdigest()
+
+
+def make_photo_insights(
+    image_paths: Iterable[Path],
+    *,
+    room_counts: dict[str, int] | None = None,
+    amenities: dict[str, bool] | None = None,
+    defects: dict[str, int] | None = None,
+    quality_flags: dict[str, float] | None = None,
+    parking: dict[str, Any] | None = None,
+    labels_by_sha: dict[str, list[Any]] | None = None,
+    detections_by_sha: dict[str, list[dict[str, Any]]] | None = None,
+    provider: str = "cv_v2",
+    version: str = "deterministic",
+    ontology_version: str = "amenities_defects_v1",
+    provenance: dict[str, Any] | None = None,
+) -> PhotoInsights:
+    """
+    Build a minimal-but-realistic PhotoInsights instance from a list of image paths.
+    Coerces:
+      - labels_by_sha values to List[str]
+      - detections_by_sha values to List[{'name','category','confidence'}]
+    """
+    # Build sha index
+    shas: list[str] = [sha256_of(Path(p)) for p in image_paths]
+    image_index: dict[str, str] = {s: str(Path(p)) for s, p in zip(shas, image_paths, strict=False)}
+
+    # Defaults
+    parking = parking or {"parking_type": "street", "parking_spots": 1, "ev_charging": False}
+    provenance = provenance or {"selected_provider": "local", "use_ai": False, "cache_root": ".cache/cv"}
+
+    # ---- Coerce labels to List[str]
+    labels_by_sha = labels_by_sha or {}
+    labels_norm: dict[str, list[str]] = {}
+    for k, vals in labels_by_sha.items():
+        out: list[str] = []
+        for v in vals or []:
+            if isinstance(v, str):
+                out.append(v)
+            elif isinstance(v, dict):
+                # accept {'label': 'kitchen', 'score': 0.98} -> 'kitchen'
+                if "label" in v and isinstance(v["label"], str):
+                    out.append(v["label"])
+            else:
+                # ignore unknown types
+                pass
+        labels_norm[k] = out
+
+    # ---- Coerce detections to required keys
+    detections_by_sha = detections_by_sha or {}
+    det_norm: dict[str, list[dict[str, Any]]] = {}
+    for k, dets in detections_by_sha.items():
+        out: list[dict[str, Any]] = []
+        for d in dets or []:
+            if {"name", "category", "confidence"}.issubset(d.keys()):
+                # ensure confidence is float
+                out.append({"name": d["name"], "category": d["category"], "confidence": float(d["confidence"])})
+            else:
+                # accept {'label': 'toilet', 'score': 0.88} -> map to amenity by default
+                label = d.get("label")
+                score = d.get("score")
+                if isinstance(label, str) and isinstance(score, (int | float)):
+                    out.append({"name": label, "category": "amenity", "confidence": float(score)})
+        det_norm[k] = out
+
+    images_total = len(image_index)
+    detections_total = sum(len(v) for v in det_norm.values())
+
+    payload = dict(
+        room_counts=room_counts or {},
+        amenities=amenities or {},
+        defect_counts=defects or {},
+        quality_flags=quality_flags or {},
+        parking=parking,
+        image_index=image_index,
+        image_labels=labels_norm,
+        image_detections=det_norm,
+        images_total=images_total,
+        detections_total=detections_total,
+        provider=provider,
+        version=version,
+        ontology_version=ontology_version,
+        provenance=provenance,
+    )
+    return PhotoInsights(**payload)  # type: ignore[arg-type]
+
+
+def make_photo_insights_from_photo_dir(
+    photo_dir: Path,
+    *,
+    set_dishwasher: bool = True,
+    renovated_score: float | None = 0.62,
+) -> PhotoInsights:
+    """
+    Convenience wrapper tailored to the `photo_dir` fixture:
+      - kitchen_updated_dishwasher.jpg
+      - bathroom_1.jpg
+      - kitchen_2.jpg
+    """
+    img1 = photo_dir / "kitchen_updated_dishwasher.jpg"
+    img2 = photo_dir / "bathroom_1.jpg"
+    img3 = photo_dir / "kitchen_2.jpg"
+
+    sha1 = sha256_of(img1)
+    sha2 = sha256_of(img2)
+    sha3 = sha256_of(img3)
+
+    # labels must be List[str]
+    labels = {
+        sha1: ["kitchen"],
+        sha2: ["bathroom"],
+        sha3: ["kitchen"],
+    }
+
+    # detections must have name/category/confidence
+    detections = {
+        # dishwasher is an amenity
+        sha1: ([{"name": "dishwasher", "category": "amenity", "confidence": 0.90}] if set_dishwasher else []),
+        # toilet is also an amenity for our closed set
+        sha2: [{"name": "toilet", "category": "amenity", "confidence": 0.88}],
+    }
+
+    amenities = {"dishwasher": bool(set_dishwasher), "in_unit_laundry": False}
+    quality = {}
+    if renovated_score is not None:
+        quality["renovated_score"] = float(renovated_score)
+
+    return make_photo_insights(
+        [img1, img2, img3],
+        room_counts={"kitchen": 2, "bath": 1},
+        amenities=amenities,
+        defects={"mold_suspected": 1},
+        quality_flags=quality,
+        labels_by_sha=labels,
+        detections_by_sha=detections,
+        provider="cv_v2",
+        version="deterministic",
+    )
+
+
+def repo_root() -> Path:
+    # tests/ -> <root>
+    return Path(__file__).resolve().parents[1]
+
+
+def run_root_cli(script_name: str, args: list[str]) -> subprocess.CompletedProcess:
+    """
+    Run a Python CLI that lives at the repository root (same folder as src/ and tests/).
+    Ensures PYTHONPATH includes the repo root so 'src.*' imports work.
+
+    Example:
+        res = run_root_cli("report_cli.py", ["--forecast", "...", "--out", "..."])
+    """
+    root = repo_root()
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(root)
+    script_path = root / script_name
+    cmd = [sys.executable, str(script_path), *args]
+    return subprocess.run(cmd, capture_output=True, text=True, cwd=str(root), env=env)
+
+
+# ---------- Minimal forecast factory ----------
+def make_minimal_forecast() -> FinancialForecast:
+    purchase = PurchaseMetrics(
+        cap_rate=0.0744, coc=0.0521, dscr=1.31, annual_debt_service=24000.0, acquisition_cash=110000.0, spread_vs_rate=0.0194
+    )
+    years = [
+        YearBreakdown(
+            year=1,
+            gsi=86400.0,
+            goi=79200.0,
+            insurance=2000.0,
+            taxes=5000.0,
+            utilities=3000.0,
+            water_sewer=1500.0,
+            property_management=3600.0,
+            repairs_maintenance=1800.0,
+            trash=900.0,
+            landscaping=600.0,
+            snow_removal=400.0,
+            hoa_fees=0.0,
+            reserves=1000.0,
+            other_expenses=500.0,
+            total_opex=20300.0,
+            noi=58900.0,
+            debt_service=24000.0,
+            principal_paid=9000.0,
+            interest_paid=15000.0,
+            cash_flow=34900.0,
+            dscr=2.45,
+            ending_balance=391000.0,
+            cap_rate_applied=0.075,
+            est_value=785333.33,
+            ltv_pct=49.8,
+            available_equity=0.0,
+            notes=[],
+        ),
+    ]
+    return FinancialForecast(purchase=purchase, years=years, refi=None, irr_10yr=0.0661, equity_multiple_10yr=1.47, warnings=[])
+
+
+@contextmanager
+def _patched_argv_and_syspath(argv: list[str], add_path: str):
+    old_argv = sys.argv[:]
+    old_path0 = list(sys.path)
+    try:
+        sys.argv = argv
+        if add_path not in sys.path:
+            sys.path.insert(0, add_path)
+        yield
+    finally:
+        sys.argv = old_argv
+        sys.path = old_path0
+
+
+def run_root_script(script_name: str, args: list[str]) -> tuple[int, str]:
+    """
+    Execute a root-level CLI script in-process using runpy.
+    Returns (returncode, stderr_text). Non-exception paths return (0, "").
+    """
+    root = Path(__file__).resolve().parents[1]  # repo root
+    script_path = root / script_name
+    if not script_path.exists():
+        return (1, f"Script not found: {script_path}")
+
+    with _patched_argv_and_syspath([script_path.name, *args], str(root)):
+        try:
+            runpy.run_path(str(script_path), run_name="__main__")
+            return (0, "")
+        except SystemExit as ex:  # allow sys.exit(...) in scripts
+            code = getattr(ex, "code", 0) or 0
+            return (int(code), "")
+        except Exception as ex:  # capture unexpected exceptions as non-zero
+            return (1, f"{type(ex).__name__}: {ex}")

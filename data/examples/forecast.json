@@ -1,0 +1,46 @@
+{
+  "purchase": {
+    "cap_rate": 0.075,
+    "coc": 0.085,
+    "dscr": 1.40,
+    "annual_debt_service": 48000.0,
+    "acquisition_cash": 190000.0,
+    "spread_vs_rate": 0.02
+  },
+  "years": [
+    {
+      "year": 1,
+      "gsi": 72000.0,
+      "goi": 68400.0,
+      "insurance": 1200.0,
+      "taxes": 3000.0,
+      "utilities": 0.0,
+      "water_sewer": 0.0,
+      "property_management": 0.0,
+      "repairs_maintenance": 1000.0,
+      "trash": 0.0,
+      "landscaping": 0.0,
+      "snow_removal": 0.0,
+      "hoa_fees": 0.0,
+      "reserves": 0.0,
+      "other_expenses": 0.0,
+      "total_opex": 5200.0,
+      "noi": 63200.0,
+      "debt_service": 48000.0,
+      "principal_paid": 12000.0,
+      "interest_paid": 36000.0,
+      "cash_flow": 15200.0,
+      "dscr": 1.3167,
+      "ending_balance": 385000.0,
+      "cap_rate_applied": 0.075,
+      "est_value": 842666.7,
+      "ltv_pct": 45.7,
+      "available_equity": 289000.0,
+      "notes": []
+    }
+  ],
+  "refi": null,
+  "irr_10yr": 0.066,
+  "equity_multiple_10yr": 1.47,
+  "warnings": []
+}

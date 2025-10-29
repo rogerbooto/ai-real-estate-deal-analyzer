@@ -2,8 +2,8 @@ from pathlib import Path
 
 import pytest
 
+from src.core.reports.generator import write_report
 from src.orchestrators.crewai_runner import run_orchestration as run_crewai
-from src.reports.generator import write_report
 from src.schemas.models import (
     FinancialInputs,
     FinancingTerms,

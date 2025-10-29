@@ -34,9 +34,9 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from src.core.reports.generator import write_report
 from src.inputs.inputs import AppInputs, InputsLoader
 from src.orchestrators import crew as deterministic_orchestrator
-from src.reports.generator import write_report
 from src.schemas.models import (
     FinancialInputs,
     FinancingTerms,

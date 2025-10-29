@@ -20,6 +20,8 @@ from tests.utils import (
     make_hypothesis_set,
     make_listing_insights,
     make_market_assumptions,
+    make_photo_insights,
+    make_photo_insights_from_photo_dir,
     make_snapshot,
     png_bytes as _make_png,
 )
@@ -184,6 +186,39 @@ def make_gradient_img():
         _make_gradient_img(path=path, size=size, delta=delta)
 
     return _factory
+
+
+@pytest.fixture
+def photo_insights_factory():
+    """
+    Factory fixture to build PhotoInsights from arbitrary image paths and maps.
+
+    Usage:
+        photos = photo_insights_factory(
+            [img1_path, img2_path],
+            amenities={"dishwasher": True},
+            defects={"mold_suspected": 1},
+            labels_by_sha={...},  # optional
+            detections_by_sha={...},  # optional
+        )
+    """
+
+    def _factory(
+        image_paths: list[Path],
+        **kwargs,
+    ):
+        return make_photo_insights(image_paths, **kwargs)
+
+    return _factory
+
+
+@pytest.fixture
+def sample_photo_insights(photo_dir: Path):
+    """
+    Ready-to-use PhotoInsights matching the deterministic `photo_dir` fixture
+    (kitchen_updated_dishwasher, bathroom_1, kitchen_2).
+    """
+    return make_photo_insights_from_photo_dir(photo_dir)
 
 
 # -------- Pytest markers --------
