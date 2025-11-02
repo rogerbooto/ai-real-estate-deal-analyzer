@@ -33,9 +33,9 @@ Migration Notes
 
 from __future__ import annotations
 
+from src.core.ingest.listing_parser import parse_listing_string, parse_listing_text
 from src.orchestrators.cv_tagging_orchestrator import CvTaggingOrchestrator
 from src.schemas.models import ListingInsights
-from src.tools.listing_parser import parse_listing_string, parse_listing_text
 
 
 def analyze_listing(

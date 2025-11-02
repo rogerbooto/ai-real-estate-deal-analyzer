@@ -1,8 +1,8 @@
 # tests/listing/test_ingest_flags.py
 from pathlib import Path
 
+from src.core.ingest.listing_ingest import ingest_listing
 from src.schemas.models import FetchPolicy
-from src.tools.listing_ingest import ingest_listing
 from tests.utils import make_document
 
 

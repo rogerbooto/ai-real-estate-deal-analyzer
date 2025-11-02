@@ -1,3 +1,5 @@
+# src/core/normalize/listing_html.py
+
 """
 Deterministic listing normalizer (HTML/XML → ListingNormalized).
 
@@ -9,13 +11,13 @@ Returns a best-effort ListingNormalized; unknowns remain None.
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 from bs4 import BeautifulSoup
 from pydantic import ValidationError
 
 from src.core.normalize.address import parse_address
+from src.core.normalize.title import infer_title
 
 # Centralized label parsing & phrase maps
 from src.schemas.labels import (
@@ -23,64 +25,11 @@ from src.schemas.labels import (
     AmenityLabel,
     detect_cooling,
     detect_heating,
+    extract_listing_common,
     has_any_parking_specific,
     normalize_amenities_from_text,
 )
 from src.schemas.models import ListingNormalized
-
-# ---------- Regex & keyword tables ----------
-
-_BED_RE = re.compile(r"(?i)\b(\d+(?:\.\d+)?)\s*(?:bed(?:room)?s?|bdrm|br)\b")
-_BATH_RE = re.compile(r"(?i)\b(\d+(?:\.\d+|½|1/2)?)\s*(?:bath(?:room)?s?|ba)\b")
-_SQFT_RE = re.compile(r"(?i)\b(~?\s*(?:\d{1,3}(?:[,\u00A0\u2009\u202F\. ]\d{3})+|\d{3,5}))\s*(?:sq\s?ft|ft²|sqft|square\s?feet)\b")
-_PRICE_RE = re.compile(r"(?i)(?:\$|usd|cad)\s*([0-9][0-9,\.]{2,})")
-_YEAR_RE = re.compile(r"(?i)\bbuilt\s*(\d{4})\b")
-
-# ---------- Helpers ----------
-
-
-def _normalize_half_notation(s: str) -> str:
-    # 1½ → 1.5 ; "1 / 2" → .5 (so "1 1/2" won’t become "11/2")
-    s = re.sub(r"\s*½", "½", s).replace("½", ".5")
-    return re.sub(r"\s*1\s*/\s*2\s*", ".5", s)
-
-
-def _clean_num(text: str) -> float | None:
-    try:
-        t = text.replace("$", "").lstrip("~").strip()
-        # Remove common thousand groupings (comma, spaces incl. NBSP/thin, dot-as-thousands)
-        t = t.replace(",", "").replace(" ", "").replace("\u00a0", "").replace("\u2009", "").replace("\u202f", "")
-        t = re.sub(r"\.(?=\d{3}\b)", "", t)  # 1.200 → 1200
-        return float(t)
-    except Exception:
-        return None
-
-
-def _extract_common(text: str, notes: list[str]) -> tuple[float | None, float | None, int | None, float | None, int | None]:
-    bed = _BED_RE.search(text)
-    bath = _BATH_RE.search(text)
-    sqft = _SQFT_RE.search(text)
-    price = _PRICE_RE.search(text)
-    year = _YEAR_RE.search(text)
-
-    bds = _clean_num(bed.group(1)) if bed else None
-
-    bas = None
-    if bath:
-        raw = _normalize_half_notation(bath.group(1))
-        bas = _clean_num(raw)
-
-    sqft_i = int(_clean_num(sqft.group(1)) or 0) if sqft else None
-    prc = _clean_num(price.group(1)) if price else None
-    yr = int(year.group(1)) if year else None
-
-    if (bath and ("½" in bath.group(0) or "1/2" in bath.group(0))) or re.search(r"\b1\s*/\s*2\b", text):
-        notes.append("Parsed half bath notation.")
-    if bds is None and re.search(r"(?i)\bstudio\b", text):
-        bds = 0.0
-        notes.append("Detected studio → 0 bedrooms.")
-    return bds, bas, sqft_i, prc, yr
-
 
 # ---------- Public API ----------
 
@@ -98,7 +47,7 @@ def parse_listing_from_tree(tree: str | Path) -> ListingNormalized:
     text = soup.get_text(" ", strip=True)
     lt = text.lower()
 
-    bds, bas, sqft_i, prc, yr = _extract_common(text, notes)
+    bds, bas, sqft_i, prc, yr = extract_listing_common(text, notes)
 
     # Structured address first (targeted → fallback)
     addr_res = parse_address(text=text, soup=soup)
@@ -121,7 +70,7 @@ def parse_listing_from_tree(tree: str | Path) -> ListingNormalized:
         )
         postal_code = addr_res.postal_code or None
 
-    title = soup.title.string.strip() if soup.title and soup.title.string else None
+    title, conf, src, candidates = infer_title(text=text, soup=soup, addr=addr_res)
 
     # Centralized amenity parsing (covers dishwasher, parking* variants, laundry synonyms, etc.)
     amenities_found = normalize_amenities_from_text(lt)
@@ -144,6 +93,9 @@ def parse_listing_from_tree(tree: str | Path) -> ListingNormalized:
     try:
         return ListingNormalized(
             title=title or None,
+            title_confidence=conf,
+            title_source=src,
+            title_candidates=candidates,
             source_url=None,  # if available upstream, set it there
             address=addr_line,
             address_structure=addr_res,

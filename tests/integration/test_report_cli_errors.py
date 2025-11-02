@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-import report_cli
+import src.cli.report_cli as report_cli
 
 
 def test_report_cli_missing_forecast_arg_errors(tmp_path: Path):

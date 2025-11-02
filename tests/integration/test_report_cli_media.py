@@ -3,7 +3,7 @@
 
 from pathlib import Path
 
-import report_cli
+import src.cli.report_cli as report_cli
 from src.schemas.models import ListingInsights, MediaInsights
 from tests.utils import make_minimal_forecast
 

@@ -3,3 +3,8 @@ pythonpath = ["."]
 
 [project.optional-dependencies]
 openai = ["openai>=1.0.0"]
+
+[project.scripts]
+ingest-listing = "src.cli.ingest_cli:main"
+deal-report    = "src.cli.report_cli:main"
+deal-advisor   = "src.cli.advisor_cli:main"

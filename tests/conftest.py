@@ -8,6 +8,8 @@ from pathlib import Path
 import pytest
 
 from src.core.finance import run_financial_model
+from src.core.finance.adapters import FinanceSummary
+from src.schemas.models import ListingNormalized, PhotoInsights
 from tests.utils import (
     DEFAULT_LISTING_HTML,
     default_theses,
@@ -144,22 +146,19 @@ def document_factory(tmp_path: Path):
 
 
 @pytest.fixture
-def photo_dir(tmp_path: Path) -> Path:
+def photo_dir(tmp_path: Path, make_gradient_img) -> Path:
     """
-    Fixture that creates a deterministic photo directory with filenames
-    recognized by the heuristic tagger (for consistent test results).
-
-    Files created:
-      - kitchen_updated_dishwasher.jpg  → room:kitchen, amenity:dishwasher, quality:renovated_kitchen
-      - bathroom_1.jpg                  → room:bathroom
-      - kitchen_2.jpg                   → room:kitchen
+    Creates real (uncompressed) PNGs so the photo quality filter keeps them.
+      - kitchen_updated_dishwasher.png → room:kitchen, amenity:dishwasher, quality:renovated_kitchen
+      - bathroom_1.png                 → room:bathroom
+      - kitchen_2.png                  → room:kitchen
     """
     pdir = tmp_path / "photos"
     pdir.mkdir(parents=True, exist_ok=True)
 
-    (pdir / "kitchen_updated_dishwasher.jpg").write_bytes(b"\x00")
-    (pdir / "bathroom_1.jpg").write_bytes(b"\x00")
-    (pdir / "kitchen_2.jpg").write_bytes(b"\x00")
+    make_gradient_img(pdir / "kitchen_updated_dishwasher.png", (64, 64), delta=1)
+    make_gradient_img(pdir / "bathroom_1.png", (64, 64), delta=2000)
+    make_gradient_img(pdir / "kitchen_2.png", (64, 64), delta=300000)
 
     return pdir
 
@@ -225,3 +224,55 @@ def sample_photo_insights(photo_dir: Path):
 def pytest_configure(config):
     config.addinivalue_line("markers", "slow: marks tests as slow (deselect with '-m \"not slow\"')")
     config.addinivalue_line("markers", "integration: marks integration tests")
+
+
+@pytest.fixture
+def listing_fixture() -> ListingNormalized:
+    """Normalized listing sample with stable fields and short notes."""
+    return ListingNormalized(
+        title="Charming 2BR Near River",
+        address="123 Main St, Moncton, NB",
+        bedrooms=2,
+        bathrooms=1,
+        sqft=900,
+        notes="Walkable to trails; South-facing windows",
+    )
+
+
+@pytest.fixture
+def photos_fixture() -> PhotoInsights:
+    """
+    Deterministic photo insights fixture:
+    - two quality scores (0.80, 0.60)
+    - two distinct defect labels for penalty computation
+    """
+    return PhotoInsights(
+        provider="stub-cv",
+        version="1.0.0",
+        quality_flags={"natural_light_score": 0.80, "renovated_score": 0.60},
+        defect_counts={"paint_peel": 2, "crack": 1},
+        room_counts={},
+        amenities={},
+        image_index={},
+        image_labels={},
+        image_detections={},
+        amenity_counts={},
+        parking=None,
+        ontology_version=None,
+        images_total=10,
+        detections_total=5,
+        provenance={},
+    )
+
+
+@pytest.fixture
+def finance_fixture() -> FinanceSummary:
+    """Finance summary fixture for deterministic scoring."""
+    return FinanceSummary(
+        irr=0.55,
+        cashflow_monthly=125.0,
+        price_per_sqft=210.0,
+        market_ppsf=200.0,
+        purchase_price=350000.0,
+        area_safety_index=0.70,
+    )

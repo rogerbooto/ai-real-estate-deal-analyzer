@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Callable, Mapping, Sequence
+from hashlib import sha256
 from pathlib import Path
 from statistics import mean
 from typing import Any, cast
@@ -28,6 +29,11 @@ from src.schemas.models import MediaAsset, PhotoInsights
 AssetLike = str | Path | MediaAsset
 
 _IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff"}
+
+# Sanity thresholds
+_MIN_BYTES = 1024  # 1 KiB
+_LOW_ENTROPY_SAMPLE = 8192  # bytes to inspect for "blank" check
+_LOW_ENTROPY_UNIQUE_RATIO = 0.01  # <1% unique byte ratio in head sample → suspiciously blank
 
 
 def _iter_images(photo_dir: Path) -> list[Path]:
@@ -152,11 +158,73 @@ def _amenities_surface_from(amenity_counts: dict[str, int], image_labels: dict[s
     return to_photoinsights_amenities_surface(found)
 
 
+# ---------- Sanity checks (filtering) ----------
+
+
+def _sha256_of(path: Path) -> str:
+    try:
+        return sha256(path.read_bytes()).hexdigest()
+    except Exception:
+        return f"missing:{path.name}"
+
+
+def _is_low_entropy(b: bytes) -> bool:
+    # Inspect a head sample; if almost all bytes are identical, treat as blank-ish.
+    if not b:
+        return True
+    sample = b[:_LOW_ENTROPY_SAMPLE]
+    unique = len(set(sample))
+    ratio = unique / max(1, len(sample))
+    return ratio < _LOW_ENTROPY_UNIQUE_RATIO
+
+
+def _filter_photos(paths: list[Path]) -> tuple[list[Path], list[str], dict[str, int]]:
+    kept: list[Path] = []
+    warnings: list[str] = []
+    drop_reasons: dict[str, int] = {"too_small": 0, "duplicate": 0, "low_entropy": 0}
+
+    seen_hash: dict[str, Path] = {}
+
+    for p in paths:
+        try:
+            b = p.read_bytes()
+        except Exception:
+            warnings.append(f"unreadable:{p.name}")
+            # treat as too small, effectively skip
+            drop_reasons["too_small"] += 1
+            continue
+
+        if len(b) < _MIN_BYTES:
+            warnings.append(f"too_small:{p.name}(<{_MIN_BYTES}B)")
+            drop_reasons["too_small"] += 1
+            continue
+
+        if _is_low_entropy(b):
+            warnings.append(f"low_entropy:{p.name}")
+            drop_reasons["low_entropy"] += 1
+            continue
+
+        h = sha256(b).hexdigest()
+        if h in seen_hash:
+            warnings.append(f"duplicate:{p.name}->{seen_hash[h].name}")
+            drop_reasons["duplicate"] += 1
+            continue
+
+        seen_hash[h] = p
+        kept.append(p)
+
+    return kept, warnings, drop_reasons
+
+
 # ---------- Main ----------
 
 
 def build_photo_insights(photo_dir: Path, *, use_ai: bool = False) -> PhotoInsights:
-    paths = _iter_images(photo_dir)
+    paths_all = _iter_images(photo_dir)
+
+    # Filter images with sanity checks
+    paths, quality_warnings, drop_reasons = _filter_photos(paths_all)
+
     if not paths:
         return PhotoInsights(
             room_counts={},
@@ -174,16 +242,26 @@ def build_photo_insights(photo_dir: Path, *, use_ai: bool = False) -> PhotoInsig
             images_total=0,
             detections_total=0,
             provenance={
-                "selected_provider": "local",
+                "selected_provider": "local" if not use_ai else "vision",
                 "use_ai": bool(use_ai),
                 "cache_root": os.getenv("AIREDEAL_CACHE_DIR", str(Path(".") / ".cache" / "cv")),
+                "quality_warnings": quality_warnings,
+                "filtered": {
+                    "input_count": len(paths_all),
+                    "kept_count": 0,
+                    "dropped_count": len(paths_all),
+                    "drop_reasons": drop_reasons,
+                },
             },
         )
 
     provider: ProviderName = "vision" if use_ai else "local"
 
     # 1) Generic filename-derived labels (schema form)
-    generic_schema: dict[str, Any] = cast(dict[str, Any], tag_images(cast(Sequence[AssetLike], paths), use_ai=use_ai, return_schema=True))
+    generic_schema: dict[str, Any] = cast(
+        dict[str, Any],
+        tag_images(cast(Sequence[AssetLike], paths), use_ai=use_ai, return_schema=True),
+    )
     image_records: list[dict[str, Any]] = list(generic_schema.get("images", []) or [])
 
     # sha -> labels (strings) from schema records (used for quality + material promotion)
@@ -263,5 +341,12 @@ def build_photo_insights(photo_dir: Path, *, use_ai: bool = False) -> PhotoInsig
             "selected_provider": provider,
             "use_ai": bool(use_ai),
             "cache_root": os.getenv("AIREDEAL_CACHE_DIR", str(Path(".") / ".cache" / "cv")),
+            "quality_warnings": quality_warnings,
+            "filtered": {
+                "input_count": len(paths_all),
+                "kept_count": len(paths),
+                "dropped_count": len(paths_all) - len(paths),
+                "drop_reasons": drop_reasons,
+            },
         },
     )

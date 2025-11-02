@@ -51,3 +51,33 @@ def test_no_images_returns_empty(tmp_path: Path):
     # All quality keys present with 0.0
     assert any(k for k in ins.quality_flags.keys())
     assert all(v == 0.0 for v in ins.quality_flags.values())
+
+
+def test_filters_tiny_and_duplicate(tmp_path: Path, make_gradient_img):
+    pdir = tmp_path / "photos"
+    pdir.mkdir(parents=True, exist_ok=True)
+
+    # Too-small file (will be rejected)
+    (pdir / "tiny.jpg").write_bytes(b"\x00")
+
+    # One proper image (kept)
+    good = pdir / "kitchen.png"
+    make_gradient_img(good, (128, 128), delta=5000)
+
+    # Duplicate of the proper image (rejected as duplicate)
+    (pdir / "kitchen_copy.png").write_bytes(good.read_bytes())
+
+    ins = build_photo_insights(pdir)
+
+    # Only the good image should remain
+    assert ins.images_total == 1
+
+    prov = ins.provenance or {}
+    filt = prov.get("filtered", {})
+    assert filt.get("input_count") == 3
+    assert filt.get("kept_count") == 1
+    assert filt.get("dropped_count") == 2
+
+    warnings = prov.get("quality_warnings", [])
+    assert any("too_small" in w for w in warnings)
+    assert any("duplicate" in w for w in warnings)

@@ -206,6 +206,64 @@ def _choose_state_province(candidate: str | None, search_space: str) -> str | No
 # ----------------------------
 
 
+def format_postal_code(code: str | None, country: CountryHint | None) -> str | None:
+    """
+    Normalize and format a postal/ZIP by country.
+
+    CA: 'E4P0H3' -> 'E4P 0H3'
+    US: '12345' | '123456789' -> '12345' | '12345-6789'
+    UK: ensure single space between outward/inward codes, uppercase
+    NL: ensure single space between digits and letters, uppercase
+    EU/other: uppercase + collapse whitespace
+    """
+    if not code:
+        return None
+
+    raw = code.strip().upper()
+
+    if country == "CA":
+        # Accept with/without space, reformat to 'A1A 1A1'
+        m = _CA_POSTAL_RE.search(raw)
+        if m:
+            return f"{m.group(1).upper()} {m.group(2).upper()}"
+        # Fallback: best-effort insert space if 6 chars alnum
+        raw = raw.replace(" ", "")
+        return f"{raw[:3]} {raw[3:]}" if len(raw) == 6 else raw
+
+    if country == "US":
+        # Keep 5 or 9 with hyphen
+        m = _US_ZIP_RE.search(raw)
+        if m:
+            five = m.group(1)
+            plus4 = m.group(2)
+            return f"{five}-{plus4}" if plus4 else five
+        # Best-effort: 9 digits -> 5-4
+        digits = re.sub(r"\D+", "", raw)
+        if len(digits) == 9:
+            return f"{digits[:5]}-{digits[5:]}"
+        return digits if len(digits) in (5, 9) else raw
+
+    if country == "UK":
+        m = _UK_POSTCODE_RE.search(raw)
+        if m:
+            return f"{m.group(1).upper()} {m.group(2).upper()}"
+        # Fallback: collapse spaces to one
+        return re.sub(r"\s+", " ", raw)
+
+    if country == "NL":
+        m = _NL_POSTCODE_RE.search(raw)
+        if m:
+            return f"{m.group(1)} {m.group(2).upper()}"
+        # Fallback: if 6 (4 digits + 2 letters) without space
+        compact = raw.replace(" ", "")
+        if re.fullmatch(r"\d{4}[A-Z]{2}", compact):
+            return f"{compact[:4]} {compact[4:]}"
+        return raw
+
+    # EU/unknown: uppercase, condense spaces
+    return re.sub(r"\s+", " ", raw)
+
+
 def extract_address(text: str, soup: BeautifulSoup | None = None) -> AddressResult | None:
     """
     Backwards-compatible single-line address extractor.
@@ -244,11 +302,14 @@ def parse_address(text: str | None, soup: BeautifulSoup | None = None) -> Addres
     # --- UNIFIED ANCHOR-BASED LOGIC (Find Anchors) ---
 
     # 2a. Find Postal Anchor (End Anchor)
-    postal_code, country, pidx = _detect_postal(blob)
+    postal_code_raw, country, pidx = _detect_postal(blob)
 
     # If no postal code is found, we cannot reliably anchor.
-    if postal_code is None or pidx is None:
+    if postal_code_raw is None or pidx is None:
         return None
+
+    # Keep a compact version for internal anchoring; format later for output
+    postal_compact = postal_code_raw.replace(" ", "")
 
     # 2b. Find Civic Anchor (Start Anchor)
     civic_match = _detect_civic_number(blob)
@@ -257,15 +318,13 @@ def parse_address(text: str | None, soup: BeautifulSoup | None = None) -> Addres
     civic_idx = civic_match.start() if civic_match else 0
 
     # 2c. Define Scoped Blob for Parsing
-    postal_end_idx = pidx + len(postal_code)
+    postal_end_idx = pidx + len(postal_code_raw)
 
     # Scope: From the start of the civic number/blob to slightly past the end of the postal code
     scoped_blob = blob[civic_idx : postal_end_idx + 10]
 
     # 3. Attempt NLP Parsing (US/CA only) to get the best ADDRESS LINE
     is_us_ca_postal = country in {"US", "CA"}
-
-    postal_code = postal_code.replace(" ", "")
 
     # Predeclare to satisfy mypy across branches
     street_line: str | None = None
@@ -289,13 +348,13 @@ def parse_address(text: str | None, soup: BeautifulSoup | None = None) -> Addres
             best_match = street_iter[0]
 
             # Extract components from the match
-            street_line = _clean_line(best_match.group("line"), postal_code)
+            street_line = _clean_line(best_match.group("line"), postal_compact)
             civic_number = best_match.group("house_number")
             unit_suite = best_match.group("unit_suite") or None
 
         # City/State extraction relies on patterns near the postal code (still running on original full blob for context)
-        if country in {"US", "CA"} and postal_code:
-            pc_esc = re.escape(postal_code)
+        if country in {"US", "CA"} and postal_compact:
+            pc_esc = re.escape(postal_compact)
             state_province_re = rf"({_US_CA_STATE_PROVINCE_CODES})"
 
             patterns = [
@@ -319,8 +378,11 @@ def parse_address(text: str | None, soup: BeautifulSoup | None = None) -> Addres
         else:
             state_province = None
 
+    # Format postal for output
+    postal_formatted = format_postal_code(postal_code_raw, country)
+
     # Final check
-    if not (street_line or postal_code or city):
+    if not (street_line or postal_formatted or city):
         return None
 
     return AddressResult(
@@ -329,7 +391,7 @@ def parse_address(text: str | None, soup: BeautifulSoup | None = None) -> Addres
         civic_number=civic_number,
         unit_suite=unit_suite,
         state_province=state_province,
-        postal_code=postal_code,
+        postal_code=postal_formatted,
         country_hint=country,
     )
 

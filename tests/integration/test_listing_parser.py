@@ -1,5 +1,5 @@
 # tests/integration/test_listing_parser.py
-from src.tools.listing_parser import parse_listing_string
+from src.core.ingest.listing_parser import parse_listing_string
 
 
 def test_parse_listing_string_basics():

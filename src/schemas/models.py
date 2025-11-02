@@ -421,6 +421,15 @@ class ListingNormalized(BaseModel):
 
     source_url: str | None = None
     title: str | None = None
+    title_confidence: float | None = Field(
+        default=None, ge=0.0, le=1.0, description="Confidence score for the inferred title (if applicable)."
+    )
+    title_source: Literal["html", "text", "user"] | None = Field(
+        default=None, description="Source of the title: HTML title tag, text-inferred, or user-provided."
+    )
+    title_candidates: list[str] | None = Field(
+        default=None, description="Alternative title candidates (if applicable), ordered by confidence."
+    )
     price: float | None = Field(default=None, ge=0, description="Monthly rent or list price; currency-agnostic float.")
     address: str | None = None  # keept for backward compatibility (single-line summary)
 
@@ -451,7 +460,7 @@ class ListingNormalized(BaseModel):
         if self.title:
             bits.append(self.title)
         if self.price is not None:
-            bits.append(f"price={self.price:,.0f}")
+            bits.append(f"price: {self.price:,.0f}")
 
         # Prefer structured fragments if present
         if self.address_structure and (self.address_structure.city or self.address_structure.state_province):
@@ -512,7 +521,7 @@ class ParkingSummary(BaseModel):
 class PhotoInsights(BaseModel):
     """Deterministic CV-derived insights from a folder of photos."""
 
-    model_config = ConfigDict(frozen=True, extra="ignore")
+    model_config = ConfigDict(frozen=False, extra="ignore")
 
     room_counts: dict[str, int] = Field(default_factory=dict, description="Counts per room type (kitchen, bath, etc.).")
     amenities: dict[str, bool] = Field(default_factory=dict, description="Amenity presence flags.")

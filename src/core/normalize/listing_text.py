@@ -1,97 +1,94 @@
 # src/core/normalize/listing_text.py
 
-
 """
 Deterministic listing normalizer (plain text → ListingNormalized).
+
+Now aligned with the HTML normalizer:
+- Reuses shared regexes and numeric helpers for beds/baths/sqft/price/year.
+- Uses the centralized address parser to populate:
+    address (single-line), address_structure (structured parts), postal_code.
+- Uses centralized amenity/parking/laundry/heating/cooling detectors.
 """
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 from pydantic import ValidationError
 
 # Centralized parsing utilities
+from src.core.normalize.address import parse_address
+from src.core.normalize.title import infer_title
 from src.schemas.labels import (
     LAUNDRY_PHRASE_MAP,
     AmenityLabel,
     detect_cooling,
     detect_heating,
+    extract_listing_common,
     has_any_parking_specific,
     normalize_amenities_from_text,
 )
 from src.schemas.models import ListingNormalized
 
-# Reuse shared regexes and numeric helpers from listing_html for consistency
-from .listing_html import (
-    _BATH_RE,
-    _BED_RE,
-    _PRICE_RE,
-    _SQFT_RE,
-    _YEAR_RE,
-    _clean_num,
-    _normalize_half_notation,
-)
-
-
-def _extract_common(text: str, notes: list[str]) -> tuple[float | None, float | None, int | None, float | None, int | None]:
-    """Extract basic numeric and textual features from raw listing text."""
-    bed = _BED_RE.search(text)
-    bath = _BATH_RE.search(text)
-    sqft = _SQFT_RE.search(text)
-    price = _PRICE_RE.search(text)
-    year = _YEAR_RE.search(text)
-
-    bds = _clean_num(bed.group(1)) if bed else None
-    bas = None
-    if bath:
-        raw = _normalize_half_notation(bath.group(1))
-        bas = _clean_num(raw)
-
-    sqft_i = int(_clean_num(sqft.group(1)) or 0) if sqft else None
-    prc = _clean_num(price.group(1)) if price else None
-    yr = int(year.group(1)) if year else None
-
-    if (bath and ("½" in bath.group(0) or "1/2" in bath.group(0))) or re.search(r"\b1\s*/\s*2\b", text):
-        notes.append("Parsed half bath notation.")
-    if bds is None and re.search(r"(?i)\bstudio\b", text):
-        bds = 0.0
-        notes.append("Detected studio → 0 bedrooms.")
-    return bds, bas, sqft_i, prc, yr
-
 
 def parse_listing_from_text(doc: str | Path) -> ListingNormalized:
     """
     Parse a listing from a plain-text string or file path → ListingNormalized.
-    Uses centralized label helpers for amenities, heating, cooling, and laundry.
+    Uses centralized address parsing and label helpers (amenities/heating/cooling/laundry).
     """
     text = Path(doc).read_text(encoding="utf-8") if isinstance(doc, Path) else doc
     lt = text.lower()
     notes: list[str] = ["Parsed from plain text."]
 
-    bds, bas, sqft_i, prc, yr = _extract_common(text, notes)
+    bds, bas, sqft_i, prc, yr = extract_listing_common(text, notes)
 
-    # Centralized amenity parsing
+    # ---------- Address (structured first → compose legacy single-line) ----------
+    addr_res = parse_address(text=text, soup=None)  # text-only mode
+
+    # Title inference (no HTML title available here)
+    title, conf, src, candidates = infer_title(text=text, soup=None, addr=addr_res)
+
+    addr_line = None
+    postal_code = None
+    if addr_res:
+        addr_line = (
+            ", ".join(
+                p
+                for p in [
+                    addr_res.address_line or "",
+                    addr_res.postal_code or "",
+                    addr_res.state_province or "",
+                    addr_res.country_hint or "",
+                ]
+                if p
+            )
+            or None
+        )
+        postal_code = addr_res.postal_code or None
+
+    # ---------- Amenities / parking / laundry / HVAC ----------
     amenities_found = normalize_amenities_from_text(lt)
-
-    # parking: True if any specific parking amenity present
     parking = has_any_parking_specific(amenities_found) or None
 
-    laundry: str | None = None
-
-    # laundry: prefer explicit amenity, else fall back to phrase map
     if AmenityLabel.in_unit_laundry in amenities_found:
-        laundry = "in-unit"
+        laundry: str | None = "in-unit"
     else:
         laundry = next((v for k, v in LAUNDRY_PHRASE_MAP.items() if k in lt), None)
 
-    # heating/cooling via centralized detectors
     heating = detect_heating(lt)
     cooling = detect_cooling(lt)
 
+    # ---------- Build model (best-effort) ----------
     try:
         return ListingNormalized(
+            title=title or None,
+            title_confidence=conf,
+            title_source=src,
+            title_candidates=candidates,
+            source_url=None,
+            address=addr_line,
+            address_structure=addr_res,
+            postal_code=postal_code,
             price=prc,
             bedrooms=bds,
             bathrooms=bas,
@@ -104,7 +101,11 @@ def parse_listing_from_text(doc: str | Path) -> ListingNormalized:
             notes="; ".join(notes),
         )
     except ValidationError:
+        # Fallback: keep as many fields as we can; mirror HTML parser’s shape
         data = {
+            "address": addr_line,
+            "address_struct": addr_res,  # mirrors listing_html fallback key
+            "postal_code": postal_code,
             "price": prc,
             "bedrooms": bds,
             "bathrooms": bas,

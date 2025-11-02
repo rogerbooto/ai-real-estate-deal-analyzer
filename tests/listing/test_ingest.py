@@ -12,11 +12,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from src.tools.listing_ingest import ingest_listing
+from src.core.ingest.listing_ingest import ingest_listing
 
 
 def test_ingest_uses_html_parser_and_sets_fields(document_factory, photo_dir: Path):
-    html_content = "<html><head><title>T</title></head>" "<body>$1,200 | 2 br | 1 ba | 850 sqft | Built 2001</body></html>"
+    html_content = "<html><head><title>Property title</title></head>" "<body>$1,200 | 2 br | 1 ba | 850 sqft | Built 2001</body></html>"
 
     doc = document_factory(html=html_content)
 
@@ -25,7 +25,7 @@ def test_ingest_uses_html_parser_and_sets_fields(document_factory, photo_dir: Pa
     listing, photo_insights = result.listing, result.photos
 
     # HTML path recognized → parsed title present
-    assert listing.title == "T"
+    assert listing.title == "Property title"
     assert listing.source_url is None
     assert listing.price == 1200.0
     assert listing.bedrooms == 2.0
@@ -48,7 +48,7 @@ def test_ingest_uses_text_parser_when_not_html(document_factory, photo_dir: Path
     listing, photo_insights = result.listing, result.photos
 
     # Text path has no DOM/title
-    assert listing.title is None
+    assert listing.title is not None
     assert listing.price == 1200.0
     assert listing.bedrooms == 2.0
     assert listing.bathrooms == 1.0

@@ -1,0 +1,10 @@
+{
+  "forecast": {
+    "irr": "0.15",
+    "cashflow_monthly": "425",
+    "price_per_sqft": "210",
+    "market_ppsf": "235.5",
+    "purchase_price": "410000",
+    "area_safety_index": "0.62"
+  }
+}

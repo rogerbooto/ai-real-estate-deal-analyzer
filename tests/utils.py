@@ -22,6 +22,7 @@ import numpy as np
 from PIL import Image
 
 # Project models
+from src.core.finance.adapters import FinanceSummary
 from src.schemas.models import (
     # Financial model types
     FinancialForecast,
@@ -471,7 +472,7 @@ def make_photo_insights(
         ontology_version=ontology_version,
         provenance=provenance,
     )
-    return PhotoInsights(**payload)  # type: ignore[arg-type]
+    return PhotoInsights(**payload)
 
 
 def make_photo_insights_from_photo_dir(
@@ -482,30 +483,26 @@ def make_photo_insights_from_photo_dir(
 ) -> PhotoInsights:
     """
     Convenience wrapper tailored to the `photo_dir` fixture:
-      - kitchen_updated_dishwasher.jpg
-      - bathroom_1.jpg
-      - kitchen_2.jpg
+      - kitchen_updated_dishwasher.png
+      - bathroom_1.png
+      - kitchen_2.png
     """
-    img1 = photo_dir / "kitchen_updated_dishwasher.jpg"
-    img2 = photo_dir / "bathroom_1.jpg"
-    img3 = photo_dir / "kitchen_2.jpg"
+    img1 = photo_dir / "kitchen_updated_dishwasher.png"
+    img2 = photo_dir / "bathroom_1.png"
+    img3 = photo_dir / "kitchen_2.png"
 
     sha1 = sha256_of(img1)
     sha2 = sha256_of(img2)
     sha3 = sha256_of(img3)
 
-    # labels must be List[str]
     labels = {
         sha1: ["kitchen"],
         sha2: ["bathroom"],
         sha3: ["kitchen"],
     }
 
-    # detections must have name/category/confidence
     detections = {
-        # dishwasher is an amenity
         sha1: ([{"name": "dishwasher", "category": "amenity", "confidence": 0.90}] if set_dishwasher else []),
-        # toilet is also an amenity for our closed set
         sha2: [{"name": "toilet", "category": "amenity", "confidence": 0.88}],
     }
 
@@ -621,3 +618,33 @@ def run_root_script(script_name: str, args: list[str]) -> tuple[int, str]:
             return (int(code), "")
         except Exception as ex:  # capture unexpected exceptions as non-zero
             return (1, f"{type(ex).__name__}: {ex}")
+
+
+def make_finance_summary(
+    *,
+    irr: float = 0.10,
+    cashflow_monthly: float = 300.0,
+    price_per_sqft: float = 200.0,
+    market_ppsf: float = 210.0,
+    purchase_price: float = 300000.0,
+    area_safety_index: float | None = 0.60,
+) -> FinanceSummary:
+    """
+    Minimal FinanceSummary factory for advisor/risk tests.
+    """
+    return FinanceSummary(
+        irr=irr,
+        cashflow_monthly=cashflow_monthly,
+        price_per_sqft=price_per_sqft,
+        market_ppsf=market_ppsf,
+        purchase_price=purchase_price,
+        area_safety_index=area_safety_index,
+    )
+
+
+def make_finance_summary_safe() -> FinanceSummary:
+    return make_finance_summary(area_safety_index=0.8)
+
+
+def make_finance_summary_risky() -> FinanceSummary:
+    return make_finance_summary(area_safety_index=0.4)

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from src.core.ingest.listing_ingest import ingest_listing
 from src.schemas.models import FetchPolicy
-from src.tools.listing_ingest import ingest_listing
 
 
 def _write_html(tmp_path: Path, html: str = None) -> Path:

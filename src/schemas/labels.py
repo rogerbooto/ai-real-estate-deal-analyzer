@@ -446,3 +446,79 @@ def to_photoinsights_amenities_surface(amenities_found: Iterable[AmenityLabel]) 
         else:
             d[a.value] = a in s
     return d
+
+
+# =========================
+# Listing parsing regex & helpers (shared by HTML/Text normalizers)
+# =========================
+
+# Inline (number BEFORE label) — "3 bed", "1.5 bath"
+_BED_INLINE_RE = re.compile(r"(?i)\b(\d+(?:\.\d+)?)\s*(?:bed(?:room)?s?|bdrm|br)\b")
+_BATH_INLINE_RE = re.compile(r"(?i)\b(\d+(?:\.\d+|½|1/2)?)\s*(?:bath(?:room)?s?|ba)\b")
+
+# Label-first (label BEFORE number) — "Bedrooms: 3", "Bathrooms - 1 1/2"
+_BED_LABEL_RE = re.compile(r"(?im)^\s*bed(?:room)?s?\s*[:\-]?\s*(\d+(?:\.\d+)?)\b")
+_BATH_LABEL_RE = re.compile(r"(?im)^\s*bath(?:room)?s?\s*[:\-]?\s*(\d+(?:\.\d+|½|1/2)?)\b")
+
+# sqft — supports 1,016 / thin spaces / "~ 1 200"
+_SQFT_RE = re.compile(r"(?i)\b(~?\s*(?:\d{1,3}(?:[,\u00A0\u2009\u202F\. ]\d{3})+|\d{3,5}))\s*(?:sq\s?ft|ft²|sqft|square\s?feet)\b")
+
+# price — allows optional "List price:" prefix
+_PRICE_RE = re.compile(r"(?i)(?:list(?:ing)?\s*price\s*[:\-]?\s*)?(?:\$|usd|cad)\s*([0-9][0-9,\.]{1,})")
+
+# year built — accepts "Year built: 2015", "built in 2015", "built: 2015"
+_YEAR_RE = re.compile(r"(?i)\b(?:year\s*)?built(?:\s*in)?\s*[:\-]?\s*(\d{4})\b")
+
+
+def _normalize_half_notation(s: str) -> str:
+    # 1½ → 1.5 ; "1 / 2" → .5
+    s = re.sub(r"\s*½", "½", s).replace("½", ".5")
+    return re.sub(r"\s*1\s*/\s*2\s*", ".5", s)
+
+
+def _clean_num(text: str) -> float | None:
+    try:
+        t = text.replace("$", "").lstrip("~").strip()
+        t = t.replace(",", "").replace(" ", "").replace("\u00a0", "").replace("\u2009", "").replace("\u202f", "")
+        t = re.sub(r"\.(?=\d{3}\b)", "", t)  # 1.200 → 1200
+        return float(t)
+    except Exception:
+        return None
+
+
+def extract_listing_common(text: str, notes: list[str]) -> tuple[float | None, float | None, int | None, float | None, int | None]:
+    """
+    Extract (bedrooms, bathrooms, sqft, price, year_built) in a way that
+    supports both label-first and inline forms.
+    """
+    # Bedrooms: prefer label-first, then inline
+    m_bed = _BED_LABEL_RE.search(text) or _BED_INLINE_RE.search(text)
+    bds = _clean_num(m_bed.group(1)) if m_bed else None
+
+    # Bathrooms: prefer label-first, then inline
+    m_bath = _BATH_LABEL_RE.search(text) or _BATH_INLINE_RE.search(text)
+    bas = None
+    if m_bath:
+        raw = _normalize_half_notation(m_bath.group(1))
+        bas = _clean_num(raw)
+
+    # Sqft
+    m_sqft = _SQFT_RE.search(text)
+    sqft_i = int(_clean_num(m_sqft.group(1)) or 0) if m_sqft else None
+
+    # Price
+    m_price = _PRICE_RE.search(text)
+    prc = _clean_num(m_price.group(1)) if m_price else None
+
+    # Year built
+    m_year = _YEAR_RE.search(text)
+    yr = int(m_year.group(1)) if m_year else None
+
+    # Notes
+    if m_bath and (("½" in m_bath.group(0)) or ("1/2" in m_bath.group(0)) or re.search(r"\b1\s*/\s*2\b", m_bath.group(0))):
+        notes.append("Parsed half bath notation.")
+    if bds is None and re.search(r"(?i)\bstudio\b", text):
+        bds = 0.0
+        notes.append("Detected studio → 0 bedrooms.")
+
+    return bds, bas, sqft_i, prc, yr
