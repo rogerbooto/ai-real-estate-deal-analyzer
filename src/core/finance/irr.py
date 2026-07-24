@@ -86,7 +86,15 @@ def irr(cash_flows: CashFlows, *, max_iter: int = 100, tol: float = 1e-6) -> flo
         # derivative of NPV w.r.t. rate
         return float(sum(-t * a / ((1.0 + rate) ** (t + 1.0)) for a, t in zip(amounts, times, strict=False) if t != 0.0))
 
-    # Newton-Raphson
+    # Newton-Raphson.
+    #
+    # A valid IRR must satisfy 1 + r > 0 (r > -100%): (1 + r) ** t is the present-value base in
+    # every NPV term, so at r = -100% it is a divide-by-zero and below -100% it is negative and
+    # not a meaningful discount factor. Newton can nonetheless converge to a spurious real root of
+    # the NPV polynomial where 1 + r < 0 (the classic multiple-root problem). Such a root is
+    # economically meaningless, so we reject it and fall through to the domain-bounded bisection
+    # below, which searches only (-1, inf) and is guaranteed to bracket the real rate.
+    # (See irr.py docstring; matches the `irr_10yr >= -1.0` invariant asserted in the engine tests.)
     r = 0.10
     for _ in range(max_iter):
         f = npv(r)
@@ -95,7 +103,11 @@ def irr(cash_flows: CashFlows, *, max_iter: int = 100, tol: float = 1e-6) -> flo
             break
         new_r = r - f / df
         if abs(new_r - r) < tol:
-            return new_r
+            if new_r > -1.0:  # economically meaningful root (1 + r > 0)
+                return new_r
+            break  # spurious sub-(-100%) root → hand off to the bracketed bisection
+        if new_r <= -1.0:
+            break  # Newton wandered into the invalid domain → abandon it for bisection
         r = new_r
 
     # Bisection fallback: look for a bracket with opposite signs.
