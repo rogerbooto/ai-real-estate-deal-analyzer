@@ -341,6 +341,8 @@ class ScenarioAnalysis(BaseModel):
     model_config = ConfigDict(frozen=True, extra="ignore")
     snapshot:    MarketSnapshot
     seed:        int
+    io_years:    int                          # financing.io_years from untouched inputs (invariant across
+                                              # scenarios); drives the §7a #6 IO caveat (added in Wave 2)
     n_generated: int                          # hypotheses before rejector
     n_accepted:  int                          # after rejector (== len(outcomes))
     prior_sum:   float                        # ~1.0 (±1e-12); 0.0 if none accepted

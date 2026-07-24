@@ -14,8 +14,8 @@ _Charter: `docs/plans/MISSION_1_scenario_intelligence.md` · Base: main @ `e4716
 
 ## Overall progress
 
-* Tasks: **6 / 14** done
-* Waves: **2 / 4** complete
+* Tasks: **8 / 14** done
+* Waves: **2 / 4** complete (Wave 2 in progress: 2.1/2.2 landed; 2.3 wiring + 2.4 report impl next)
 * Gates passed: **2 / 3**
 
 ## Wave summary
@@ -75,10 +75,10 @@ _Charter: `docs/plans/MISSION_1_scenario_intelligence.md` · Base: main @ `e4716
 
 | # | Task | Agent → Tier | Status | Notes |
 | --- | --- | --- | --- | --- |
-| 2.1 | Adapter (`src/market/adapter.py`): deltas → perturbed FinancialInputs copies | staff-python-engineer → standard | ⬜ | |
-| 2.2 | Scenario runner + additive result models (`ScenarioOutcome`, `ScenarioAnalysis`) | staff-python-engineer → standard | ⬜ | |
-| 2.3 | Opt-in wiring: `main.py --scenarios`, `AIREAL_SCENARIOS`, `run.scenarios` | staff-python-engineer → standard | ⬜ | |
-| 2.4 | "Market Scenarios" report section (design + implementation) | staff-report-experience-designer + staff-python-engineer → standard | ⬜ | |
+| 2.1 | Adapter (`src/market/adapter.py`): deltas → perturbed FinancialInputs copies | staff-python-engineer → standard | ✅ | `perturb_inputs(fi, hyp, *, base_cap)` — deep copy, sign-flip on vacancy, cap floor 0.03, str_viability not applied. Orchestrator re-verified: 17 scenario tests pass, mypy/ruff clean (ruff-format applied by orchestrator), **zero `src/core/finance/` edits**. |
+| 2.2 | Scenario runner + additive result models (`ScenarioMetricBand`/`ScenarioOutcome`/`ScenarioAnalysis`) | staff-python-engineer → standard | ✅ | `scenario_runner.py`: snapshot resolver (loud-fail on underivable cap), `run_scenarios` (baseline→base_cap from `PurchaseMetrics.cap_rate`, generate→reject→per-scenario perturb+run→pure-Python weighted-percentile bands), empty-set path. Models appended additive to `models.py`. **Orchestrator added `io_years` to `ScenarioAnalysis`** (invariant, for the §7a #6 IO caveat) + test. Full suite 205→206 passing, coverage 80.40%. |
+| 2.3 | Opt-in wiring: `main.py --scenarios`, `AIREAL_SCENARIOS`, `run.scenarios` | staff-python-engineer → standard | ⬜ | Next. |
+| 2.4 | "Market Scenarios" report section (design + implementation) | staff-report-experience-designer + staff-python-engineer → standard | 🔄 | **Design/spec done** by report-experience-designer → `docs/plans/MISSION_1_wave2_report_section_spec.md` (mockup + G1–G7 checklist). Implementation pending (after 2.3). |
 
 ## Wave 3 — Validation & Docs
 

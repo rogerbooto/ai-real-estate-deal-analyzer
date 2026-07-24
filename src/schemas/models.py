@@ -994,3 +994,77 @@ class MediaInsights(BaseModel):
     hero_sha256: str | None = Field(
         None, description="The SHA256 hash of the best-guess 'hero' image, typically chosen based on the largest area (width * height)."
     )
+
+
+# ============================================================
+# Scenario intelligence (Mission 1 — additive result models)
+# ============================================================
+
+
+class ScenarioMetricBand(BaseModel):
+    """Prior-weighted distribution summary for ONE metric across accepted scenarios.
+
+    All five values are heuristic-prior-weighted what-if quantiles/moments over a
+    rule-based grid, NOT statistical percentiles/means of real-world outcomes.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="ignore")
+
+    p25: float = Field(..., description="Prior-weighted 25th quantile (the DOWNSIDE for higher-is-better metrics).")
+    p50: float = Field(..., description="Prior-weighted MEDIAN (NOT 'expected').")
+    mean: float = Field(..., description="Prior-weighted mean == the EXPECTED value.")
+    min: float = Field(..., description="Absolute worst accepted (context/transparency).")
+    max: float = Field(..., description="Absolute best accepted.")
+
+
+class ScenarioOutcome(BaseModel):
+    """One accepted hypothesis + the engine metrics it produced (fractions unless noted)."""
+
+    model_config = ConfigDict(frozen=True, extra="ignore")
+
+    hypothesis: MarketHypothesis = Field(..., description="Carries the deltas + prior + rationale + str_viability.")
+
+    # Applied engine inputs, for transparent audit of the perturbation (all fractions):
+    rent_growth_applied: float = Field(..., description="income.rent_growth after the rent_delta was applied.")
+    expense_growth_applied: float = Field(..., description="opex.expense_growth after the expense_growth_delta was applied.")
+    interest_rate_applied: float = Field(..., description="financing.interest_rate after interest_rate_delta was applied (clamped 0..1).")
+    occupancy_applied: float = Field(..., description="income.occupancy after subtracting vacancy_delta (clamped 0..1).")
+    cap_rate_purchase_applied: float | None = Field(
+        None,
+        description="base_cap + cap_rate_delta, clamped to floor 0.03; populated on every scenario run.",
+    )
+
+    # Engine outputs (money = currency units; ratios/returns = fractions):
+    dscr_y1: float = Field(..., description="Year-1 DSCR from the perturbed run.")
+    coc_y1: float = Field(..., description="Year-1 cash-on-cash from the perturbed run.")
+    cash_flow_y1: float = Field(..., description="Year-1 levered cash flow (currency units).")
+    irr_10yr: float = Field(..., description="Levered 10-year IRR (fraction).")
+    equity_multiple_10yr: float = Field(..., description="10-year equity multiple (x).")
+
+
+class ScenarioAnalysis(BaseModel):
+    """Aggregate prior-weighted result for a run; rendered only when scenarios are ON."""
+
+    model_config = ConfigDict(frozen=True, extra="ignore")
+
+    snapshot: MarketSnapshot = Field(..., description="Market snapshot the hypotheses were generated from.")
+    seed: int = Field(..., description="Seed threaded to generate_hypotheses (provenance; generator RNG is inert).")
+    io_years: int = Field(
+        ...,
+        ge=0,
+        description=(
+            "financing.io_years from the untouched inputs (invariant across scenarios; the adapter "
+            "never perturbs the term). The report renders an interest-only caveat when > 0, because "
+            "Year-1 DSCR/CoC/CF are IO-flattered and understate the post-IO amortizing debt load."
+        ),
+    )
+    n_generated: int = Field(..., ge=0, description="Number of hypotheses before the rejector.")
+    n_accepted: int = Field(..., ge=0, description="Number of hypotheses after the rejector (== len(outcomes)).")
+    prior_sum: float = Field(..., description="Sum of accepted priors (~1.0 ±1e-12; 0.0 if none accepted).")
+    outcomes: tuple[ScenarioOutcome, ...] = Field(default_factory=tuple, description="Deterministic lexicographic order.")
+    dscr: ScenarioMetricBand | None = Field(None, description="Prior-weighted DSCR band; None iff n_accepted == 0.")
+    coc: ScenarioMetricBand | None = Field(None, description="Prior-weighted CoC band; None iff n_accepted == 0.")
+    cash_flow_y1: ScenarioMetricBand | None = Field(None, description="Prior-weighted Y1 cash-flow band; None iff n_accepted == 0.")
+    irr_10yr: ScenarioMetricBand | None = Field(None, description="Prior-weighted IRR band; None iff n_accepted == 0.")
+    equity_multiple_10yr: ScenarioMetricBand | None = Field(None, description="Prior-weighted equity-multiple band; None if 0 accepted.")
+    notes: str | None = Field(None, description="Rejector notes / 'no admissible scenarios'.")
