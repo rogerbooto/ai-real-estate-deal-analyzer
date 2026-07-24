@@ -15,14 +15,14 @@ _Charter: `docs/plans/MISSION_1_scenario_intelligence.md` · Base: main @ `e4716
 ## Overall progress
 
 * Tasks: **3 / 14** done
-* Waves: **0 / 4** complete (Wave 0 tasks done; awaiting Gate 0 push/merge)
-* Gates passed: **0 / 3**
+* Waves: **1 / 4** complete
+* Gates passed: **1 / 3**
 
 ## Wave summary
 
 | Wave | Focus | Tasks | Done | Status |
 | --- | --- | --- | --- | --- |
-| 0 | Enablement (commit hygiene, packaging) | 3 | 3 | 🔄 |
+| 0 | Enablement (commit hygiene, packaging) | 3 | 3 | ✅ |
 | 1 | Discovery & design | 3 | 0 | ⬜ |
 | 2 | Implementation | 4 | 0 | ⬜ |
 | 3 | Validation & docs | 4 | 0 | ⬜ |
@@ -51,9 +51,10 @@ _Charter: `docs/plans/MISSION_1_scenario_intelligence.md` · Base: main @ `e4716
 
 ### Gate 0 decision record — Roger merges Wave 0
 
-* Date: —
-* Decision: —
-* Notes: —
+* Date: 2026-07-24
+* Decision: **PASSED.** Roger directed direct-to-main pushes (no PR flow — confirmed via history that the project's flow is mixed but he owns the repo and chose direct). Wave 0 landed on `origin/main` @ `f332feb`.
+* CI: **green** — run `30088749627` on `f332feb` `conclusion=success` (ruff format+lint, mypy strict, pytest w/ 80% coverage gate all pass in CI env). Local `airedeal` showed 79.87% coverage — env artifact (missing a dev dep), not a regression; CI authoritative.
+* Notes: Commits SSH-signed locally (git 2.55 shim) but GitHub still shows **unverified** — signing-key not yet registered on GitHub (push used admin bypass of the verified-signatures + PR + status-check rules). Roger to register the Dell Laptop key as a **Signing key** for future clean pushes. Media-intelligence refactor descoped/parked (`stash@{0}`) → separate branch. CITATION.cff (`1.0.0`) vs pyproject/CHANGELOG (`0.1.0`) mismatch to reconcile before any tag.
 
 ## Wave 1 — Discovery & Design
 
