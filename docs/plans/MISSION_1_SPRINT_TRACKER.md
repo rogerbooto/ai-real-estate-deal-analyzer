@@ -14,16 +14,16 @@ _Charter: `docs/plans/MISSION_1_scenario_intelligence.md` · Base: main @ `e4716
 
 ## Overall progress
 
-* Tasks: **3 / 14** done
-* Waves: **1 / 4** complete
-* Gates passed: **1 / 3**
+* Tasks: **6 / 14** done
+* Waves: **2 / 4** complete
+* Gates passed: **2 / 3**
 
 ## Wave summary
 
 | Wave | Focus | Tasks | Done | Status |
 | --- | --- | --- | --- | --- |
 | 0 | Enablement (commit hygiene, packaging) | 3 | 3 | ✅ |
-| 1 | Discovery & design | 3 | 0 | ⬜ |
+| 1 | Discovery & design | 3 | 3 | ✅ |
 | 2 | Implementation | 4 | 0 | ⬜ |
 | 3 | Validation & docs | 4 | 0 | ⬜ |
 
@@ -60,16 +60,16 @@ _Charter: `docs/plans/MISSION_1_scenario_intelligence.md` · Base: main @ `e4716
 
 | # | Task | Agent → Tier | Status | Notes |
 | --- | --- | --- | --- | --- |
-| 1.1 | Design note: hypothesis-delta → FinancialInputs mapping, downside statistic, snapshot source, opt-in surface | staff-python-engineer → capable | ⬜ | |
-| 1.2 | Finance-semantics review of design note | staff-financial-result-interpreter → capable | ⬜ | |
-| 1.3 | Product-scope sanity check | principal-founder-proxy → capable | ⬜ | |
+| 1.1 | Design note: hypothesis-delta → FinancialInputs mapping, downside statistic, snapshot source, opt-in surface | staff-python-engineer → capable | ✅ | `docs/plans/MISSION_1_wave1_design_note.md`. Orchestrator verified schema claims inline (all deltas fractions; occupancy=1−vacancy confirmed; cap_rate_purchase None-derivation confirmed). Key findings: no percent/bps anywhere (fraction+fraction, zero unit conversion); 2 flagged decisions for reviewers — downside=prior-weighted p25 (vs min), cap_rate_delta anchoring when cap unset; str_viability has no engine target (narration-only); **no market-snapshot source currently wired** (new `market` JSON block + resolver designed). |
+| 1.2 | Finance-semantics review of design note | staff-financial-result-interpreter → capable | ✅ | **CHANGES REQUESTED** (5/6 items signed off). Substantive: anchor `cap_rate_delta` on the engine-derived NOI/price cap from untouched inputs (not `snapshot.cap_rate`) so scenario-base==headline + stays consistent with additive-to-user; floor-clamp ~0.03. Plus honesty fixes: (2) label p50=median/mean=expected (don't call p50 "expected"); (3) report must state priors are heuristic weights, not calibrated probabilities; (4) IO-period caveat — Y1 DSCR/CoC/CF optimistic when `io_years>0`; (5) disclose rate shock hits both acquisition+refi loans. All engine file:line refs verified by orchestrator. |
+| 1.3 | Product-scope sanity check | principal-founder-proxy → capable | ✅ | **SCOPE OK** → Wave 2. Binding conditions: (1) `str_viability` renders with "not modeled — narrative flag only" label or omitted; (2) scenario section structurally separate/labeled, cap caveat adjacent, else drop cap perturbation — *largely dissolved by the finance cap-anchoring fix (base==headline)*. Tightening: honesty note = fixed verbatim string (drop "in-spirit"). Loud-fail resolver, default-off, additive models approved. No escalation to Roger needed at this gate. |
 
 ### Gate 1 decision record — Design review + Guardian VETO check
 
-* Date: —
-* Reviewer verdicts: —
-* Guardian VETO: —
-* Decision: —
+* Date: 2026-07-24 — **CLEARED**
+* Reviewer verdicts: finance-semantics = CHANGES REQUESTED → **resolved** in revised note (cap→engine-derived-cap anchor so base==headline; p50=median/mean=expected label fix; priors-are-heuristic honesty; IO-period + rate-shock caveats). Founder-proxy = **SCOPE OK** (str_viability "not modeled" label / omit; separate labeled section; verbatim honesty string). staff-code-reviewer = **SIGN OFF** (no must-fix; no name collisions, no import cycle, write_report/OrchestrationResult additive backward-compat confirmed, numpy already a dep).
+* Guardian VETO: **PASS (no veto)** — all 5 focus areas; 7 conditions bind Wave 2 (see design note §10), re-checked at Gate 2.
+* Decision: **Gate 1 PASSED.** Design note `MISSION_1_wave1_design_note.md` ratified; §10 captures binding Wave 2 conditions (2 code-reviewer advisories + 7 guardian conditions). Proceed to Wave 2 implementation.
 
 ## Wave 2 — Implementation
 
