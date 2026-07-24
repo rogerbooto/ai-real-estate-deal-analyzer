@@ -15,8 +15,9 @@ _Charter: `docs/plans/MISSION_1_scenario_intelligence.md` · Base: main @ `e4716
 ## Overall progress
 
 * Tasks: **14 / 14** done
-* Waves: **3 / 4** complete (Wave 3 tasks done; Gate 2 review in progress)
-* Gates passed: **2 / 3**
+* Waves: **4 / 4** complete
+* Gates passed: **3 / 3**
+* **MISSION COMPLETE** — Roger approved the mission gate 2026-07-24.
 
 ## Wave summary
 
@@ -25,7 +26,7 @@ _Charter: `docs/plans/MISSION_1_scenario_intelligence.md` · Base: main @ `e4716
 | 0 | Enablement (commit hygiene, packaging) | 3 | 3 | ✅ |
 | 1 | Discovery & design | 3 | 3 | ✅ |
 | 2 | Implementation | 4 | 4 | ✅ |
-| 3 | Validation & docs | 4 | 4 | 🔄 |
+| 3 | Validation & docs | 4 | 4 | ✅ |
 
 ---
 
@@ -99,11 +100,19 @@ _Charter: `docs/plans/MISSION_1_scenario_intelligence.md` · Base: main @ `e4716
 
 ### Gate 2 decision record — Final review + Guardian VETO + Roger's mission gate
 
-* Date: —
-* Code review: —
-* Guardian VETO: —
-* CI: —
-* Roger's decision: —
+* Date: 2026-07-24 — **PASSED**
+* Code review (staff-code-reviewer): **APPROVE** — irr fix + feature correct/invariant-preserving; the one requested change (`generator.py:658` implicit-concat) fixed and the dead `OrchestrationResult.scenarios` field dropped (YAGNI) in `8f4ce2a`.
+* Numeric re-verification (staff-financial-result-interpreter): **NUMBERS SANE** — irr fix touches exactly one cashflow (artifact −179.11% → true −18.63%); all other IRRs, base==headline, and headline IRR byte-identical; no IRR ≤ −100% across two deals; determinism holds.
+* Guardian VETO (principal-principles-guardian): **PASS (no veto)** — G1–G7 verified in shipped code; irr carve-out determinism-preserving + honesty-improving + minimal + recorded.
+* CI: **green** across the mission chain (bff47eb, d5a8d40, dd2e8af, 8f4ce2a).
+* Roger's decision: **APPROVED — Mission 1 complete.** Landed on `main` (final `8f4ce2a`, all commits SSH-signed).
+
+### Post-mission follow-ups (carried to ROADMAP_TRACKER)
+
+* Register the "Dell Laptop" SSH key as a GitHub **Signing key** so commits show Verified (pushes currently rely on admin bypass).
+* Reconcile `CITATION.cff` version `1.0.0` vs `pyproject`/CHANGELOG `0.1.0` before any tag.
+* Finish the parked media-intelligence refactor (`git stash@{0}`) on `feat/media-intelligence-refactor` — NOT part of Mission 1.
+* (Non-blocking) tighten `MarketHypothesis.prior` docstring "Prior probability weight" → "heuristic prior weight" to match the honest report copy.
 
 ---
 
