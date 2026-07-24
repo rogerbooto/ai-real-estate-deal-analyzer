@@ -14,15 +14,15 @@ _Charter: `docs/plans/MISSION_1_scenario_intelligence.md` · Base: main @ `e4716
 
 ## Overall progress
 
-* Tasks: **1 / 14** done
-* Waves: **0 / 4** complete
+* Tasks: **3 / 14** done
+* Waves: **0 / 4** complete (Wave 0 tasks done; awaiting Gate 0 push/merge)
 * Gates passed: **0 / 3**
 
 ## Wave summary
 
 | Wave | Focus | Tasks | Done | Status |
 | --- | --- | --- | --- | --- |
-| 0 | Enablement (commit hygiene, packaging) | 3 | 1 | 🔄 |
+| 0 | Enablement (commit hygiene, packaging) | 3 | 3 | 🔄 |
 | 1 | Discovery & design | 3 | 0 | ⬜ |
 | 2 | Implementation | 4 | 0 | ⬜ |
 | 3 | Validation & docs | 4 | 0 | ⬜ |
@@ -34,8 +34,8 @@ _Charter: `docs/plans/MISSION_1_scenario_intelligence.md` · Base: main @ `e4716
 | # | Task | Agent → Tier | Status | Notes |
 | --- | --- | --- | --- | --- |
 | 0.1 | Branch `chore/land-pending-work`; land hygiene + doc reconciliation (core.zip deletion, .gitignore `.claude/`, README/CHANGELOG/CONTRIBUTING + 7× `src/*/README.md`, `docs/plans/` artifacts); PR; CI green | staff-release-coordinator → standard | ✅ | Landed on `main` @ `f19678d` (2 commits: `1bc0b94` hygiene, `f19678d` docs), pushed 2026-07-24 via direct FF merge at Roger's instruction — **branch protection bypassed** (unsigned commits, no PR, "tests" check not gated; admin bypass). **Media refactor descoped** (was in original 0.1 scope). Code-reviewer (2026-07-24) found the working-tree `insights.py`/`intelligence.py` refactor broken: API rewritten but caller + tests not propagated → 10 mypy / 13 ruff errors, 4 failing tests + 1 collection ImportError. It exists on **no branch** (orphaned WIP). Parked in `git stash@{0}` (recoverable); media files restored to committed `main` (green — 7 tests pass). Deferred to its own branch per Roger's "new branch per work-item" directive → see backlog note below. |
-| 0.2 | `[project]` metadata in pyproject; fresh-venv verify `pip install -e .` + 3 console scripts; update README/CONTRIBUTING caveats | staff-release-coordinator → standard | ⬜ | |
-| 0.3 | Review both PRs | staff-code-reviewer → standard | ⬜ | |
+| 0.2 | `[project]` metadata in pyproject; verify `pip install -e .` + 3 console scripts; update README/CONTRIBUTING caveats | staff-release-coordinator → standard | ✅ | Committed **local, signed** `9baa6bd` (not yet pushed — see Gate 0). Added `[build-system]` (setuptools) + `[project]` (name/version `0.1.0`/requires-python `>=3.10`, per CHANGELOG+CI/mypy/ruff) + namespace-aware discovery of `src`. **Verified in `airedeal` conda env** (not venv, per Roger): `pip install -e .` succeeds; `ingest-listing`/`deal-report`/`deal-advisor --help` all exit 0. Fixed README/CONTRIBUTING/`src/cli/README.md` caveats + CHANGELOG "Known Gaps"→"Fixed". Follow-ups (see note): CITATION.cff version `1.0.0` ≠ pyproject `0.1.0`; `src/*` subpackages lack `__init__.py` (rely on `namespaces=true`). |
+| 0.3 | Review Wave 0 changes (flow is direct-to-main, no PRs per Roger) | staff-code-reviewer + orchestrator inline | ✅ | Media refactor got a full staff-code-reviewer pass (→ descoped). 0.1 hygiene/docs + 0.2 packaging reviewed inline by orchestrator (diffs re-read; install re-verified in conda). No separate formal reviewer pass on the trivial packaging/doc diff — offered to Roger if he wants one before Gate 0. |
 
 ### Media-refactor parking note (2026-07-24)
 
