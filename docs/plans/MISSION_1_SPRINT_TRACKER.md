@@ -14,7 +14,7 @@ _Charter: `docs/plans/MISSION_1_scenario_intelligence.md` · Base: main @ `e4716
 
 ## Overall progress
 
-* Tasks: **0 / 14** done
+* Tasks: **1 / 14** done
 * Waves: **0 / 4** complete
 * Gates passed: **0 / 3**
 
@@ -22,7 +22,7 @@ _Charter: `docs/plans/MISSION_1_scenario_intelligence.md` · Base: main @ `e4716
 
 | Wave | Focus | Tasks | Done | Status |
 | --- | --- | --- | --- | --- |
-| 0 | Enablement (commit hygiene, packaging) | 3 | 0 | 🔄 |
+| 0 | Enablement (commit hygiene, packaging) | 3 | 1 | 🔄 |
 | 1 | Discovery & design | 3 | 0 | ⬜ |
 | 2 | Implementation | 4 | 0 | ⬜ |
 | 3 | Validation & docs | 4 | 0 | ⬜ |
@@ -33,7 +33,7 @@ _Charter: `docs/plans/MISSION_1_scenario_intelligence.md` · Base: main @ `e4716
 
 | # | Task | Agent → Tier | Status | Notes |
 | --- | --- | --- | --- | --- |
-| 0.1 | Branch `chore/land-pending-work`; land hygiene + doc reconciliation (core.zip deletion, .gitignore `.claude/`, README/CHANGELOG/CONTRIBUTING + 7× `src/*/README.md`, `docs/plans/` artifacts); PR; CI green | staff-release-coordinator → standard | 🔄 | **Media refactor descoped** (was in original 0.1 scope). Code-reviewer (2026-07-24) found the working-tree `insights.py`/`intelligence.py` refactor broken: API rewritten but caller + tests not propagated → 10 mypy / 13 ruff errors, 4 failing tests + 1 collection ImportError. It exists on **no branch** (orphaned WIP). Parked in `git stash@{0}` (recoverable); media files restored to committed `main` (green — 7 tests pass). Deferred to its own branch per Roger's "new branch per work-item" directive → see backlog note below. |
+| 0.1 | Branch `chore/land-pending-work`; land hygiene + doc reconciliation (core.zip deletion, .gitignore `.claude/`, README/CHANGELOG/CONTRIBUTING + 7× `src/*/README.md`, `docs/plans/` artifacts); PR; CI green | staff-release-coordinator → standard | ✅ | Landed on `main` @ `f19678d` (2 commits: `1bc0b94` hygiene, `f19678d` docs), pushed 2026-07-24 via direct FF merge at Roger's instruction — **branch protection bypassed** (unsigned commits, no PR, "tests" check not gated; admin bypass). **Media refactor descoped** (was in original 0.1 scope). Code-reviewer (2026-07-24) found the working-tree `insights.py`/`intelligence.py` refactor broken: API rewritten but caller + tests not propagated → 10 mypy / 13 ruff errors, 4 failing tests + 1 collection ImportError. It exists on **no branch** (orphaned WIP). Parked in `git stash@{0}` (recoverable); media files restored to committed `main` (green — 7 tests pass). Deferred to its own branch per Roger's "new branch per work-item" directive → see backlog note below. |
 | 0.2 | `[project]` metadata in pyproject; fresh-venv verify `pip install -e .` + 3 console scripts; update README/CONTRIBUTING caveats | staff-release-coordinator → standard | ⬜ | |
 | 0.3 | Review both PRs | staff-code-reviewer → standard | ⬜ | |
 
