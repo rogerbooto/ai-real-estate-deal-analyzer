@@ -1,5 +1,24 @@
-[tool.pytest.ini_options]
-pythonpath = ["."]
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ai-real-estate-deal-analyzer"
+version = "0.1.0"
+description = "A deterministic-first investment co-pilot that ingests real estate listings and user-provided financial data to produce financial breakdowns, media insights, and a human-readable investment thesis."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE.md" }
+authors = [
+  { name = "Roger Booto Tokime", email = "rogerbooto@gmail.com" },
+]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "License :: Other/Proprietary License",
+  "Operating System :: OS Independent",
+  "Private :: Do Not Upload",
+]
 
 [project.optional-dependencies]
 openai = ["openai>=1.0.0"]
@@ -8,3 +27,11 @@ openai = ["openai>=1.0.0"]
 ingest-listing = "src.cli.ingest_cli:main"
 deal-report    = "src.cli.report_cli:main"
 deal-advisor   = "src.cli.advisor_cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
+namespaces = true
+
+[tool.pytest.ini_options]
+pythonpath = ["."]

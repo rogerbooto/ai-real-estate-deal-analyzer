@@ -51,7 +51,7 @@ python -m src.cli.report_cli --forecast forecast.json --insights insights.json -
 python -m src.cli.advisor_cli --dir data/sample_listings/47_perrot_shediac --out out/advisor_output.json --markdown
 ```
 
-> `pyproject.toml` declares `ingest-listing`, `deal-report`, and `deal-advisor` console scripts, but the package metadata needed for `pip install -e .` is not yet complete — use the `python -m` forms above for now.
+> `pyproject.toml` declares `ingest-listing`, `deal-report`, and `deal-advisor` console scripts. After `pip install -e .` these resolve directly (`ingest-listing --help`, etc.); the `python -m src.cli.*` forms above remain valid if you prefer not to install the package.
 
 ---
 
@@ -330,7 +330,7 @@ For development (with tests, linting, typing):
 pip install -r requirements.txt -r requirements-dev.txt
 ```
 
-> Note: `pip install -e .` is not currently supported — `pyproject.toml` lacks the `[project]` name/version metadata. Use the requirements files (this matches CI).
+> Note: `pip install -e .` is supported and installs the `ingest-listing`, `deal-report`, and `deal-advisor` console scripts. Runtime dependencies still come from the requirements files (this matches CI), so install those first, then `pip install -e .` for the entry points.
 
 ---
 
@@ -396,7 +396,6 @@ testpaths = tests
 
   * Integration of **Market Hypotheses** and **Rejector** modules into main orchestration (modules exist and are tested, but are not wired into the pipeline)
   * Real LLM/vision provider integration behind the existing seams (CrewAI kickoff, AI photo tagging beyond deterministic stubs)
-  * Packaging metadata so `pip install -e .` and the declared console scripts work
   * Live market data ingestion (regional income, cap-rate drift, comps)
   * Streamlit or web UI for interactive scenario exploration
   * Expanded scenario reporting and stress-test visualizations

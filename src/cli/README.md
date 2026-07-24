@@ -9,7 +9,7 @@
   * **`advisor_cli.py`** — analyze **multiple deals**, rank them with the deal-intelligence scoring stack, and summarize a portfolio.
 * Thin argument-parsing layers; all real logic lives in `src/core/*` (ingest, reports, advisor, intelligence).
 
-> **Packaging note:** `pyproject.toml` declares `ingest-listing`, `deal-report`, and `deal-advisor` console scripts, but the `[project]` metadata (name/version) required for `pip install -e .` is not yet present. Run the CLIs as modules: `python -m src.cli.<name>`.
+> **Packaging note:** `pyproject.toml` declares `ingest-listing`, `deal-report`, and `deal-advisor` console scripts. After `pip install -e .` (with the requirements files installed for runtime deps) these are available on `PATH` directly, e.g. `ingest-listing --help`. Running the CLIs as modules — `python -m src.cli.<name>` — also still works.
 
 ## Commands
 

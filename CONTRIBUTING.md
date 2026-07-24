@@ -28,7 +28,7 @@ This project is intended as an **open research and educational project**. Contri
    pip install -r requirements.txt -r requirements-dev.txt
    ```
 
-   > Note: `pip install -e .[dev]` is not currently supported — `pyproject.toml` lacks `[project]` name/version metadata. The requirements files match what CI installs.
+   > Note: `pip install -e .` is supported and installs the console scripts (`ingest-listing`, `deal-report`, `deal-advisor`). The requirements files still provide the runtime/dev dependencies and match what CI installs, so install them first.
 
 4. Run the test suite:
 

@@ -22,9 +22,11 @@ _Status note (2026-07-23): section reconciled against main @ e4716df — the ent
 - Vision provider interface refactored; tests reorganized under `tests/core/*`, `tests/integration/*`.
 - Coverage gate set to 80% over `src/core`, `src/schemas`, `src/market` (`pytest.ini` + `.coveragerc`).
 
+### Fixed
+- **Packaging**: added `[build-system]` + `[project]` metadata (name/version/requires-python) and namespace-aware setuptools package discovery, so `pip install -e .` now succeeds and the `ingest-listing` / `deal-report` / `deal-advisor` console scripts resolve. Runtime dependencies still come from the requirements files (matching CI).
+
 ### Known Gaps
 - `src/market` hypothesis/rejector modules remain unwired from the main pipeline.
-- `pyproject.toml` lacks `[project]` metadata, so `pip install -e .` and the declared console scripts do not work yet (use `python -m src.cli.*`).
 
 ---
 
