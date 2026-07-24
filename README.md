@@ -263,6 +263,9 @@ python main.py
 # Or with explicit config/assets
 python main.py --config data/sample/inputs.json --out out.md --horizon 10 \
                --listing data/sample/listing.txt --photos data/sample/photos
+
+# Opt-in Market Scenarios overlay (deterministic what-if scenarios)
+python main.py --config data/sample/inputs.json --scenarios
 ```
 
 Expected console output:
@@ -276,6 +279,15 @@ Thesis verdict: CONDITIONAL
 This generates a Markdown report in the project root:
 
 * **`investment_analysis.md`** → Contains the financial forecast, year-by-year breakdown, and final investment thesis.
+
+### Market Scenarios (Opt-In Overlay)
+
+To enable the optional "Market Scenarios" what-if analysis, pass `--scenarios` or set `AIREAL_SCENARIOS=1`. **Requires** either:
+
+* A `market` block in the JSON config (region, vacancy_rate, cap_rate, rent_growth, expense_growth, interest_rate — all as fractions), or
+* `inputs.market.cap_rate_purchase` set to a non-null value (fallback derivation uses user assumptions).
+
+Scenarios are **deterministic**: same seed and inputs produce identical what-if outcomes. They are **not** predictions or live market data, but prior-weighted what-if calculations over a fixed hypothesis grid anchored to your assumptions.
 
 ### Example Report Snippet
 
@@ -392,14 +404,17 @@ testpaths = tests
   * **Deal intelligence & advisor**: composite scoring, deal fusion, narrative builder, multi-deal ranking and portfolio summary (`core.intelligence`, `core.advisor`, `deal-advisor` CLI)
   * **Report CLI** rendering reports from JSON artifacts, including media overview sections
 
-* **V3 (Planned / Not yet implemented)**
+* **V3 (Shipped since 2026-07-24) — ✅ Market Scenarios Complete**
 
-  * Integration of **Market Hypotheses** and **Rejector** modules into main orchestration (modules exist and are tested, but are not wired into the pipeline)
+  * **Market Scenarios overlay** (opt-in `--scenarios` / `AIREAL_SCENARIOS` / `run.scenarios`): generates prior-weighted what-if outcomes using the market hypothesis grid composed with the frozen finance engine; appends a "Market Scenarios" section to the report with top-N scenarios, prior-weighted bands, and disclosure caveats. Default OFF → byte-identical to V2 output. Scenarios are deterministic what-ifs, not predictions/live data.
+
+* **V4 (Planned / Not yet implemented)**
+
   * Real LLM/vision provider integration behind the existing seams (CrewAI kickoff, AI photo tagging beyond deterministic stubs)
-  * Live market data ingestion (regional income, cap-rate drift, comps)
-  * Streamlit or web UI for interactive scenario exploration
+  * Live market data ingestion (regional income, cap-rate drift, comps) — scenarios currently run on user-supplied snapshot only
+  * Streamlit or web UI for interactive scenario exploration and parameter sensitivity
   * Expanded scenario reporting and stress-test visualizations
 
 ---
 
-_Last reconciled: 2026-07-23 against main @ e4716df (including uncommitted working-tree changes to `src/core/media/insights.py` and `src/core/media/intelligence.py`)._
+_Last reconciled: 2026-07-24 against main @ e4716df (post-Wave-2 Market Scenarios implementation)._

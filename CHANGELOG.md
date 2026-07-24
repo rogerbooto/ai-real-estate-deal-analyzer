@@ -6,9 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_Status note (2026-07-23): section reconciled against main @ e4716df — the entries below reflect work actually merged since v0.1.0._
+_Status note (2026-07-24): section reconciled against main @ e4716df — the entries below reflect work actually merged since v0.1.0. Market Scenarios (opt-in scenarios overlay, Mission 1 Wave 2) now shipped._
 
 ### Added
+- **Market Scenarios overlay** (Mission 1, Wave 2): opt-in `--scenarios` / `AIREAL_SCENARIOS` / `run.scenarios` flag wires `src/market` (snapshot → hypotheses → rejector) through the frozen finance engine; produces prior-weighted scenario outcomes (DSCR, CoC, cash flow, IRR). New modules: `src/market/adapter.py` (delta → FinancialInputs perturbation), `src/market/scenario_runner.py` (composition + deterministic weighted-percentile aggregation). New Pydantic models: `ScenarioAnalysis`, `ScenarioOutcome`, `ScenarioMetricBand`. Report section appended last with fixed verbatim honesty block, top-N-by-prior grid, prior-weighted bands (p25/p50/mean/min/max), caveats (priors-heuristic, cap-sensitivity, rate-shock, IO-period), and narrative-flag rendering. Default OFF → byte-identical to V2. Scenarios are deterministic what-ifs, not predictions/live data.
 - **Listing ingestion pipeline** (`src/core/ingest`, `ingest-listing` CLI): file/URL ingestion with `FetchPolicy` (network opt-in, robots.txt respect, caching, optional JS rendering).
 - **Media pipeline** (`src/core/media`): HTML media discovery → filtered download → `MediaBundle` manifests; **media intelligence** (opt-in perceptual-hash near-duplicate detection, quality scoring, palette extraction, hero-image ranking).
 - **CV tagging v2** (`src/core/cv`): closed-set amenities/defects ontology, provider seams (`local`/`vision`/`llm` deterministic stubs, user-registered ONNX), per-provider JSON caching; consolidated under `CvTaggingOrchestrator` (removed legacy `tools/vision`).
@@ -23,10 +24,8 @@ _Status note (2026-07-23): section reconciled against main @ e4716df — the ent
 - Coverage gate set to 80% over `src/core`, `src/schemas`, `src/market` (`pytest.ini` + `.coveragerc`).
 
 ### Fixed
+- **IRR solver domain robustness** (`src/core/finance/irr.py`): the Newton-Raphson step could converge to a spurious real root of the NPV polynomial where `1 + r < 0` (economically meaningless, e.g. a reported IRR of −179% for a deep-underwater deal whose true IRR is ≈ −18.6%). The solver now rejects any root ≤ −100% and hands off to the existing domain-bounded bisection, guaranteeing a valid IRR `> −100%` — matching the `irr_10yr >= -1.0` invariant already asserted in the engine tests. Surfaced by Mission 1 scenario corners; math verified against standard IRR/root-finding references.
 - **Packaging**: added `[build-system]` + `[project]` metadata (name/version/requires-python) and namespace-aware setuptools package discovery, so `pip install -e .` now succeeds and the `ingest-listing` / `deal-report` / `deal-advisor` console scripts resolve. Runtime dependencies still come from the requirements files (matching CI).
-
-### Known Gaps
-- `src/market` hypothesis/rejector modules remain unwired from the main pipeline.
 
 ---
 

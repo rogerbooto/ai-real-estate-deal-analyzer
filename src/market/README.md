@@ -8,7 +8,8 @@
   * Generate a small **Cartesian grid** of “what-if” `MarketHypothesis` deltas around a snapshot.
   * Apply **rejector** rules to prune unrealistic combos and renormalize priors.
   * Produce **regional income tables** for sanity-checks and scenario seeding.
-* **Current status**: implemented and fully tested, but **not yet wired** into the `orchestrators/crew.py` main pipeline or the report generator; treat as **optional utilities ready for integration**.
+  * **NEW — Wave 2:** Perturb financial inputs per hypothesis and re-run the frozen finance engine to produce prior-weighted scenario outcomes (`adapter.py`, `scenario_runner.py`).
+* **Current status**: fully implemented and tested; wired into the pipeline as an **opt-in** “Market Scenarios” overlay behind `--scenarios` / `AIREAL_SCENARIOS` / `run.scenarios`. When OFF (default), the hot path adds zero scenario imports and produces byte-identical output. Scenarios are deterministic what-if calculations, not predictions.
 
 ## Public APIs / Contracts
 
@@ -19,6 +20,8 @@
   from src.market.hypotheses import generate_hypotheses
   from src.market.rejector import reject_unrealistic
   from src.market.regional_income import build_regional_income
+  from src.market.adapter import perturb_inputs
+  from src.market.scenario_runner import resolve_snapshot, run_scenarios
   ```
 * **Key Types** (see ../schemas/README.md):
 
@@ -36,6 +39,12 @@
     Applies hard bounds and soft penalties, flips incoherent STR flags, **renormalizes priors**, and returns a **deterministically ordered** set.
   * `build_regional_income(region: str, bedrooms: int, comps: list[float]) -> RegionalIncomeTable`
     Aggregates comp rents; returns frozen table with convenience `summary()`.
+  * `perturb_inputs(fi: FinancialInputs, hypothesis: MarketHypothesis, *, base_cap: float) -> FinancialInputs`
+    (Wave 2) Returns a perturbed **deep copy** of `FinancialInputs` with deltas applied (income, opex, financing, market fields) per the hypothesis. Original untouched. `base_cap` is the engine-derived purchase cap from untouched inputs.
+  * `resolve_snapshot(inputs: FinancialInputs, *, market_block: Mapping | None) -> MarketSnapshot`
+    (Wave 2) Resolves the `MarketSnapshot` for scenario generation. Source priority: (1) explicit `market` block if provided (parsed by `build_snapshot`); (2) fallback derivation from `FinancialInputs`; (3) loud-fail if no cap is derivable. Never silently invents a cap (invariant §5).
+  * `run_scenarios(inputs: FinancialInputs, snapshot: MarketSnapshot, *, seed: int = 42) -> ScenarioAnalysis`
+    (Wave 2) Runs the full scenario pipeline: baseline engine pass (for `base_cap`) → generate hypotheses → reject unrealistic → per-scenario engine re-run → prior-weighted aggregation. Deterministic; returns `ScenarioAnalysis` with prior-weighted bands (p25/p50/mean/min/max) per metric.
 
 ## Usage Examples
 
@@ -107,9 +116,10 @@ print(tbl.summary())  # includes P25/Median/P75 and turnover; STR multiplier if 
 
 ## Dependencies / Optional Providers
 
-* Depends on `src.schemas.models` types (`MarketSnapshot`, `MarketHypothesis`, `HypothesisSet`, `RegionalIncomeTable`).
+* Depends on `src.schemas.models` types (`MarketSnapshot`, `MarketHypothesis`, `HypothesisSet`, `RegionalIncomeTable`, `ScenarioAnalysis`, `ScenarioOutcome`, `ScenarioMetricBand`).
+* Depends on `src.core.finance.engine.run_financial_model` for scenario re-runs (one-way composition; no core edit).
 * No external services; **pure deterministic** utilities.
-* Intended to feed **Core Finance** (../core/README.md) by perturbing inputs for scenario analysis; **not yet wired** into the default orchestrator.
+* **Wired** into the main pipeline: called from `main.py` when `--scenarios` is ON; results passed to `write_report` for the "Market Scenarios" overlay section. With scenarios OFF, zero market imports occur on the hot path.
 
 ## Test Strategy
 
@@ -137,8 +147,9 @@ print(tbl.summary())  # includes P25/Median/P75 and turnover; STR multiplier if 
 ## Change Log Notes (scoped)
 
 * Milestone B: Introduced 3-point grid generator, rejector hard/soft rules, STR coherence flip, deterministic ordering.
-* Current: Marked as **optional utilities** pending integration into `orchestrators/crew.py` and the report generator.
+* Wave 1 (Design, 2026-07-24): Designed scenario semantics, delta→inputs mapping, weighted-percentile bands, honesty framing, opt-in wiring (design note § 0–10).
+* Wave 2 (Implementation, 2026-07-24): Implemented `adapter.py` (perturbation), `scenario_runner.py` (composition + aggregation), `_render_market_scenarios` in reports, wired through `main.py`, appended to `ScenarioAnalysis` models in schemas. Opt-in behind `--scenarios` / `AIREAL_SCENARIOS` / `run.scenarios`; default-OFF byte-identical guarantee verified.
 
 ---
 
-_Last reconciled: 2026-07-23 against main @ e4716df._
+_Last reconciled: 2026-07-24 against main @ e4716df._

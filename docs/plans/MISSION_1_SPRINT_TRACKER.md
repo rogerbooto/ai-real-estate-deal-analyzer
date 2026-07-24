@@ -14,8 +14,8 @@ _Charter: `docs/plans/MISSION_1_scenario_intelligence.md` · Base: main @ `e4716
 
 ## Overall progress
 
-* Tasks: **10 / 14** done
-* Waves: **3 / 4** complete (Wave 2 done; Wave 3 validation + docs next)
+* Tasks: **14 / 14** done
+* Waves: **3 / 4** complete (Wave 3 tasks done; Gate 2 review in progress)
 * Gates passed: **2 / 3**
 
 ## Wave summary
@@ -25,7 +25,7 @@ _Charter: `docs/plans/MISSION_1_scenario_intelligence.md` · Base: main @ `e4716
 | 0 | Enablement (commit hygiene, packaging) | 3 | 3 | ✅ |
 | 1 | Discovery & design | 3 | 3 | ✅ |
 | 2 | Implementation | 4 | 4 | ✅ |
-| 3 | Validation & docs | 4 | 0 | ⬜ |
+| 3 | Validation & docs | 4 | 4 | 🔄 |
 
 ---
 
@@ -84,10 +84,18 @@ _Charter: `docs/plans/MISSION_1_scenario_intelligence.md` · Base: main @ `e4716
 
 | # | Task | Agent → Tier | Status | Notes |
 | --- | --- | --- | --- | --- |
-| 3.1 | Tests: adapter units, determinism (seed→bytes), priors-sum, report section, E2E; coverage ≥80% | staff-qa-test-engineer → standard | ⬜ | |
-| 3.2 | Numeric sanity run on `47_perrot_shediac` + one artifacts deal | staff-financial-result-interpreter → standard | ⬜ | |
-| 3.3 | Byte-identical baseline check (scenarios off) | staff-qa-test-engineer → standard | ⬜ | |
-| 3.4 | Docs: market README wiring status, root README roadmap, CHANGELOG | staff-documentation-maintainer → cheap | ⬜ | |
+| 3.1 | Tests: adapter units, determinism (seed→bytes), priors-sum, report section, E2E; coverage ≥80% | staff-qa-test-engineer → standard | ✅ | **APPROVE.** Found 2 real gaps (no `run_scenarios`→report coupling test; determinism only on model dump, not rendered bytes) → added `tests/integration/test_scenarios_e2e.py` (9 tests, RED-verified by injecting nondeterminism). Coverage map covers every DoD item. |
+| 3.2 | Numeric sanity run (demo + realistic deal) | staff-financial-result-interpreter → standard | ✅ | **CONCERNS → resolved.** Bands consistent; **base==headline cap guarantee holds exactly** (all-zero scenario reproduces headline to the bit); determinism confirmed. Found the IRR band `min` −179% was a **frozen-core `irr.py` Newton solver artifact** (spurious root `1+r<0`; true ≈ −18.6%). → **Roger authorized a frozen-core carve-out** (see decision record) → fixed; band min now −34.13% (valid). Re-verify at Gate 2. |
+| 3.3 | Byte-identical baseline check (scenarios off) | staff-qa-test-engineer → standard | ✅ | `test_scenarios_off_is_byte_identical` + engineer stash-diff (empty) + orchestrator live no-flag run (0 sections). Sample headline unaffected by the irr fix (its IRR was already sane), so off-path stays baseline-identical. |
+| 3.4 | Docs: market README wiring status, root README roadmap, CHANGELOG | staff-documentation-maintainer → cheap | ✅ | `src/market/README` → "wired/opt-in"; root README roadmap item → V3 Shipped + `--scenarios` usage; CHANGELOG "Added" (scenarios) + "Fixed" (irr solver). Claims code-backed. |
+
+### Frozen-core carve-out decision record — IRR solver fix (2026-07-24)
+
+* **Constraint relaxed:** binding constraint #1 ("zero diffs inside `src/core/finance/`") — **explicitly overridden by Roger** for this one fix.
+* **Why:** Wave 3.2 numeric sanity surfaced that `src/core/finance/irr.py` Newton-Raphson could converge to a spurious root where `1+r<0` (non-economic; −179% displayed vs true ≈ −18.6%). Faithfully reported by the scenario feature but misleading; a display-only guard would have masked a genuine core bug affecting **all** deals.
+* **Roger's directive:** "I approve the base violation. However the math MUST be double-checked with online references."
+* **Math verification:** confirmed against authoritative refs — IRR valid domain is `(−100%, ∞)` because `(1+r)` is the present-value base (must be >0); Newton spurious-root convergence is a known failure mode whose standard remedy is bracketing+bisection. Fix rejects roots ≤ −100% and defers to the existing domain-bounded bisection.
+* **Scope of change:** `src/core/finance/irr.py` only (+14/−2 lines); regression test `tests/core/finance/test_irr_edge_cases.py::test_irr_deep_underwater_returns_valid_domain_root_not_spurious`. Full suite green; no existing golden IRR changed (sample headline IRR was already valid). Still requires Gate 2 code-review + guardian sign-off on the core change.
 
 ### Gate 2 decision record — Final review + Guardian VETO + Roger's mission gate
 
