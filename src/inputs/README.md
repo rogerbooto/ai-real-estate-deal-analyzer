@@ -17,8 +17,8 @@
 ### Models (defined here, not in `schemas`)
 
 * `RunOptions` — runtime, non-financial options:
-  `out` (default `investment_analysis.md`), `horizon` (1–50, default 10), `listing`, `photos`, `engine` (`"deterministic"` | `"crewai"`).
-* `AppInputs` — full payload: `inputs: FinancialInputs` + `run: RunOptions`.
+  `out` (default `investment_analysis.md`), `horizon` (1–50, default 10), `listing`, `photos`, `engine` (`"deterministic"` | `"crewai"`), `scenarios` (bool, default `False` — opt-in Market Scenarios overlay).
+* `AppInputs` — full payload: `inputs: FinancialInputs` + `run: RunOptions` + optional `market` (a raw market-snapshot block, carried alongside — deliberately **not** part of the frozen `FinancialInputs` — and consumed only by the opt-in scenario engine).
 
 ### Loader
 
@@ -26,7 +26,7 @@
 
   * `load(path=None) -> AppInputs` — reads JSON from `path`, or falls back to `./data/sample/inputs.json` then `./config.json`. Auto-detects legacy vs structured shape, validates with Pydantic, then applies env overrides.
   * `load_json(text) -> AppInputs` — same, from a JSON string.
-  * `with_overrides(cfg, *, out=None, horizon=None, listing=None, photos=None, engine=None) -> AppInputs` — CLI-flag overrides (used by `main.py`).
+  * `with_overrides(cfg, *, out=None, horizon=None, listing=None, photos=None, engine=None, scenarios=None) -> AppInputs` — CLI-flag overrides (used by `main.py`). `scenarios` uses `None` = "no CLI override" (so the `--scenarios` `store_true` flag, `False` when absent, defers to env/JSON); pass `True` to force it on.
 * `load_inputs(path=None) -> AppInputs` — convenience function wrapping `InputsLoader().load()`.
 
 ## Input Formats
@@ -50,9 +50,13 @@
 {
   "inputs": { "financing": { "...": "..." }, "opex": { "...": "..." }, "income": { "...": "..." } },
   "run":    { "out": "out.md", "horizon": 10, "listing": "listing.txt",
-              "photos": "./photos", "engine": "deterministic" }
+              "photos": "./photos", "engine": "deterministic", "scenarios": false },
+  "market": { "region": "Moncton, NB", "vacancy_rate": 0.06, "cap_rate": 0.055,
+              "rent_growth": 0.03, "expense_growth": 0.02, "interest_rate": 0.055 }
 }
 ```
+
+> The top-level `market` block (sibling of `inputs`/`run`) is the **market-snapshot** source for the opt-in scenario engine. It is distinct from `inputs.market` (`MarketAssumptions`, cap-rate guardrails). When `run.scenarios` is ON, it is parsed by `src.market.snapshot.build_snapshot`; if absent, the resolver falls back to deriving a snapshot from `FinancialInputs` and **loud-fails** when no cap can be derived (`market.cap_rate_purchase is None`).
 
 ### Environment overrides (applied last, on run options)
 
@@ -63,6 +67,7 @@
 | `AIREAL_LISTING` | `run.listing` |
 | `AIREAL_PHOTOS` | `run.photos` |
 | `AIREAL_ENGINE` | `run.engine` |
+| `AIREAL_SCENARIOS` | `run.scenarios` (truthy `1/true/yes/on` enables; any other non-empty value disables) |
 
 > Financial stress/valuation overrides (`AIREAL_CAP_DRIFT_BPS`, `AIREAL_APPRECIATION_PCT`, `AIREAL_STRESS_ADJ`) are read by the **report generator**, not the inputs loader — see [`../core/reports/README.md`](../core/reports/README.md).
 

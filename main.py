@@ -32,6 +32,7 @@ Usage
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 
 from src.core.reports.generator import write_report
@@ -115,6 +116,13 @@ def parse_args() -> argparse.Namespace:
         choices=["deterministic", "crewai"],
         help='Orchestration engine: "deterministic" or "crewai" (overrides config).',
     )
+    p.add_argument(
+        "--scenarios",
+        action="store_true",
+        default=False,
+        help="Opt-in: append a 'Market Scenarios' what-if overlay (default OFF). Requires a market "
+        "block in the inputs (or market.cap_rate_purchase set) or it loud-fails by design.",
+    )
     return p.parse_args()
 
 
@@ -153,7 +161,10 @@ def main() -> None:
     loader = InputsLoader()
 
     if args.config:
-        # Load AppInputs (FinancialInputs + run options) and apply CLI overrides if provided
+        # Load AppInputs (FinancialInputs + run options) and apply CLI overrides if provided.
+        # Precedence for `scenarios`: explicit CLI flag > env (applied in load) > JSON > default False.
+        # `--scenarios` is store_true (False when absent) → pass True only when set, None otherwise,
+        # so an unset flag defers to env/JSON.
         cfg: AppInputs = loader.load(args.config)
         cfg = loader.with_overrides(
             cfg,
@@ -162,6 +173,7 @@ def main() -> None:
             listing=args.listing,
             photos=args.photos,
             engine=args.engine,
+            scenarios=True if args.scenarios else None,
         )
         inputs = cfg.inputs
         out_path = cfg.run.out
@@ -169,14 +181,20 @@ def main() -> None:
         listing_arg = cfg.run.listing
         photos_arg = cfg.run.photos
         engine = (cfg.run.engine or "deterministic").strip().lower()
+        run_scenarios_flag = cfg.run.scenarios
+        # The market-snapshot block is carried alongside the frozen FinancialInputs (see AppInputs.market).
+        market_block = cfg.market
     else:
-        # No config file → use demo inputs and CLI flags (if any)
+        # No config file → use demo inputs and CLI flags (if any).
         inputs = build_sample_inputs()
         out_path = args.out or "investment_analysis.md"
         horizon = args.horizon or 10
         listing_arg = args.listing
         photos_arg = args.photos
         engine = (args.engine or "deterministic").strip().lower()
+        env_scenarios = os.getenv("AIREAL_SCENARIOS", "").strip().lower() in ("1", "true", "yes", "on")
+        run_scenarios_flag = args.scenarios or env_scenarios
+        market_block = None  # no JSON → no market block; the resolver loud-fails by design (§5)
 
     # Select high-level orchestration engine (full pipeline)
     if engine == "crewai":
@@ -204,7 +222,17 @@ def main() -> None:
             horizon_years=horizon,
         )
 
-        write_report(out_path, result.insights, result.forecast, result.thesis)
+        # Opt-in Market Scenarios overlay (default OFF). All snapshot build, scenario runs, and the
+        # market imports live strictly inside this branch → with scenarios OFF the hot path adds zero
+        # scenario/market imports and write_report produces byte-identical output (§6 / C2 / G2).
+        scenarios_analysis = None
+        if run_scenarios_flag:
+            from src.market.scenario_runner import resolve_snapshot, run_scenarios
+
+            snapshot = resolve_snapshot(inputs, market_block=market_block)
+            scenarios_analysis = run_scenarios(inputs, snapshot)
+
+        write_report(out_path, result.insights, result.forecast, result.thesis, scenarios=scenarios_analysis)
 
         print(f"Report written to {out_path}")
         print(f"Thesis verdict: {result.thesis.verdict}")

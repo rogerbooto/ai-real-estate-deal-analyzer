@@ -14,8 +14,8 @@ _Charter: `docs/plans/MISSION_1_scenario_intelligence.md` · Base: main @ `e4716
 
 ## Overall progress
 
-* Tasks: **8 / 14** done
-* Waves: **2 / 4** complete (Wave 2 in progress: 2.1/2.2 landed; 2.3 wiring + 2.4 report impl next)
+* Tasks: **10 / 14** done
+* Waves: **3 / 4** complete (Wave 2 done; Wave 3 validation + docs next)
 * Gates passed: **2 / 3**
 
 ## Wave summary
@@ -24,7 +24,7 @@ _Charter: `docs/plans/MISSION_1_scenario_intelligence.md` · Base: main @ `e4716
 | --- | --- | --- | --- | --- |
 | 0 | Enablement (commit hygiene, packaging) | 3 | 3 | ✅ |
 | 1 | Discovery & design | 3 | 3 | ✅ |
-| 2 | Implementation | 4 | 0 | ⬜ |
+| 2 | Implementation | 4 | 4 | ✅ |
 | 3 | Validation & docs | 4 | 0 | ⬜ |
 
 ---
@@ -77,8 +77,8 @@ _Charter: `docs/plans/MISSION_1_scenario_intelligence.md` · Base: main @ `e4716
 | --- | --- | --- | --- | --- |
 | 2.1 | Adapter (`src/market/adapter.py`): deltas → perturbed FinancialInputs copies | staff-python-engineer → standard | ✅ | `perturb_inputs(fi, hyp, *, base_cap)` — deep copy, sign-flip on vacancy, cap floor 0.03, str_viability not applied. Orchestrator re-verified: 17 scenario tests pass, mypy/ruff clean (ruff-format applied by orchestrator), **zero `src/core/finance/` edits**. |
 | 2.2 | Scenario runner + additive result models (`ScenarioMetricBand`/`ScenarioOutcome`/`ScenarioAnalysis`) | staff-python-engineer → standard | ✅ | `scenario_runner.py`: snapshot resolver (loud-fail on underivable cap), `run_scenarios` (baseline→base_cap from `PurchaseMetrics.cap_rate`, generate→reject→per-scenario perturb+run→pure-Python weighted-percentile bands), empty-set path. Models appended additive to `models.py`. **Orchestrator added `io_years` to `ScenarioAnalysis`** (invariant, for the §7a #6 IO caveat) + test. Full suite 205→206 passing, coverage 80.40%. |
-| 2.3 | Opt-in wiring: `main.py --scenarios`, `AIREAL_SCENARIOS`, `run.scenarios` | staff-python-engineer → standard | ⬜ | Next. |
-| 2.4 | "Market Scenarios" report section (design + implementation) | staff-report-experience-designer + staff-python-engineer → standard | 🔄 | **Design/spec done** by report-experience-designer → `docs/plans/MISSION_1_wave2_report_section_spec.md` (mockup + G1–G7 checklist). Implementation pending (after 2.3). |
+| 2.3 | Opt-in wiring: `main.py --scenarios`, `AIREAL_SCENARIOS`, `run.scenarios` | staff-python-engineer → standard | ✅ | `RunOptions.scenarios`, `AIREAL_SCENARIOS` env, `--scenarios` CLI (precedence CLI>env>JSON>default). Market block plumbed via additive `AppInputs.market` (top-level, off the frozen schema). Scenario work gated in `if run_scenarios_flag:` with lazy `src.market` import. Orchestrator verified live: `--help` shows flag; OFF report has no section; loud-fail on sample = clear ValueError. |
+| 2.4 | "Market Scenarios" report section (design + implementation) | staff-report-experience-designer + staff-python-engineer → standard | ✅ | Spec `MISSION_1_wave2_report_section_spec.md` (mockup + G1–G7). Implemented in `generator.py`: `ABOUT_SCENARIOS_BLOCK` verbatim constant (G1), top-5-by-prior grid with cap-applied (G5), bands labeled downside(p25)/median(p50)/mean(expected) (G4), caveats w/ IO gated on `io_years>0` (G3), str_viability "not modeled — narrative flag only" (G4), empty-set no fabrication (G7); `scenarios` keyword-only on both fns (C1); section only when supplied (G2). Orchestrator verified: byte-identical OFF, ON deterministic. Full suite 231 pass, coverage 80.73%, ruff+mypy clean. |
 
 ## Wave 3 — Validation & Docs
 

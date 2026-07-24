@@ -12,6 +12,9 @@ from src.schemas.models import (
     MediaInsights,
     PurchaseMetrics,
     RefiEvent,
+    ScenarioAnalysis,
+    ScenarioMetricBand,
+    ScenarioOutcome,
     YearBreakdown,
 )
 
@@ -36,6 +39,21 @@ def _fmt_pct(x: float) -> str:
         0.065 -> 6.50%
     """
     return f"{x * 100:.2f}%"
+
+
+def _fmt_delta_pct(x: float) -> str:
+    """
+    Format a delta fraction as a signed percentage with two decimals.
+
+    Explicit sign so a delta (Δ) is never confused with an applied level.
+    Reuses the existing 2dp percent convention; 0.0 renders as "0.00%".
+
+    Example:
+        0.02 -> +2.00%
+        -0.02 -> -2.00%
+        0.0  -> 0.00%
+    """
+    return f"{'+' if x > 0 else ''}{x * 100:.2f}%"
 
 
 def _section(title: str) -> str:
@@ -500,6 +518,171 @@ def _render_thesis(thesis: InvestmentThesis) -> str:
 
 
 # -----------------------
+# Market Scenarios (opt-in overlay — Mission 1)
+# -----------------------
+
+# FIXED VERBATIM honesty block (Wave 1 note §0 / Wave 2 spec §2, guardian G1). Rendered
+# byte-for-byte, no per-run interpolation. Because it is fixed text it never threatens the
+# default-off byte-identical guarantee (it only appears when scenarios are ON).
+ABOUT_SCENARIOS_BLOCK = (
+    "> **About these scenarios.** These are deterministic what-if calculations over your own market and\n"
+    "> financing assumptions — the same underwriting math re-run on perturbed copies of your inputs. They\n"
+    '> are **not** predictions, forecasts, or live market data. The scenario weights ("priors") are\n'
+    "> **heuristic penalty weights**, not calibrated probabilities, so the weighted figures are what-if\n"
+    "> quantiles over a rule-based grid — not statistical percentiles of real-world outcomes. Every number\n"
+    "> here is exactly reproducible from your inputs and the fixed seed."
+)
+
+_SCENARIOS_LEAD_IN = (
+    "A what-if overlay on the base underwriting above — the same math re-run on perturbed copies of your "
+    "inputs. This is not part of the headline forecast."
+)
+
+
+def _scenario_hyp_key(o: ScenarioOutcome) -> tuple[float, float, float, float, float, bool]:
+    """Lexicographic hypothesis key (Wave 1 note §4) used as the deterministic tie-break."""
+    h = o.hypothesis
+    return (h.rent_delta, h.expense_growth_delta, h.interest_rate_delta, h.cap_rate_delta, h.vacancy_delta, h.str_viability)
+
+
+def _render_scenario_grid(outcomes: tuple[ScenarioOutcome, ...], n_accepted: int) -> list[str]:
+    """Render the two linked top-5-by-prior tables (Wave 2 spec §3)."""
+    # Top-5 by prior descending; ties broken by the deterministic lexicographic hypothesis key.
+    top = sorted(outcomes, key=lambda o: (-o.hypothesis.prior, _scenario_hyp_key(o)))[:5]
+
+    lines: list[str] = [
+        f"**Scenario grid — top 5 by prior weight** _(of {n_accepted} admitted; the bands below summarize all of them)._",
+        "_Priors are heuristic penalty weights, not probabilities (see the note above)._",
+        "",
+        "| # | Prior | Δ Rent growth | Δ Opex growth | Δ Interest rate | Δ Cap rate | Δ Vacancy |",
+        "| ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+    ]
+    for i, o in enumerate(top, start=1):
+        h = o.hypothesis
+        lines.append(
+            f"| {i} | {_fmt_pct(h.prior)} | {_fmt_delta_pct(h.rent_delta)} | {_fmt_delta_pct(h.expense_growth_delta)} "
+            f"| {_fmt_delta_pct(h.interest_rate_delta)} | {_fmt_delta_pct(h.cap_rate_delta)} | {_fmt_delta_pct(h.vacancy_delta)} |"
+        )
+
+    lines.append("")
+    lines.append(
+        "| # | Rent growth | Opex growth | Interest rate | Occupancy | Cap rate (applied) "
+        "| DSCR (Y1) | CoC (Y1) | Cash flow (Y1) | IRR (10yr) | Equity × |"
+    )
+    lines.append("| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |")
+    for i, o in enumerate(top, start=1):
+        cap_applied = _fmt_pct(o.cap_rate_purchase_applied) if o.cap_rate_purchase_applied is not None else "N/A"
+        lines.append(
+            f"| {i} | {_fmt_pct(o.rent_growth_applied)} | {_fmt_pct(o.expense_growth_applied)} "
+            f"| {_fmt_pct(o.interest_rate_applied)} | {_fmt_pct(o.occupancy_applied)} | {cap_applied} "
+            f"| {o.dscr_y1:.2f} | {_fmt_pct(o.coc_y1)} | {_fmt_currency(o.cash_flow_y1)} "
+            f"| {_fmt_pct(o.irr_10yr)} | {o.equity_multiple_10yr:.2f}x |"
+        )
+    return lines
+
+
+def _render_scenario_bands(analysis: ScenarioAnalysis) -> list[str]:
+    """Render the prior-weighted bands table (Wave 2 spec §4, label discipline G4)."""
+    lines: list[str] = [
+        f"**Prior-weighted bands** _(across all {analysis.n_accepted} admitted scenarios; weighted by heuristic prior)._",
+        "",
+        "| Metric | downside (p25) | median (p50) | mean (expected) | min | max |",
+        "| :--- | ---: | ---: | ---: | ---: | ---: |",
+    ]
+
+    def _row(label: str, band: ScenarioMetricBand | None, fmt: str) -> str:
+        assert band is not None  # only called on the non-empty path
+        if fmt == "currency":
+            cells = [_fmt_currency(v) for v in (band.p25, band.p50, band.mean, band.min, band.max)]
+        elif fmt == "pct":
+            cells = [_fmt_pct(v) for v in (band.p25, band.p50, band.mean, band.min, band.max)]
+        elif fmt == "mult":
+            cells = [f"{v:.2f}x" for v in (band.p25, band.p50, band.mean, band.min, band.max)]
+        else:  # ratio
+            cells = [f"{v:.2f}" for v in (band.p25, band.p50, band.mean, band.min, band.max)]
+        return f"| {label} | " + " | ".join(cells) + " |"
+
+    lines.append(_row("DSCR (Y1)", analysis.dscr, "ratio"))
+    lines.append(_row("CoC (Y1)", analysis.coc, "pct"))
+    lines.append(_row("Cash flow (Y1)", analysis.cash_flow_y1, "currency"))
+    lines.append(_row("IRR (10yr)", analysis.irr_10yr, "pct"))
+    lines.append(_row("Equity multiple (10yr)", analysis.equity_multiple_10yr, "mult"))
+    return lines
+
+
+def _render_scenario_caveats(analysis: ScenarioAnalysis) -> list[str]:
+    """Render caveats; bullets 1-3 always, IO bullet only when io_years > 0 (Wave 2 spec §5, G3)."""
+    lines: list[str] = [
+        "**Caveats**",
+        "- The bands are weighted by heuristic penalty weights, not probabilities — read them as what-if "
+        "quantiles over a rule-based grid, not statistical percentiles.",
+        "- IRR (10yr) and the equity multiple are terminal-value / cap-rate dominated. The scenario base "
+        "reproduces the headline purchase cap exactly, so these two move only with the modeled cap-rate "
+        "delta — treat their spread as cap sensitivity, not a forecast.",
+        "- An interest-rate delta is applied to both the acquisition loan and the year-5 refinance loan and "
+        "holds for the full hold period — a rate shock here is a permanent, whole-deal shock, not a temporary one.",
+    ]
+    if analysis.io_years > 0:
+        lines.append(
+            "- One or more scenarios use an interest-only period, so their Year-1 DSCR, CoC, and cash flow are "
+            "interest-only-flattered and understate the debt load once amortization begins. Read the Year-1 "
+            "downside as optimistic for those scenarios."
+        )
+    return lines
+
+
+def _render_market_scenarios(analysis: ScenarioAnalysis) -> str:
+    """
+    Render the opt-in "Market Scenarios" overlay section (Wave 2 spec).
+
+    A structurally separate what-if section rendered last. Emitted ONLY when a
+    ``ScenarioAnalysis`` is supplied; with scenarios OFF this is never called and the
+    report is byte-identical to today (guardian G2).
+    """
+    snapshot = analysis.snapshot
+    lines: list[str] = [
+        _section("Market Scenarios"),
+        _SCENARIOS_LEAD_IN,
+        "",
+        ABOUT_SCENARIOS_BLOCK,
+        "",
+        f"_Region: {snapshot.region} · seed {analysis.seed} (provenance only — the grid is a fixed "
+        f"deterministic set, not randomized by the seed) · {analysis.n_accepted} of {analysis.n_generated} "
+        f"scenarios admitted under guardrails._",
+        "",
+    ]
+
+    if analysis.n_accepted == 0:
+        lines.append("**No admissible scenarios under the current guardrails.**")
+        lines.append("")
+        lines.append(f"None of the {analysis.n_generated} generated hypotheses passed the rejector, so there are no " "prior-weighted")
+        lines.append("outcomes to report. No numbers are fabricated.")
+        if analysis.notes:
+            lines.append("")
+            lines.append(analysis.notes)
+        return "\n".join(lines) + "\n"
+
+    lines.extend(_render_scenario_grid(analysis.outcomes, analysis.n_accepted))
+    lines.append("")
+    lines.extend(_render_scenario_bands(analysis))
+    lines.append("")
+    lines.extend(_render_scenario_caveats(analysis))
+
+    # str_viability — narrative flag only (Wave 2 spec §6, G4). Omitted from numeric tables above;
+    # surfaced here only when at least one admitted scenario flags it, with the literal label.
+    k = sum(1 for o in analysis.outcomes if o.hypothesis.str_viability)
+    if k > 0:
+        lines.append("")
+        lines.append("**Narrative flags (not modeled)**")
+        lines.append(
+            f"- STR viability flagged in {k} of {analysis.n_accepted} admitted scenarios — not modeled — "
+            "narrative flag only. It did not move any number above."
+        )
+
+    return "\n".join(lines) + "\n"
+
+
+# -----------------------
 # Orchestration
 # -----------------------
 
@@ -511,6 +694,7 @@ def generate_report(
     title_override: str | None = None,
     *,
     media_insights: MediaInsights | None = None,
+    scenarios: ScenarioAnalysis | None = None,
 ) -> str:
     """
     Generate a professional Markdown report that summarizes the investment analysis.
@@ -528,6 +712,7 @@ def generate_report(
       - Refinance Event (if present)
       - Returns Summary
       - Warnings
+      - Market Scenarios (opt-in overlay; appended last, only when ``scenarios`` is supplied)
     """
     header = _render_header(insights)
     if title_override:
@@ -552,6 +737,8 @@ def generate_report(
         _render_returns(forecast),
         _render_warnings(forecast.warnings),
     ]
+    if scenarios is not None:
+        parts.append(_render_market_scenarios(scenarios))
     return "\n".join(part for part in parts if part).strip() + "\n"
 
 
@@ -562,12 +749,13 @@ def write_report(
     thesis: InvestmentThesis | None = None,
     *,
     media_insights: MediaInsights | None = None,
+    scenarios: ScenarioAnalysis | None = None,
 ) -> None:
     """
     Convenience helper to write the generated report to disk.
     Ensures parent directories exist.
     """
-    md = generate_report(insights, forecast, thesis=thesis, media_insights=media_insights)
+    md = generate_report(insights, forecast, thesis=thesis, media_insights=media_insights, scenarios=scenarios)
 
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)

@@ -18,7 +18,7 @@
 
 ### Report Generator
 
-* `generate_report(insights: ListingInsights | None, forecast: FinancialForecast, thesis: InvestmentThesis | None = None, title_override: str | None = None, *, media_insights: MediaInsights | None = None) -> str`
+* `generate_report(insights: ListingInsights | None, forecast: FinancialForecast, thesis: InvestmentThesis | None = None, title_override: str | None = None, *, media_insights: MediaInsights | None = None, scenarios: ScenarioAnalysis | None = None) -> str`
 
   Builds a Markdown investment report with sections:
 
@@ -30,9 +30,10 @@
   6. **Pro Forma (Summary)** — annual GSI/GOI/OPEX/NOI/DS/CF/DSCR/balance table.
   7. **Valuation tables** — Baseline, Stress-Test, and NOI-Based.
   8. **OPEX Detail (Year 1)**, **Refinance Event**, **Returns Summary**, **Warnings**.
+  9. **Market Scenarios** — opt-in what-if overlay, appended **last** and rendered **only** when a `ScenarioAnalysis` is supplied (keyword-only `scenarios`). With `scenarios=None` the output is byte-for-byte identical to today's. Includes the fixed verbatim "About these scenarios" honesty block (`ABOUT_SCENARIOS_BLOCK`), a top-5-by-prior grid, prior-weighted bands (`downside (p25)` / `median (p50)` / `mean (expected)` / `min` / `max`), caveats, and an honest empty-set state when no scenarios are admitted.
 
-* `write_report(path, insights, forecast, thesis=None, *, media_insights=None) -> None`
-  Convenience wrapper; creates parent directories and writes the Markdown file.
+* `write_report(path, insights, forecast, thesis=None, *, media_insights=None, scenarios=None) -> None`
+  Convenience wrapper; creates parent directories and writes the Markdown file. `scenarios` is forwarded to `generate_report` unchanged.
 
 ### Media Report
 

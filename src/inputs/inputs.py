@@ -34,6 +34,7 @@ Environment overrides (optional)
 - AIREAL_HORIZON  -> AppInputs.run.horizon (int)
 - AIREAL_LISTING  -> AppInputs.run.listing
 - AIREAL_PHOTOS   -> AppInputs.run.photos
+- AIREAL_SCENARIOS-> AppInputs.run.scenarios (truthy 1/true/yes/on enables the scenario overlay)
 
 Public API
 ----------
@@ -74,6 +75,11 @@ class RunOptions(BaseModel):
     listing: str | None = Field(None, description="Path to listing .txt (optional).")
     photos: str | None = Field(None, description="Path to photos folder (optional).")
     engine: str = Field("deterministic", description='Orchestration engine: "deterministic" or "crewai".')
+    scenarios: bool = Field(
+        False,
+        description="Opt-in Market Scenarios overlay (Mission 1). Default OFF; when ON the pipeline runs the market "
+        "scenario engine and appends a 'Market Scenarios' report section. Off => byte-identical to today's output.",
+    )
 
 
 class AppInputs(BaseModel):
@@ -83,10 +89,15 @@ class AppInputs(BaseModel):
     Attributes:
         inputs: The validated FinancialInputs used by the financial engine.
         run:    Non-financial, runtime options for the current execution.
+        market: Optional raw market-snapshot block (region/vacancy_rate/cap_rate/rent_growth/
+                expense_growth/interest_rate) used ONLY by the opt-in scenario engine. It is carried
+                alongside — deliberately NOT part of the frozen FinancialInputs schema — and parsed by
+                ``src.market.snapshot.build_snapshot`` when scenarios are ON.
     """
 
     inputs: FinancialInputs
     run: RunOptions = RunOptions()
+    market: dict[str, Any] | None = None
 
 
 # ----------------------------
@@ -155,10 +166,15 @@ class InputsLoader:
         listing: str | None = None,
         photos: str | None = None,
         engine: str | None = None,
+        scenarios: bool | None = None,
     ) -> AppInputs:
         """
         Return a *new* AppInputs with provided non-null overrides applied to RunOptions.
         Does not mutate the original instance.
+
+        ``scenarios`` uses ``None`` to mean "no CLI override" (so the ``--scenarios``
+        ``store_true`` flag, which is ``False`` when absent, can defer to env/JSON); pass
+        ``True`` to force it on.
         """
         updates: dict[str, Any] = {}
         if out is not None:
@@ -171,6 +187,8 @@ class InputsLoader:
             updates["photos"] = photos
         if engine is not None:
             updates["engine"] = engine
+        if scenarios is not None:
+            updates["scenarios"] = scenarios
 
         if not updates:
             return cfg
@@ -272,6 +290,11 @@ class InputsLoader:
             normalized = engine.strip().lower()
             if normalized in ("deterministic", "crewai"):
                 updates["engine"] = normalized
+
+        scenarios = os.getenv(f"{prefix}SCENARIOS")
+        if scenarios is not None and scenarios.strip() != "":
+            # Truthy 1/true/yes/on (case-insensitive) enables; anything else explicitly disables.
+            updates["scenarios"] = scenarios.strip().lower() in ("1", "true", "yes", "on")
 
         if not updates:
             return cfg

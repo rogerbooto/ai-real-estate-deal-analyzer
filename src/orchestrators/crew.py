@@ -28,7 +28,13 @@ from dataclasses import dataclass
 from src.agents.chief_strategist import synthesize_thesis
 from src.agents.financial_forecaster import forecast_financials
 from src.agents.listing_analyst import analyze_listing
-from src.schemas.models import FinancialForecast, FinancialInputs, InvestmentThesis, ListingInsights
+from src.schemas.models import (
+    FinancialForecast,
+    FinancialInputs,
+    InvestmentThesis,
+    ListingInsights,
+    ScenarioAnalysis,
+)
 
 
 @dataclass(frozen=True)
@@ -38,6 +44,9 @@ class OrchestrationResult:
     insights: ListingInsights
     forecast: FinancialForecast
     thesis: InvestmentThesis
+    # Additive, default None. The opt-in Market Scenarios overlay (Mission 1); populated only
+    # when a caller runs the scenario engine. Off => None => byte-identical report output.
+    scenarios: ScenarioAnalysis | None = None
 
 
 def run_orchestration(
