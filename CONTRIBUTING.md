@@ -25,8 +25,10 @@ This project is intended as an **open research and educational project**. Contri
 3. Install dependencies (including dev tools):
 
    ```bash
-   pip install -e .[dev]
+   pip install -r requirements.txt -r requirements-dev.txt
    ```
+
+   > Note: `pip install -e .[dev]` is not currently supported — `pyproject.toml` lacks `[project]` name/version metadata. The requirements files match what CI installs.
 
 4. Run the test suite:
 
@@ -93,3 +95,7 @@ This project is released under the **Research & Education License** (see `LICENS
 * All users must provide attribution to **Roger Booto Tokime** as the original author.
 
 Please respect these terms when contributing.
+
+---
+
+_Last reconciled: 2026-07-23 against main @ e4716df._

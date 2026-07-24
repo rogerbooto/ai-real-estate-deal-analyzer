@@ -6,16 +6,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+_Status note (2026-07-23): section reconciled against main @ e4716df — the entries below reflect work actually merged since v0.1.0._
+
 ### Added
-- (placeholder) Add Streamlit demo UI.
-- (placeholder) Add live data ingestion for comps.
-- (placeholder) Add OpenTelemetry traces for agent pipeline.
+- **Listing ingestion pipeline** (`src/core/ingest`, `ingest-listing` CLI): file/URL ingestion with `FetchPolicy` (network opt-in, robots.txt respect, caching, optional JS rendering).
+- **Media pipeline** (`src/core/media`): HTML media discovery → filtered download → `MediaBundle` manifests; **media intelligence** (opt-in perceptual-hash near-duplicate detection, quality scoring, palette extraction, hero-image ranking).
+- **CV tagging v2** (`src/core/cv`): closed-set amenities/defects ontology, provider seams (`local`/`vision`/`llm` deterministic stubs, user-registered ONNX), per-provider JSON caching; consolidated under `CvTaggingOrchestrator` (removed legacy `tools/vision`).
+- **Address parsing** (`src/core/normalize/address.py`): US/CA parsing via `usaddress` + schema.org/meta/DOM hints; state/province code selection.
+- **Deal intelligence & advisor** (`src/core/intelligence`, `src/core/advisor`, `deal-advisor` CLI): deal fusion, composite scoring, narrative/report builders, multi-deal ranking, portfolio summary, risk flags, scenario what-ifs; CSV/Markdown exports.
+- **Report CLI** (`deal-report`): renders Markdown reports from JSON artifacts, including a Media Overview section.
+- **CrewAI engine seam** (`src/orchestrators/crewai_runner.py`): `--engine crewai` with fail-fast env validation; currently delegates to deterministic math (parity shell — `crew.kickoff()` not yet called).
 
 ### Changed
-- (placeholder) Refactor financial model module into smaller units.
+- Report generator extended with media overview, baseline/stress/NOI-based valuation tables, and env-driven overrides (`AIREAL_CAP_DRIFT_BPS`, `AIREAL_APPRECIATION_PCT`, `AIREAL_STRESS_ADJ`).
+- Vision provider interface refactored; tests reorganized under `tests/core/*`, `tests/integration/*`.
+- Coverage gate set to 80% over `src/core`, `src/schemas`, `src/market` (`pytest.ini` + `.coveragerc`).
 
-### Fixed
-- (placeholder) Resolve rounding edge case in amortization schedule.
+### Known Gaps
+- `src/market` hypothesis/rejector modules remain unwired from the main pipeline.
+- `pyproject.toml` lacks `[project]` metadata, so `pip install -e .` and the declared console scripts do not work yet (use `python -m src.cli.*`).
 
 ---
 

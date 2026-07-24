@@ -8,7 +8,7 @@
   * Generate a small **Cartesian grid** of “what-if” `MarketHypothesis` deltas around a snapshot.
   * Apply **rejector** rules to prune unrealistic combos and renormalize priors.
   * Produce **regional income tables** for sanity-checks and scenario seeding.
-* **Status in V1**: not yet wired into `orchestrators/crew.py` main pipeline; treat as **V2 optional utilities** ready for integration.
+* **Current status**: implemented and fully tested, but **not yet wired** into the `orchestrators/crew.py` main pipeline or the report generator; treat as **optional utilities ready for integration**.
 
 ## Public APIs / Contracts
 
@@ -132,9 +132,13 @@ print(tbl.summary())  # includes P25/Median/P75 and turnover; STR multiplier if 
 * Finance context (how scenarios affect underwriting): [`../core/README.md`](../core/README.md)
 * Orchestrator wiring status & proposal: [`../orchestrators/README.md`](../orchestrators/README.md)
 * Agents that could consume scenarios (future): [`../agents/README.md`](../agents/README.md)
-* Reporting patterns for scenario outputs: [`../reports/README.md`](../reports/README.md)
+* Reporting patterns for scenario outputs: [`../core/reports/README.md`](../core/reports/README.md)
 
 ## Change Log Notes (scoped)
 
 * Milestone B: Introduced 3-point grid generator, rejector hard/soft rules, STR coherence flip, deterministic ordering.
-* Current: Marked as **V2 optional utilities** pending integration into `orchestrators
+* Current: Marked as **optional utilities** pending integration into `orchestrators/crew.py` and the report generator.
+
+---
+
+_Last reconciled: 2026-07-23 against main @ e4716df._

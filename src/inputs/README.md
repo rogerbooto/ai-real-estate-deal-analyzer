@@ -2,144 +2,99 @@
 
 ## Purpose / Responsibilities
 
-* Define and validate user-provided **input data** for the Deal Analyzer.
-* Support both **legacy** and **structured** input formats, ensuring backward compatibility.
-* Normalize financial, market, and operational parameters before orchestrator execution.
+* Define and validate user-provided **input payloads** for the Deal Analyzer.
+* Support both the **legacy** shape (a bare `FinancialInputs` JSON) and the **structured** shape (`AppInputs` = financial inputs + run options), ensuring backward compatibility.
+* Apply environment-variable overrides for run options before orchestrator execution.
 
 ## Public APIs / Contracts
 
-* **Imports:**
+* **Imports (verified):**
 
   ```python
-  from src.inputs.inputs import load_inputs, parse_inputs
+  from src.inputs.inputs import AppInputs, RunOptions, InputsLoader, load_inputs
   ```
 
-### Input Loading
+### Models (defined here, not in `schemas`)
 
-* `load_inputs(path: str | Path | dict) -> FinancialInputs | AppInputs`
+* `RunOptions` — runtime, non-financial options:
+  `out` (default `investment_analysis.md`), `horizon` (1–50, default 10), `listing`, `photos`, `engine` (`"deterministic"` | `"crewai"`).
+* `AppInputs` — full payload: `inputs: FinancialInputs` + `run: RunOptions`.
 
-  * Reads and parses JSON or dictionary input.
-  * Auto-detects format (legacy or structured) and returns the appropriate model.
-  * Environment overrides (if set) apply last.
+### Loader
 
-### Input Parsing
+* `InputsLoader` (frozen dataclass, `env_prefix="AIREAL_"`):
 
-* `parse_inputs(raw: dict) -> FinancialInputs | AppInputs`
-
-  * Internal helper used by orchestrators.
-  * Validates numeric consistency (non-negative rates, currency alignment).
-  * Coerces rates expressed as percentages (e.g., `5` → `0.05`).
+  * `load(path=None) -> AppInputs` — reads JSON from `path`, or falls back to `./data/sample/inputs.json` then `./config.json`. Auto-detects legacy vs structured shape, validates with Pydantic, then applies env overrides.
+  * `load_json(text) -> AppInputs` — same, from a JSON string.
+  * `with_overrides(cfg, *, out=None, horizon=None, listing=None, photos=None, engine=None) -> AppInputs` — CLI-flag overrides (used by `main.py`).
+* `load_inputs(path=None) -> AppInputs` — convenience function wrapping `InputsLoader().load()`.
 
 ## Input Formats
 
-### 1) Legacy format (FinancialInputs root)
+### 1) Legacy format (`FinancialInputs` root)
 
 ```json
 {
-  "financing": {
-    "purchase_price": 199900,
-    "down_payment_rate": 0.05,
-    "interest_rate": 0.047,
-    "amort_years": 25,
-    "io_years": 0,
-    "mortgage_insurance_rate": 0.04
-  },
-  "opex": {
-    "insurance": 1200,
-    "taxes": 2621,
-    "repairs_maintenance": 2000,
-    "property_management": 1596,
-    "water_sewer": 1200,
-    "snow_removal": 600
-  },
-  "income": {
-    "gross_rent": 24000,
-    "vacancy_rate": 0.05
-  }
+  "financing": { "purchase_price": 500000, "down_payment_rate": 0.25,
+                 "interest_rate": 0.055, "amort_years": 30, "io_years": 0 },
+  "opex":      { "insurance": 2400, "taxes": 6000, "repairs_maintenance": 2400,
+                 "property_management": 4800 },
+  "income":    { "units": [ { "rent_month": 1200, "other_income_month": 50 } ],
+                 "occupancy": 0.95, "bad_debt_factor": 0.97, "rent_growth": 0.03 }
 }
 ```
 
-### 2) Structured format (AppInputs)
+### 2) Structured format (`AppInputs`)
 
 ```json
 {
-  "run_options": {
-    "llm_mode": 0,
-    "debug": true
-  },
-  "financial_inputs": {
-    "financing": { ... },
-    "opex": { ... },
-    "income": { ... }
-  }
+  "inputs": { "financing": { "...": "..." }, "opex": { "...": "..." }, "income": { "...": "..." } },
+  "run":    { "out": "out.md", "horizon": 10, "listing": "listing.txt",
+              "photos": "./photos", "engine": "deterministic" }
 }
 ```
 
-### Environment Overrides
+### Environment overrides (applied last, on run options)
 
-Optional environment variables applied during load:
+| Variable | Overrides |
+| --- | --- |
+| `AIREAL_OUT` | `run.out` |
+| `AIREAL_HORIZON` | `run.horizon` (int) |
+| `AIREAL_LISTING` | `run.listing` |
+| `AIREAL_PHOTOS` | `run.photos` |
+| `AIREAL_ENGINE` | `run.engine` |
 
-* `AIREAL_CAP_DRIFT_BPS`  — modifies annual cap rate drift (+/- basis points).
-* `AIREAL_APPRECIATION_PCT`  — adjusts property appreciation rate.
-* `AIREAL_STRESS_ADJ`  — adds stress factor to financial projection.
-* These overrides affect model assumptions before forecasting.
-
-## Usage Examples
-
-### 1) Load structured input
-
-```python
-from src.inputs.inputs import load_inputs
-inputs = load_inputs("./examples/app_inputs.json")
-print(inputs.financial_inputs.financing.interest_rate)
-```
-
-### 2) Use with orchestrator
-
-```python
-from src.orchestrators.crew import run_orchestration
-from src.inputs.inputs import load_inputs
-
-inputs = load_inputs("./examples/sample_inputs.json")
-result = run_orchestration(inputs)
-```
+> Financial stress/valuation overrides (`AIREAL_CAP_DRIFT_BPS`, `AIREAL_APPRECIATION_PCT`, `AIREAL_STRESS_ADJ`) are read by the **report generator**, not the inputs loader — see [`../core/reports/README.md`](../core/reports/README.md).
 
 ## Design Notes / Invariants
 
-* **Rates as fractions [0–1]:** all numeric rates are fractional, not percentages.
-* **Environment-first precedence:** runtime `.env` values override file defaults.
-* **Non-negativity enforced:** validators reject negative monetary or percentage inputs.
-* **JSON-only serialization:** YAML and CSV not supported.
-* **Backwards-compatible:** legacy format automatically normalized to structured schema internally.
+* **Rates as fractions [0–1]:** all numeric rates are fractional, not percentages (validation lives in `schemas.models`).
+* **Precedence:** file values → env overrides → explicit CLI overrides (`with_overrides`).
+* **Income is per-unit:** the legacy translator maps older income shapes onto the `units[]`-based `IncomeModel`.
+* **JSON-only serialization:** YAML and CSV are not supported.
 
 ## Dependencies / Optional Providers
 
-* Depends on [`../schemas/README.md`](../schemas/README.md) for model definitions (`FinancialInputs`, `AppInputs`, `RunOptions`).
-* Used by [`../orchestrators/README.md`](../orchestrators/README.md) and [`../agents/README.md`](../agents/README.md).
+* Depends on [`../schemas/README.md`](../schemas/README.md) for `FinancialInputs`.
+* Used by `main.py` and [`../orchestrators/README.md`](../orchestrators/README.md).
 * No external providers required.
 
 ## Test Strategy
 
-* Unit tests:
-
-  * `tests/unit/test_inputs_parser.py` — validation, coercion, env overrides.
-  * `tests/unit/test_inputs_loader.py` — legacy vs structured detection.
+* Covered indirectly via orchestrator/integration tests and `main.py` runs; dedicated loader unit tests are a known gap.
 * Run:
 
   ```bash
-  pytest -q tests/unit/test_inputs_*.py
+  pytest -q tests/integration
   ```
 
 ## Cross-links
 
-* Back to [Main README](../README.md)
+* Back to [Main README](../../README.md)
 * Schemas: [`../schemas/README.md`](../schemas/README.md)
-* Core Logic: [`../core/README.md`](../core/README.md)
-* Agents: [`../agents/README.md`](../agents/README.md)
+* Core logic: [`../core/README.md`](../core/README.md)
 * Orchestrators: [`../orchestrators/README.md`](../orchestrators/README.md)
 
-## Change Log Notes (scoped)
+---
 
-* Unified input handling for deterministic and LLM pipelines.
-* Added environment override support for financial stress testing.
-* Legacy input compatibility retained for backward compatibility.
+_Last reconciled: 2026-07-23 against main @ e4716df._

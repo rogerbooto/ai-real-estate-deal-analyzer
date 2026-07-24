@@ -2,172 +2,140 @@
 
 ## Purpose / Responsibilities
 
-* Deterministic domain logic for underwriting, data preparation, media plumbing, and insights.
+* Deterministic domain logic for underwriting, ingestion, data preparation, media plumbing, and deal intelligence.
 * Provides stable, testable primitives that agents/orchestrators compose. No network calls except controlled fetch/media helpers.
 * Sub-areas:
 
-  * **finance/**: underwriting engine (cash flows, IRR, metrics).
-  * **normalize/**: listing text/HTML/address parsing into structured signals.
-  * **cv/**: bridge from photo tags → `ListingInsights` (provider-agnostic).
-  * **media/**: discovery, download pipeline, and media-derived insights.
-  * **fetch/**: HTML fetching, robots, simple cache, typed errors.
-  * **insights/**: synthesis of listing + CV into higher-level insights.
-  * **strategy/**: rules that feed the investment thesis.
+  * **finance/**: underwriting engine (cash flows, amortization, IRR, metrics) + finance-summary adapters.
+  * **ingest/**: end-to-end listing ingestion (file or URL → normalized listing + media + photo insights).
+  * **normalize/**: listing text/HTML/address/title parsing into structured signals.
+  * **cv/**: deterministic CV tagging v2 — generic room/material labels + closed-set amenities/defects with provider seams.
+  * **media/**: media discovery, filtered download, bundle manifests, and media intelligence (phash/quality/palette/hero).
+  * **fetch/**: HTML fetching, robots.txt policy, caching, typed errors.
+  * **insights/**: synthesis of listing + photo insights into `ListingInsights`.
+  * **intelligence/**: deal fusion, composite scoring, narrative + report builders (`DealIntelligence`).
+  * **advisor/**: multi-deal ranking, portfolio summary, risk flags, scenario what-ifs.
+  * **strategy/**: rule-based thesis formation.
+  * **reports/**: Markdown report generation (see [`reports/README.md`](reports/README.md)).
+  * **utils/**: markdown/serialization helpers.
 
 ## Public APIs / Contracts
 
-* **Imports (selected):**
+* **Imports (selected, verified):**
 
   ```python
   # Finance
   from src.core.finance.engine import run_financial_model
-  from src.core.finance.amortization import amortization_schedule
-  from src.core.finance.irr import xirr
+  from src.core.finance.amortization import amortization_schedule, amortization_payment
+  from src.core.finance.irr import irr
+  from src.core.finance.adapters import finance_summary_from_json
 
-  # Normalize
-  from src.core.normalize.listing_text import parse_listing_text
-  from src.core.normalize.listing_html import extract_listing_from_html
-  from src.core.normalize.address import normalize_address
+  # Ingest & Normalize
+  from src.core.ingest.listing_ingest import ingest_listing
+  from src.core.normalize import parse_any_to_normalized
+  from src.core.normalize.listing_html import parse_listing_from_tree
+  from src.core.normalize.address import parse_address, extract_address
 
-  # CV bridge & insights
-  from src.core.cv.bridge import merge_photo_tags
-  from src.core.cv.photo_insights import tags_to_insights
+  # CV v2
+  from src.core.cv.runner import tag_images, tag_amenities_and_defects
+  from src.core.cv.amenities_defects import register_onnx_provider, detect_from_image
 
   # Media & Fetch
+  from src.core.media.pipeline import find_media_candidates, collect_media
   from src.core.media.downloader import download_media
-  from src.core.media.html_finder import find_media_in_html
-  from src.core.media.pipeline import media_pipeline
-  from src.core.fetch.html_fetcher import fetch_html
-  from src.core.fetch.robots import is_allowed
+  from src.core.media.insights import analyze_media, enrich_with_intelligence
+  from src.core.media.intelligence import compute_phash, compute_quality, extract_palette, rank_hero
 
-  # Insights & Strategy
+  # Insights, Intelligence, Advisor, Strategy
   from src.core.insights.synthesis import synthesize_listing_insights
-  from src.core.strategy.strategist import build_strategy
+  from src.core.intelligence.deal_fusion import fuse_deal_intelligence, DealIntelligence
+  from src.core.intelligence.scoring import compute_composite_score
+  from src.core.advisor import rank_deals, portfolio_summary, compute_risk_flags
+  from src.core.strategy.strategist import form_thesis
   ```
 
 ### Finance
 
-* `run_financial_model(inputs: FinancialInputs) -> FinancialForecast`
-  Main underwriting entrypoint; returns forecast with `YearBreakdown[]` and `PurchaseMetrics`.
-* `amortization_schedule(principal, rate, years, *, io_years=0) -> list[dict]`
-  Deterministic monthly schedule; supports interest-only phase before amortization.
-* `irr(cashflows: list[tuple[datetime,date|str,float]]) -> float`
-  Date-aware IRR used by engine; expects signed cash flows.
+* `run_financial_model(fi: FinancialInputs, *, horizon_years: int = 10, insights: ListingInsights | None = None) -> FinancialForecast`
+  Main underwriting entrypoint; returns forecast with `YearBreakdown[]`, `PurchaseMetrics`, optional `RefiEvent`, and warnings. Insight-aware modifiers only adjust income when `income_is_estimated` is set.
+* `amortization_schedule(principal, rate, amort_years, *, io_years=0, horizon_years) -> list[YearDebt]`
+  Deterministic annual schedule; interest-only years precede amortization; padded to horizon.
+* `irr(cash_flows, *, max_iter=100, tol=1e-6) -> float | None`
+  Date-aware IRR (Newton + bisection fallback); expects signed cash flows.
 
-### Normalize
+### Ingest & Normalize
 
-* `parse_listing_text(text: str) -> dict`
-  Extracts bed/bath/parking/sqft/amenities from free text deterministically.
-* `extract_listing_from_html(html: str) -> dict`
-  Pulls the same signals from DOM text.
-* `normalize_address(raw: str) -> dict`
-  Canonicalizes street/city/province/postal if present.
+* `ingest_listing(...) -> IngestResult`
+  File-or-URL ingestion honoring a `FetchPolicy` (network opt-in, robots respected, caching, optional JS render); produces normalized listing, media bundle, and photo insights.
+* `parse_any_to_normalized(doc) -> ListingNormalized`
+  Single door for text/HTML documents.
+* `parse_address(text, soup=None) -> AddressResult | None`
+  US/CA address parsing via `usaddress` plus schema.org/meta/DOM hints.
 
-### CV bridge & insights
+### CV v2
 
-* `merge_photo_tags(deterministic: dict, ai: dict|None) -> dict`
-  Merges filename heuristics with AI tags; keeps strongest per (category,label).
-* `tags_to_insights(tags: dict) -> ListingInsights`
-  Converts tag dictionary to typed insights consumed by `agents/listing_analyst`.
+* `tag_images(paths, *, use_ai=None, return_schema=False) -> dict`
+  Deterministic generic room/material tagging keyed by image sha256.
+* `tag_amenities_and_defects(assets, *, provider, use_cache=True) -> dict[str, list[DetectedLabel]]`
+  Closed-set amenities/defects detection with per-provider JSON cache (`.cache/cv/providers/<provider>/<sha>.json`). Providers: `local` (heuristics), `vision` / `llm` (deterministic stubs), `onnx` (user-registered local model via `register_onnx_provider`).
 
 ### Media & Fetch
 
-* `find_media_in_html(html: str) -> list[str]`
-  Returns media URLs (images, floorplans, video thumbs) with simple dedupe.
-* `download_media(urls: list[str], dest_dir: Path) -> list[Path]`
-  Deterministic downloader with basic retry; returns local file paths.
-* `media_pipeline(html: str, dest_dir: Path) -> dict`
-  Finds → downloads → indexes media; returns manifest.
-* `fetch_html(url: str, *, timeout_s: int = 15) -> str`
-  Simple HTTP GET via requests-like interface (tests mock); raises typed errors.
-* `is_allowed(url: str, user_agent: str) -> bool`
-  Robots.txt check helper; conservative deny on parsing errors.
+* `find_media_candidates(...)` / `collect_media(...)`
+  Discover media in listing HTML and orchestrate the download into a `MediaBundle`.
+* `download_media(...)`
+  Filtered, deduplicating downloader (icon/logo prefilter, size postfilter, sha256 hashing).
+* `analyze_media(assets) -> MediaInsights`
+  Counts, byte totals, dimension/orientation stats, exact-duplicate detection, hero guess.
+* `enrich_with_intelligence(bundle, insights, enable=False)`
+  Opt-in perceptual-hash near-duplicate detection, quality scoring, palette extraction, and hero ranking.
 
-### Insights & Strategy
+### Insights, Intelligence, Advisor, Strategy
 
-* `synthesize_listing_insights(text_signals: dict, photo_insights: ListingInsights) -> ListingInsights`
-  Combines textual and visual cues (e.g., reno level, layout risk) deterministically.
-* `build_strategy(forecast: FinancialForecast, insights: ListingInsights) -> dict`
-  Rule-based levers and guardrails used by `agents/chief_strategist.py`.
-
-## Usage Examples
-
-### Finance: run model
-
-```python
-from src.core.finance.engine import run_financial_model
-from src.schemas.models import FinancialInputs, OperatingExpenses, FinancingTerms
-
-inputs = FinancialInputs(
-    financing=FinancingTerms(purchase_price=300000, down_payment_rate=0.05,
-                             interest_rate=0.045, amort_years=25, io_years=0,
-                             mortgage_insurance_rate=0.04),
-    opex=OperatingExpenses(insurance=1200, taxes=2600, repairs_maintenance=2000, management=1500),
-    income={"gross_rent": 24000, "vacancy_rate": 0.05}
-)
-forecast = run_financial_model(inputs)
-print(forecast.purchase.metrics.coc_return)
-```
-
-### Normalize + CV merge to insights
-
-```python
-from src.core.normalize.listing_text import parse_listing_text
-from src.core.cv.bridge import merge_photo_tags
-from src.core.cv.photo_insights import tags_to_insights
-
-text = parse_listing_text("2BR + den, 1.5 bath, 900 sqft, parking, balcony")
-merged = merge_photo_tags({"kitchen": {"modern": 0.8}}, {"bath": {"dated": 0.6}})
-ins = tags_to_insights(merged)
-```
-
-### Media pipeline from HTML
-
-```python
-from pathlib import Path
-from src.core.media.pipeline import media_pipeline
-
-manifest = media_pipeline("<html>...<img src=\"/a.jpg\">...</html>", Path("./artifacts"))
-print(manifest["images"])  # local paths
-```
+* `synthesize_listing_insights(listing: ListingNormalized, photos: PhotoInsights) -> ListingInsights`
+  Deterministically combines textual and visual cues (address resolution, amenities, condition tags, notes).
+* `fuse_deal_intelligence(...) -> DealIntelligence`
+  Fuses listing, finance summary, media, and photo insights into a scored deal object.
+* `compute_composite_score(...)` — weighted scoring components (see `intelligence/types.py`).
+* `rank_deals(deals)` / `portfolio_summary(deals)` / `compute_risk_flags(...)` — advisor layer used by the `deal-advisor` CLI.
+* `form_thesis(ff: FinancialForecast, mkt: MarketAssumptions) -> InvestmentThesis`
+  Rule-based thesis used by the Chief Strategist.
 
 ## Design Notes / Invariants
 
-* **Determinism first**: all modules are pure or have controlled side effects (FS/network) behind narrow helpers.
-* **Rates are fractions [0–1]**: engine expects fractional inputs (e.g., 0.05 for 5%).
+* **Determinism first**: all modules are pure or have controlled side effects (FS/network) behind narrow helpers; AI providers default to deterministic stubs.
+* **Rates are fractions [0–1]**: the engine expects fractional inputs (e.g., 0.05 for 5%).
 * **IO → Amortization**: interest-only years precede amortization in schedules.
-* **No hidden globals**: configuration flows via explicit parameters or higher layers (agents/orchestrators).
-* **Stable ordering**: schedules, manifests, and merges use deterministic ordering for testability.
+* **No hidden globals**: configuration flows via explicit parameters or higher layers (agents/orchestrators); env flags are read at the edges.
+* **Stable ordering**: schedules, manifests, tag outputs, and rankings use deterministic ordering for testability.
 * **Error handling**: typed errors from fetch/media paths; conservative fallbacks (e.g., robots deny on error).
 
 ## Dependencies / Optional Providers
 
 * Consumes types from [`../schemas/README.md`](../schemas/README.md).
-* Can receive AI tags from `tools/vision` via the CV bridge, but operates without AI by design.
-* Network/FS accesses are isolated in `fetch/` and `media/` for mocking in tests.
+* AI vision/LLM providers are seams — deterministic stubs unless a user registers an ONNX model.
+* Network/FS access is isolated in `fetch/` and `media/` for mocking in tests.
 
 ## Test Strategy
 
-* Unit tests cover: amortization math, IRR, engine cash flows, normalization parsing, CV merges, media finder/downloader, fetch and robots, insights synthesis, strategy rules.
-* Integration tests exercise end-to-end flow via orchestrators with deterministic inputs.
-* Run examples:
+* Unit tests under `tests/core/` cover: finance math, normalization/address parsing, CV providers and caching, media finder/downloader/intelligence, insights synthesis, intelligence scoring, advisor ranking, report rendering.
+* Integration tests (`tests/integration/`) exercise end-to-end flows via orchestrators and CLIs.
+* Run:
 
   ```bash
-  pytest -q tests/unit/test_finance_* tests/unit/test_core_* tests/integration/test_orchestrator_*.py
+  pytest -q tests/core
   ```
 
 ## Cross-links
 
-* Back to [Main README](../README.md)
+* Back to [Main README](../../README.md)
 * Types: [`../schemas/README.md`](../schemas/README.md)
-* Tools (vision/tagging & ingest): [`../tools/README.md`](../tools/README.md)
+* CLI entry points: [`../cli/README.md`](../cli/README.md)
 * Orchestrators (E2E flow): [`../orchestrators/README.md`](../orchestrators/README.md)
 * Agents (wrappers): [`../agents/README.md`](../agents/README.md)
-* Reports (rendering): [`../reports/README.md`](../reports/README.md)
-* Market (scenario utilities): [`../market/README.md`](../market/README.md)
+* Reports (rendering): [`reports/README.md`](reports/README.md)
+* Market (scenario utilities, not yet wired): [`../market/README.md`](../market/README.md)
 
-## Change Log Notes (scoped)
+---
 
-* Finance engine stabilized with IO→Amortization support and XIRR.
-* CV bridge introduced to unify deterministic and AI tags.
-* Media pipeline hardened with deterministic manifests and retrying downloader.
+_Last reconciled: 2026-07-23 against main @ e4716df (including uncommitted working-tree refactors of `media/insights.py` and `media/intelligence.py`)._

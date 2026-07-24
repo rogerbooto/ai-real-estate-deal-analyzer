@@ -1,14 +1,14 @@
 ![CI](https://github.com/rogerbooto/ai-real-estate-deal-analyzer/actions/workflows/ci.yml/badge.svg)
 [![codecov](https://codecov.io/gh/rogerbooto/ai-real-estate-deal-analyzer/branch/main/graph/badge.svg)](https://codecov.io/gh/rogerbooto/ai-real-estate-deal-analyzer)
 ![Python Versions](https://img.shields.io/badge/python-3.10-blue.svg)
-![License](https://img.shields.io/badge/license-MIT-green.svg)
+![License](https://img.shields.io/badge/license-Research%20%26%20Education-orange.svg)
 [![Release](https://img.shields.io/github/v/release/rogerbooto/ai-real-estate-deal-analyzer)](https://github.com/rogerbooto/ai-real-estate-deal-analyzer/releases)
 
 # The AI Real Estate Deal Analyzer
 
-An autonomous AI co-pilot that ingests a real estate listing and user-provided market data to perform a rigorous, Grant Cardone–inspired investment analysis, generating a comprehensive financial breakdown and a human-readable investment thesis.
+A deterministic-first investment co-pilot that ingests a real estate listing (text, HTML, and photos) and user-provided financial data to perform a rigorous, Grant Cardone–inspired investment analysis — producing a comprehensive financial breakdown, media insights, and a human-readable investment thesis.
 
-This project is a portfolio piece designed to showcase a modern, multi-agent AI architecture for complex decision-making and analysis.
+This project is a portfolio piece designed to showcase a modern, agent-seamed architecture for complex decision-making and analysis. The core pipeline is **fully deterministic and reproducible**; AI layers (vision providers, CrewAI orchestration) are opt-in seams that default to deterministic stubs.
 
 ---
 
@@ -23,15 +23,35 @@ git clone https://github.com/rogerbooto/ai-real-estate-deal-analyzer.git && cd a
 Expected output:
 
 ```text
-Running AI Real Estate Deal Analyzer (V1 demo)...
+Running AI Real Estate Deal Analyzer (V2)...
 Report written to investment_analysis.md
 Thesis verdict: CONDITIONAL
 ```
 
+> `main.py` auto-creates minimal demo assets under `data/sample/` on first run if you don't pass `--listing`/`--photos`.
+
 ### Demo Artifacts
 
-* Sample input data: `data/sample/`
-* Example outputs: `artifacts/36_kelly_analysis.md` and `artifacts/36_kelly_analysis.pdf`
+* Sample deal bundle: `data/sample_listings/47_perrot_shediac/` (listing.txt, photos/, finance.json)
+* Example JSON artifacts: `data/examples/` (forecast, insights, media, thesis)
+* Example outputs: `artifacts/*.md` / `artifacts/*.pdf` (e.g., `36_kelly_analysis.md`, `20_gallagher_analysis.md`)
+
+### Command-Line Interfaces
+
+Beyond `main.py`, three CLIs cover ingestion, reporting, and multi-deal advising (run as modules; see note on packaging below):
+
+```bash
+# Ingest a listing (file or URL) with optional media download & media intelligence
+python -m src.cli.ingest_cli --file listing.html --photos ./photos --media-intel 1
+
+# Render a Markdown investment report from JSON artifacts
+python -m src.cli.report_cli --forecast forecast.json --insights insights.json --out report.md
+
+# Rank multiple deals and summarize a portfolio (directory bundles or config JSONs)
+python -m src.cli.advisor_cli --dir data/sample_listings/47_perrot_shediac --out out/advisor_output.json --markdown
+```
+
+> `pyproject.toml` declares `ingest-listing`, `deal-report`, and `deal-advisor` console scripts, but the package metadata needed for `pip install -e .` is not yet complete — use the `python -m` forms above for now.
 
 ---
 
@@ -39,18 +59,18 @@ Thesis verdict: CONDITIONAL
 
 This section links to in-depth READMEs for each `src/` subfolder.
 
-| Folder             | Description                                                                        | Link                                                   |
-| ------------------ | ---------------------------------------------------------------------------------- | ------------------------------------------------------ |
-| **schemas/**       | Pydantic models defining all data contracts (inputs, forecasts, market scenarios). | [schemas/README.md](src/schemas/README.md)             |
-| **core/**          | Deterministic finance engine, normalization, CV bridge, and insights logic.        | [core/README.md](src/core/README.md)                   |
-| **tools/**         | Operational utilities (listing ingestion, CV tagging, vision providers).           | [tools/README.md](src/tools/README.md)                 |
-| **orchestrators/** | End-to-end pipeline coordinators for deterministic and LLM modes.                  | [orchestrators/README.md](src/orchestrators/README.md) |
-| **agents/**        | High-level wrappers managing listing, finance, and strategy tasks.                 | [agents/README.md](src/agents/README.md)               |
-| **reports/**       | Markdown report generator for forecasts and investment theses.                     | [reports/README.md](src/reports/README.md)             |
-| **inputs/**        | Input loading, validation, and environment override logic.                         | [inputs/README.md](src/inputs/README.md)               |
-| **market/**        | Market hypothesis and rejector utilities (V2 optional).                            | [market/README.md](src/market/README.md)               |
+| Folder             | Description                                                                                          | Link                                                   |
+| ------------------ | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| **schemas/**       | Pydantic models defining all data contracts (inputs, forecasts, listings, media, market scenarios).  | [schemas/README.md](src/schemas/README.md)             |
+| **core/**          | Deterministic finance engine, ingestion, normalization, CV, media, advisor, and intelligence logic.  | [core/README.md](src/core/README.md)                   |
+| **cli/**           | Command-line entry points: listing ingest, report rendering, multi-deal advisor.                     | [cli/README.md](src/cli/README.md)                     |
+| **orchestrators/** | End-to-end pipeline coordinators for deterministic and (seamed) CrewAI modes.                        | [orchestrators/README.md](src/orchestrators/README.md) |
+| **agents/**        | High-level wrappers managing listing, finance, and strategy tasks.                                   | [agents/README.md](src/agents/README.md)               |
+| **core/reports/**  | Markdown report generator for forecasts, media insights, and investment theses.                      | [core/reports/README.md](src/core/reports/README.md)   |
+| **inputs/**        | Input loading, validation, and environment override logic.                                           | [inputs/README.md](src/inputs/README.md)               |
+| **market/**        | Market hypothesis and rejector utilities (V2 optional — not yet wired into the main pipeline).       | [market/README.md](src/market/README.md)               |
 
-> Relationships: `inputs → orchestrators → agents → core/tools → reports`, with `market` optional.
+> Relationships: `inputs → orchestrators → agents → core → core/reports`, with `market` optional and `cli` as user-facing entry points.
 
 ---
 
@@ -77,7 +97,7 @@ The system's unique value is its **opinionated financial model**, which implemen
 
 ## High-Level Architecture
 
-At a glance, the system is a multi-agent orchestration powered by **CrewAI**. Each agent specializes in one domain, and the Chief Strategist synthesizes all findings into a final investment thesis.
+At a glance, the system is a multi-agent pipeline with a **deterministic orchestrator by default** and a **CrewAI seam** for optional LLM-backed runs (`--engine crewai`; currently a parity shell that validates the environment and delegates to the same deterministic math). Each agent specializes in one domain, and the Chief Strategist synthesizes all findings into a final investment thesis.
 
 ```mermaid
 flowchart LR
@@ -116,15 +136,15 @@ flowchart LR
 
 ## Technical Architecture
 
-The system is built as a **multi-agent system**, orchestrated using CrewAI. This pattern allows for a clear separation of concerns, where each agent is an expert in its domain.
+The system is built as a **multi-agent pipeline** with clear separation of concerns, where each agent is an expert in its domain. Orchestration is deterministic by default; a CrewAI-based engine is available as a seam for future LLM reasoning.
 
 The primary agents are:
 
-* **Listing Analyst:** A Computer Vision expert that analyzes property photos and listing text to extract key features and data points.
+* **Listing Analyst:** Analyzes property photos (deterministic CV tagging, with provider seams for AI vision) and listing text to extract key features and data points.
 * **Financial Forecaster:** A financial modeling expert that implements the core investment spreadsheet logic, calculating NOI, cash flow, and return metrics.
-* **Chief Strategist:** The final decision-maker that synthesizes all data into a clear, human-readable investment thesis.
+* **Chief Strategist:** The final decision-maker that synthesizes all data into a clear, human-readable investment thesis (rule-based today).
 
-*(Note: In V1, market research and live data scraping are out of scope; inputs are provided locally.)*
+*(Note: live market research is out of scope; financial inputs are provided locally. Listing ingestion supports local files and — behind an explicit opt-in fetch policy with robots.txt respect — remote URLs.)*
 
 ---
 
@@ -175,7 +195,7 @@ sequenceDiagram
     participant F as Financial Forecaster
     participant C as Chief Strategist
 
-    Note over L F C: Orchestrated via CrewAI
+    Note over L F C: Deterministic orchestrator (CrewAI seam optional)
 
     L->>L: Parse listing text & analyze photos
     L->>F: Send Listing Insights
@@ -211,14 +231,15 @@ This model feeds into our per-year pro forma:
 
 ## Tech Stack
 
-* **Language:** Python
-* **Orchestration:** CrewAI
-* **AI Models:** Computer Vision (CLIP-based tagging), LLM agents
+* **Language:** Python 3.10
+* **Orchestration:** Deterministic pipeline (default) + CrewAI seam (optional engine)
+* **Computer Vision:** Deterministic filename/heuristic tagging with closed-set ontology; provider seams for `vision`/`llm` stubs and user-registered ONNX models; perceptual-hash media intelligence (Pillow)
+* **Ingestion:** BeautifulSoup HTML parsing, address parsing via `usaddress`, robots-respecting fetch policy
 * **Data Modeling:** Pydantic v2
-* **Testing:** Pytest
-* **Lint/Type:** Ruff, mypy
+* **Testing:** Pytest (+ coverage via pytest-cov / Codecov)
+* **Lint/Type:** Ruff, mypy (strict)
 * **Deps:** `requirements.txt` (runtime) + `requirements-dev.txt` (dev)
-* **Packaging:** `pyproject.toml`
+* **Packaging:** `pyproject.toml` (console-script metadata incomplete; run CLIs via `python -m`)
 
 ---
 
@@ -232,18 +253,22 @@ This model feeds into our per-year pro forma:
 
 ## Usage Example
 
-The V1 demo comes with hardcoded sample inputs.
+The demo comes with hardcoded sample inputs.
 You can run the full pipeline (Listing Analyst → Financial Forecaster → Chief Strategist) directly:
 
 ```bash
 # Run demo analysis
 python main.py
+
+# Or with explicit config/assets
+python main.py --config data/sample/inputs.json --out out.md --horizon 10 \
+               --listing data/sample/listing.txt --photos data/sample/photos
 ```
 
 Expected console output:
 
 ```text
-Running AI Real Estate Deal Analyzer (V1 demo)...
+Running AI Real Estate Deal Analyzer (V2)...
 Report written to investment_analysis.md
 Thesis verdict: CONDITIONAL
 ```
@@ -295,8 +320,6 @@ source .venv/bin/activate   # Linux/Mac
 
 **3. Install dependencies**
 
-We use **Poetry-style dependencies via** `pyproject.toml`, but you can also install directly:
-
 ```bash
 pip install -r requirements.txt
 ```
@@ -304,8 +327,10 @@ pip install -r requirements.txt
 For development (with tests, linting, typing):
 
 ```bash
-pip install -e .[dev]
+pip install -r requirements.txt -r requirements-dev.txt
 ```
+
+> Note: `pip install -e .` is not currently supported — `pyproject.toml` lacks the `[project]` name/version metadata. Use the requirements files (this matches CI).
 
 ---
 
@@ -328,12 +353,16 @@ ruff check .
 mypy --strict src
 ```
 
-Coverage is enforced via `pytest.ini` (90% minimum) and uploaded to Codecov in CI:
+Coverage is enforced via `pytest.ini` (80% minimum over `src/core`, `src/schemas`, `src/market`; network/vision glue is excluded via `.coveragerc`) and uploaded to Codecov in CI:
 
-```bash
-# pytest.ini
+```ini
+# pytest.ini (excerpt)
 [pytest]
-addopts = -q --cov=src --cov-report=term-missing --cov-report=xml --cov-fail-under=90
+addopts =
+    -q
+    --cov=src/market --cov=src/schemas --cov=src/core
+    --cov-report=term-missing --cov-report=xml
+    --cov-fail-under=80 --cov-config=.coveragerc
 testpaths = tests
 ```
 
@@ -345,21 +374,33 @@ testpaths = tests
 
 * **V1 (MVP) — ✅ Implemented**
 
-  * Local text + photo ingestion via `tools.listing_ingest` and `agents.listing_analyst`
-  * Deterministic financial modeling using `core.finance.engine`
+  * Local text + photo ingestion via `core.ingest` and `agents.listing_analyst`
+  * Deterministic financial modeling using `core.finance.engine` (amortization, IO phases, refi, IRR)
   * Agent orchestration and thesis output through `orchestrators.crew`
-  * Markdown report generation (`reports.generator`)
-  * Full test coverage (>90%) and CI/CD via GitHub Actions + Codecov
-  * Modular documentation across `schemas`, `core`, `tools`, `agents`, `orchestrators`, `reports`, `inputs`, and `market`
-  * Environment-driven configuration (`.env` with AIREAL_* flags)
+  * Markdown report generation (`core.reports.generator`) with baseline / stress / NOI-based valuation tables
+  * Test coverage (≥80% on covered modules) and CI/CD via GitHub Actions + Codecov
+  * Modular documentation across `schemas`, `core`, `cli`, `agents`, `orchestrators`, `inputs`, and `market`
+  * Environment-driven configuration (`AIREAL_*` flags)
 
-* **V2+ (In Progress / Planned)**
+* **V2 (Shipped since v0.1.0) — ✅ Implemented**
 
-  * Integration of **Market Hypotheses** and **Rejector** modules into main orchestration
+  * End-to-end **media pipeline**: HTML media discovery → filtered download → `MediaBundle` manifest (`core.media`)
+  * **Media intelligence** (opt-in): perceptual-hash near-duplicate detection, quality scoring, palette extraction, hero-image ranking
+  * **Listing ingestion** from file or URL with fetch policy, robots.txt respect, caching, and optional JS rendering (`core.ingest`, `ingest-listing` CLI)
+  * **CV tagging v2**: closed-set amenities/defects ontology, provider seams (`local` / `vision` / `llm` stubs, user-registered ONNX), per-provider caching
+  * **Address parsing** (US/CA) with `usaddress` + DOM/schema.org hints (`core.normalize.address`)
+  * **Deal intelligence & advisor**: composite scoring, deal fusion, narrative builder, multi-deal ranking and portfolio summary (`core.intelligence`, `core.advisor`, `deal-advisor` CLI)
+  * **Report CLI** rendering reports from JSON artifacts, including media overview sections
+
+* **V3 (Planned / Not yet implemented)**
+
+  * Integration of **Market Hypotheses** and **Rejector** modules into main orchestration (modules exist and are tested, but are not wired into the pipeline)
+  * Real LLM/vision provider integration behind the existing seams (CrewAI kickoff, AI photo tagging beyond deterministic stubs)
+  * Packaging metadata so `pip install -e .` and the declared console scripts work
   * Live market data ingestion (regional income, cap-rate drift, comps)
   * Streamlit or web UI for interactive scenario exploration
-  * Predictive modeling for valuation and rent growth
-  * CrewAI-based orchestration (LLM reasoning for Investment Thesis)
   * Expanded scenario reporting and stress-test visualizations
 
 ---
+
+_Last reconciled: 2026-07-23 against main @ e4716df (including uncommitted working-tree changes to `src/core/media/insights.py` and `src/core/media/intelligence.py`)._

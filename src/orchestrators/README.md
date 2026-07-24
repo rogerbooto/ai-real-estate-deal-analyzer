@@ -2,136 +2,80 @@
 
 ## Purpose / Responsibilities
 
-* Coordinate multi-step execution flows combining agents, tools, and core modules.
-* Serve as the **entry point for deterministic orchestration** in V1 and as the seam for CrewAI-based orchestration in V2.
-* Expose functions and classes that can run end-to-end investment analyses from a listing input to a generated report.
+* Coordinate multi-step execution flows combining agents and core modules.
+* Serve as the **entry point for deterministic orchestration** and as the seam for CrewAI-based orchestration.
+* Expose functions/classes that run end-to-end investment analyses from listing inputs to a report-ready result bundle.
 
 ## Public APIs / Contracts
 
-* **Imports:**
+* **Imports (verified):**
 
   ```python
-  from src.orchestrators.crew import run_orchestration
-  from src.orchestrators.cv_tagging_orchestrator import run_cv_tagging
-  from src.orchestrators.crewai_runner import run_crewai_orchestration
+  from src.orchestrators.crew import run_orchestration, OrchestrationResult
+  from src.orchestrators.cv_tagging_orchestrator import CvTaggingOrchestrator
+  from src.orchestrators import crewai_runner  # crewai_runner.run_orchestration
   ```
 
-### Deterministic Orchestrator (V1)
+### Deterministic Orchestrator (default)
 
-* `run_orchestration(inputs: FinancialInputs | dict, *, debug: bool = False) -> dict`
-  Runs the **full deterministic pipeline**:
+* `run_orchestration(inputs: FinancialInputs, listing_txt_path: str | None = None, photos_folder: str | None = None, *, horizon_years: int = 10) -> OrchestrationResult`
 
-  1. Parses input (`inputs/inputs.py`).
-  2. Calls `agents/listing_analyst.py` → listing normalization + photo insights.
-  3. Invokes `agents/financial_forecaster.py` → forecast metrics.
-  4. Invokes `agents/chief_strategist.py` → thesis generation.
-  5. Sends outputs to `reports/generator.py` → markdown summary.
+  Executes the pipeline **Analyst → Forecaster → Strategist**:
 
-  Returns a dictionary or structured report depending on flags.
+  1. `agents.listing_analyst.analyze_listing()` → `ListingInsights`.
+  2. `agents.financial_forecaster.forecast_financials()` → `FinancialForecast`.
+  3. `agents.chief_strategist.synthesize_thesis()` → `InvestmentThesis`.
 
-### Computer Vision Orchestrator
+  Returns `OrchestrationResult(insights, forecast, thesis)`; report rendering is the caller's job (see `main.py` → `core.reports.generator.write_report`).
 
-* `run_cv_tagging(photo_paths: list[str|Path], *, use_ai: bool | None = None) -> dict`
-  Wrapper over `tools/cv_tagging.tag_images()` with built-in retry, logging, and optional provider selection.
-  Used when `AIREAL_PHOTO_AGENT=0` to bypass agent layer.
+### CV Tagging Orchestrator
 
-### CrewAI Orchestrator (V2)
+* `CvTaggingOrchestrator` — the **single door** for photo tagging:
 
-* `run_crewai_orchestration(inputs: AppInputs, *, model: str = "gpt-5") -> dict`
-  Optional LLM-assisted orchestration pipeline.
+  * `analyze_paths(photo_paths)` / `analyze_folder(folder, recursive=True)` → per-image records + rollups (amenities, condition tags, defects, warnings).
+  * Combines deterministic generic labels (`tag_images`) with closed-set detections (`tag_amenities_and_defects`), promoting filename-derived materials to amenity surfaces.
+  * Reads `AIREAL_USE_VISION` at import time: `1` selects the `vision` provider path, else `local`. Providers are deterministic stubs unless an ONNX model is registered.
 
-  * Activated when `AIREAL_LLM_MODE=1`.
-  * Uses `CREWAI_MODEL` for reasoning (default: `gpt-5`).
-  * Integrates `crewai_components.py` agents for planning and validation.
+### CrewAI Orchestrator (seam)
 
-## Usage Examples
+* `crewai_runner.run_orchestration(inputs, listing_txt_path=None, photos_folder=None, *, horizon_years=10) -> OrchestrationResult`
 
-### 1) Deterministic run
-
-```python
-from src.orchestrators.crew import run_orchestration
-from src.schemas.models import FinancialInputs
-
-inputs = FinancialInputs.from_json_path("./examples/sample_inputs.json")
-result = run_orchestration(inputs, debug=True)
-print(result["thesis"]["summary"])
-```
-
-### 2) CV tagging only
-
-```python
-from src.orchestrators.cv_tagging_orchestrator import run_cv_tagging
-
-out = run_cv_tagging(["photo1.jpg", "photo2.jpg"], use_ai=False)
-print(out)
-```
-
-### 3) CrewAI orchestration (LLM-enabled)
-
-```python
-from src.orchestrators.crewai_runner import run_crewai_orchestration
-from src.schemas.models import AppInputs
-
-inputs = AppInputs.from_json_path("./examples/app_inputs.json")
-result = run_crewai_orchestration(inputs)
-```
+  * Selected via `main.py --engine crewai` (or `AIREAL_ENGINE=crewai` through the inputs loader).
+  * **Fail-fast validation**: requires a provider key (`OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `OPENROUTER_API_KEY`) and an importable `crewai` package.
+  * **Parity shell today**: constructs Agent/Task shells but delegates the actual work to the same deterministic functions — `crew.kickoff()` is intentionally not called yet. Output is byte-identical to the deterministic engine.
 
 ## Design Notes / Invariants
 
-* **V1 = Deterministic Path:** no network calls beyond optional CV provider.
-* **V2 = CrewAI Path:** enabled via `AIREAL_LLM_MODE=1`; uses structured `AppInputs`.
-* **Logging:** controlled by `AIREAL_DEBUG` flag; verbose if enabled.
-* **Model Selection:** `CREWAI_MODEL` defines LLM backbone; defaults to `gpt-5`.
-* **Graceful Fallbacks:**
+* **Deterministic path is the default** and the only path that produces results today; the CrewAI engine is a validated seam with math parity.
+* **Environment flags (functional):**
 
-  * If `AIREAL_USE_VISION=0`, vision step skipped.
-  * If `AIREAL_PHOTO_AGENT=0`, uses `cv_tagging_orchestrator` directly.
-  * Missing media or parsing errors log warnings but continue.
-* **Output Consistency:** ensures all orchestrations return dictionary objects compatible with `reports/generator.py`.
-
-## Dependencies / Optional Providers
-
-* Core logic: [`../core/README.md`](../core/README.md)
-* Agents: [`../agents/README.md`](../agents/README.md)
-* Tools (vision, ingest): [`../tools/README.md`](../tools/README.md)
-* Reports (output): [`../reports/README.md`](../reports/README.md)
-* Market (V2 optional): [`../market/README.md`](../market/README.md)
-* Schemas: [`../schemas/README.md`](../schemas/README.md)
-
-Supported environment variables:
-
-* `AIREAL_LLM_MODE`
-* `AIREAL_DEBUG`
-* `CREWAI_MODEL`
-* `AIREAL_USE_VISION`
-* `AIREAL_PHOTO_AGENT`
+  * `AIREAL_USE_VISION` — CV provider selection (read in `cv_tagging_orchestrator.py`).
+  * `AIREAL_LLM_MODE`, `AIREAL_DEBUG` — read by `agents/crewai_components.py`.
+  * `AIREAL_OUT`, `AIREAL_HORIZON`, `AIREAL_LISTING`, `AIREAL_PHOTOS`, `AIREAL_ENGINE` — run-option overrides applied by `src/inputs/inputs.py`.
+* **Graceful fallbacks:** missing media or parsing errors log/degrade but never crash the pipeline.
+* **Output consistency:** both engines return `OrchestrationResult` consumable by `core.reports.generator`.
 
 ## Test Strategy
 
-* Unit & Integration tests:
-
-  * `tests/integration/test_orchestrator_crew.py` — deterministic pipeline.
-  * `tests/integration/test_orchestrator_cv_tagging.py` — CV flow.
-  * `tests/integration/test_orchestrator_crewai_runner.py` — LLM seam tests (mocked API).
+* `tests/integration/test_orchestrator_deterministic.py`, `test_orchestrator.py` — deterministic pipeline.
+* `tests/integration/test_orchestrator_crewai.py` — CrewAI seam (env validation, parity; mocked).
+* `tests/orchestrators/test_cv_tagging_orchestrator_basic.py` — path normalization & delegation.
 * Run:
 
   ```bash
-  pytest -q tests/integration/test_orchestrator_*.py
+  pytest -q tests/integration tests/orchestrators
   ```
 
 ## Cross-links
 
-* Back to [Main README](../README.md)
+* Back to [Main README](../../README.md)
 * Types: [`../schemas/README.md`](../schemas/README.md)
 * Agents: [`../agents/README.md`](../agents/README.md)
-* Core Logic: [`../core/README.md`](../core/README.md)
-* Tools: [`../tools/README.md`](../tools/README.md)
-* Reports: [`../reports/README.md`](../reports/README.md)
+* Core logic: [`../core/README.md`](../core/README.md)
+* CLI entry points: [`../cli/README.md`](../cli/README.md)
+* Reports: [`../core/reports/README.md`](../core/reports/README.md)
 * Market (future integration): [`../market/README.md`](../market/README.md)
 
-## Change Log Notes (scoped)
+---
 
-* V1 orchestrator finalized under `orchestrators/crew.py`.
-* Path header corrected from `src/orchestrator/crew.py` to `src/orchestrators/crew.py`.
-* Added `run_crewai_orchestration` as LLM seam for V2 experimentation.
-* CV orchestrator standardized for batch-first tagging and retries.
+_Last reconciled: 2026-07-23 against main @ e4716df._

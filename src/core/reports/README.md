@@ -2,98 +2,77 @@
 
 ## Purpose / Responsibilities
 
-* Generate **human-readable investment reports** summarizing forecasts, insights, and strategies.
-* Acts as the final presentation layer in the deterministic pipeline.
-* Converts Pydantic model data (`FinancialForecast`, `InvestmentThesis`) into Markdown or structured text artifacts.
+* Generate **human-readable investment reports** summarizing forecasts, listing insights, media insights, and the investment thesis.
+* Final presentation layer of the deterministic pipeline; also powers the `deal-report` CLI (`src/cli/report_cli.py`).
+* Converts Pydantic models (`FinancialForecast`, `ListingInsights`, `InvestmentThesis`, `MediaInsights`, `PhotoInsights`) into Markdown and structured report models.
 
 ## Public APIs / Contracts
 
-* **Imports:**
+* **Imports (verified):**
 
   ```python
-  from src.core.reports.generator import generate_report, _fmt_currency, _fmt_pct
+  from src.core.reports.generator import generate_report, write_report
+  from src.core.reports.photo_report import build_media_report
+  from src.core.reports.report_models import MediaReport, MediaItemSummary, MediaCoverage, ParkingSummary
   ```
 
 ### Report Generator
 
-* `generate_report(forecast: FinancialForecast, thesis: InvestmentThesis, *, output_path: str | Path | None = None) -> str`
+* `generate_report(insights: ListingInsights | None, forecast: FinancialForecast, thesis: InvestmentThesis | None = None, title_override: str | None = None, *, media_insights: MediaInsights | None = None) -> str`
 
-  * Builds a Markdown-formatted investment report.
-  * Optionally writes to `output_path` (defaults to in-memory string).
-  * Sections:
+  Builds a Markdown investment report with sections:
 
-    1. **Header** — Property summary, assumptions, and scenario context.
-    2. **Financial Overview** — Purchase metrics, IRR, DSCR, cash-on-cash.
-    3. **Operational Forecast** — Yearly breakdown with cash flows and equity growth.
-    4. **Investment Thesis** — Summary from strategist agent.
-    5. **Appendices** — Model configuration and stress parameters.
+  1. **Header** — property summary (address, amenities, notes).
+  2. **Purchase Metrics** — cap rate, CoC, DSCR, debt service, acquisition cash, spread.
+  3. **Forecasting Methodology** — baseline, stress-test, and NOI-based formulas + refi rule.
+  4. **Media Overview** — counts, dimensions, duplicates, hero image (when `media_insights` provided).
+  5. **Investment Thesis** (when provided).
+  6. **Pro Forma (Summary)** — annual GSI/GOI/OPEX/NOI/DS/CF/DSCR/balance table.
+  7. **Valuation tables** — Baseline, Stress-Test, and NOI-Based.
+  8. **OPEX Detail (Year 1)**, **Refinance Event**, **Returns Summary**, **Warnings**.
 
-### Formatting Helpers
+* `write_report(path, insights, forecast, thesis=None, *, media_insights=None) -> None`
+  Convenience wrapper; creates parent directories and writes the Markdown file.
 
-* `_fmt_currency(value: float) -> str` — Formats numbers as currency with `$` and commas.
-* `_fmt_pct(value: float) -> str` — Formats rates as percentages with two decimal precision.
+### Media Report
 
-## Usage Examples
+* `build_media_report(photos: PhotoInsights, listing: ListingNormalized | None = None) -> MediaReport`
+  Deterministic mapping of photo insights (room counts, amenities, defects, quality flags, parking) into a structured `MediaReport`.
 
-### 1) Generate Markdown report
+### Environment overrides (read at render time)
 
-```python
-from src.core.reports.generator import generate_report
-from src.schemas.models import FinancialForecast, InvestmentThesis
-
-report_md = generate_report(forecast=my_forecast, thesis=my_thesis, output_path="./artifacts/report.md")
-print(report_md[:300])  # preview first lines
-```
-
-### 2) Custom formatting
-
-```python
-from src.core.reports.generator import _fmt_currency, _fmt_pct
-
-print(_fmt_currency(12345.678))  # "$12,345.68"
-print(_fmt_pct(0.0567))          # "5.67%"
-```
+| Flag | Effect |
+| --- | --- |
+| `AIREAL_CAP_DRIFT_BPS` | Annual cap-rate drift (basis points) used in valuation tables. |
+| `AIREAL_APPRECIATION_PCT` | Baseline appreciation rate override. |
+| `AIREAL_STRESS_ADJ` | Stress adjustment applied in the stress-test valuation table. |
 
 ## Design Notes / Invariants
 
-* **Deterministic layout:** section order and headings fixed for consistency.
-* **Stable rounding:** monetary values rounded to two decimals; rates to two percentage decimals.
-* **Pure function:** `generate_report()` has no side effects except optional file write.
-* **Portable:** output is plain Markdown; rendering handled externally (e.g., GitHub, PDF exporter).
-* **Scenario context:** ready for integration with Market hypotheses in future releases.
-
-## Dependencies / Optional Providers
-
-* Depends on:
-
-  * [`../schemas/README.md`](../schemas/README.md) for `FinancialForecast` and `InvestmentThesis` types.
-  * [`../agents/README.md`](../agents/README.md) (upstream producers of forecast and thesis).
-  * [`../core/README.md`](../core/README.md) (forecast source logic).
-* No external dependencies beyond standard library and Pydantic models.
+* **Deterministic layout:** section order and headings are fixed for consistency; empty sections are omitted.
+* **Stable rounding:** monetary values to two decimals; rates to two percentage decimals.
+* **Pure function:** `generate_report()` has no side effects; `write_report()` only writes the target file.
+* **Portable:** output is plain Markdown; PDF/HTML rendering is external (see also `core/intelligence/report_builder.py` for the deal-intelligence Markdown/HTML path).
 
 ## Test Strategy
 
-* Unit tests:
-
-  * `tests/unit/test_reports_generator.py` — formatting, currency/percent helpers.
-  * `tests/unit/test_reports_with_thesis.py` — integration of forecast + thesis content.
+* `tests/core/reports/` — generator sections, formatting, media overview.
+* `tests/integration/test_report_cli_*.py` — CLI rendering paths (minimal, media, errors).
 * Run:
 
   ```bash
-  pytest -q tests/unit/test_reports_*.py
+  pytest -q tests/core/reports tests/integration/test_report_cli_minimal.py
   ```
 
 ## Cross-links
 
-* Back to [Main README](../README.md)
-* Schemas: [`../schemas/README.md`](../schemas/README.md)
-* Agents: [`../agents/README.md`](../agents/README.md)
-* Orchestrators: [`../orchestrators/README.md`](../orchestrators/README.md)
-* Core: [`../core/README.md`](../core/README.md)
-* Market (future scenario reporting): [`../market/README.md`](../market/README.md)
+* Back to [Main README](../../../README.md)
+* Schemas: [`../../schemas/README.md`](../../schemas/README.md)
+* Core: [`../README.md`](../README.md)
+* CLI: [`../../cli/README.md`](../../cli/README.md)
+* Agents: [`../../agents/README.md`](../../agents/README.md)
+* Orchestrators: [`../../orchestrators/README.md`](../../orchestrators/README.md)
 
-## Change Log Notes (scoped)
+---
 
-* Markdown report generator finalized for V1 deterministic pipeline.
-* Helper formatting functions `_fmt_currency` and `_fmt_pct` added.
-* Prepared structure for integration with Market scenarios and stress-test summaries.
+_Last reconciled: 2026-07-23 against main @ e4716df._

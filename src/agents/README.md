@@ -2,131 +2,96 @@
 
 ## Purpose / Responsibilities
 
-* High-level wrappers orchestrating specialized modules from `core/` and `tools/`.
-* Each agent performs a distinct role in the deterministic pipeline or LLM-enabled orchestration.
-* Designed to be composable and independently testable.
+* High-level wrappers orchestrating specialized modules from `core/`.
+* Each agent performs a distinct role in the deterministic pipeline or the CrewAI-seamed orchestration.
+* Designed to be composable, forgiving (missing assets never crash the pipeline), and independently testable.
 
 ## Public APIs / Contracts
 
-* **Imports:**
+* **Imports (verified):**
 
   ```python
   from src.agents.listing_analyst import analyze_listing
   from src.agents.financial_forecaster import forecast_financials
   from src.agents.chief_strategist import synthesize_thesis
-  from src.agents.photo_tagger import tag_listing_photos
-  from src.agents.listing_ingest import ingest_listing_agent
+  from src.agents.photo_tagger import PhotoTaggerAgent
+  from src.agents.listing_ingest import ListingIngestAgent
+  from src.agents.crewai_components import (
+      ListingAnalystAgent, FinancialForecasterAgent, ChiefStrategistAgent,
+  )
   ```
 
 ### Listing Analyst
 
-* `analyze_listing(raw_listing: dict | str, *, use_ai: bool | None = None) -> dict`
+* `analyze_listing(listing_txt_path: str | None = None, photos_folder: str | None = None, *, fallback_text: str | None = None) -> ListingInsights`
 
-  * Normalizes textual and visual listing data.
-  * Calls `core.normalize` and `core.cv` to extract structure + visual tags.
-  * When `AIREAL_USE_VISION=1`, delegates photo tagging to `PhotoTaggerAgent`.
+  * Parses listing text (file path or raw string fallback) and aggregates photo condition tags/defects.
+  * Photo tagging routes through `CvTaggingOrchestrator` (the single door to deterministic/AI CV paths; AI enabled via `AIREAL_USE_VISION=1`).
+  * Never raises for missing/broken assets — fields default to empty.
 
 ### Financial Forecaster
 
-* `forecast_financials(inputs: FinancialInputs) -> FinancialForecast`
+* `forecast_financials(inputs: FinancialInputs, insights: ListingInsights | None = None, horizon_years: int = 10) -> FinancialForecast`
 
   * Deterministic wrapper around `core.finance.engine.run_financial_model()`.
-  * Enforces data validation and guarantees consistent schema for downstream strategy agents.
+  * Normalizes/clamps inputs and guarantees a consistent schema for downstream strategy agents.
 
 ### Chief Strategist
 
-* `synthesize_thesis(forecast: FinancialForecast, insights: ListingInsights) -> InvestmentThesis`
+* `synthesize_thesis(forecast: FinancialForecast) -> InvestmentThesis`
 
-  * Generates qualitative reasoning based on forecasted metrics and listing insights.
-  * Rule-based in V1; may incorporate LLM reasoning in V2 (when `AIREAL_LLM_MODE=1`).
+  * Rule-based verdict (DSCR, cash-flow, spread guardrails) with rationale and improvement levers.
+  * LLM reasoning remains a seam (see `crewai_components.py`), not active in the default path.
 
 ### Photo Tagger
 
-* `tag_listing_photos(photo_paths: list[str|Path], *, use_ai: bool | None = None) -> dict`
-
-  * Delegates to `src.core.cv.runner.tag_images()`.
-  * Acts as a policy layer controlled by `AIREAL_PHOTO_AGENT`.
+* `PhotoTaggerAgent` — thin policy wrapper that delegates batch photo tagging to the CV stack (`src.core.cv.runner`).
 
 ### Listing Ingest Agent
 
-* `ingest_listing_agent(path_or_url: str) -> dict`
+* `ListingIngestAgent` — wraps `core.ingest.listing_ingest.ingest_listing()` and adapts the result (address-first insights) for orchestrators.
 
-  * Wraps `tools.listing_ingest.ingest_listing()` and adds logging/debug handling.
-  * Used by orchestrators as the first step before analysis.
+### CrewAI components
 
-## Usage Examples
-
-### 1) Listing analysis
-
-```python
-from src.agents.listing_analyst import analyze_listing
-
-data = analyze_listing("https://example.com/listing.html", use_ai=True)
-print(data["insights"])  # normalized listing + photo tags
-```
-
-### 2) Forecast and thesis
-
-```python
-from src.agents.financial_forecaster import forecast_financials
-from src.agents.chief_strategist import synthesize_thesis
-from src.schemas.models import FinancialInputs
-
-inputs = FinancialInputs.from_json_path("./examples/sample_inputs.json")
-forecast = forecast_financials(inputs)
-thesis = synthesize_thesis(forecast, insights={})
-print(thesis.summary())
-```
+* `ListingAnalystAgent` / `FinancialForecasterAgent` / `ChiefStrategistAgent` — Agent/Task shells used by `orchestrators/crewai_runner.py`. Their `run()` methods currently delegate to the same deterministic functions above for math parity; real `crew.kickoff()` execution is a future seam. Honors `AIREAL_LLM_MODE` and `AIREAL_DEBUG`.
 
 ## Design Notes / Invariants
 
 * **Deterministic-first:** all agents default to reproducible behavior.
-* **Feature Flags:**
+* **Feature flags (functional today):**
 
-  * `AIREAL_USE_VISION`: enables AI photo tagging.
-  * `AIREAL_PHOTO_AGENT`: toggles between policy layer and direct call.
-  * `AIREAL_LLM_MODE`: activates CrewAI reasoning for strategist agent.
+  * `AIREAL_USE_VISION` — enables the AI CV path inside `CvTaggingOrchestrator` (providers are deterministic stubs unless ONNX is registered).
+  * `AIREAL_LLM_MODE` — read by `crewai_components.py` for the CrewAI seam.
+  * `AIREAL_DEBUG` — verbose logging in CrewAI components.
 * **Composition:** agents are composable; orchestrators simply call them in sequence.
-* **Inputs/Outputs:** each agent consumes and returns typed Pydantic models or dicts compatible with `schemas.models`.
+* **Inputs/Outputs:** each agent consumes and returns typed Pydantic models from `schemas.models`.
 * **Isolation:** no agent persists state; all results are returned upward to orchestrators.
-
-## Dependencies / Optional Providers
-
-* Depends on:
-
-  * [`../core/README.md`](../core/README.md) for finance, CV, normalization, insights, and strategy logic.
-  * [`../tools/README.md`](../tools/README.md) for ingestion and vision providers.
-  * [`../schemas/README.md`](../schemas/README.md) for model definitions.
-* Optional LLM layer via `AIREAL_LLM_MODE=1` (CrewAI orchestrator).
 
 ## Test Strategy
 
-* Unit tests:
+* Integration tests:
 
-  * `tests/unit/test_agent_listing_analyst.py` — normalization + photo merge.
-  * `tests/unit/test_agent_financial_forecaster.py` — model output and determinism.
-  * `tests/unit/test_agent_chief_strategist.py` — rule-based logic and expected thesis outputs.
-  * `tests/unit/test_agent_photo_tagger.py` — deterministic vs AI tagging.
-  * `tests/unit/test_agent_listing_ingest.py` — ingestion flow.
+  * `tests/integration/test_listing_analyst.py` — text + photo aggregation.
+  * `tests/integration/test_chief_strategist.py` — rule-based verdicts.
+  * `tests/integration/test_photo_tagger_agent*.py` — deterministic tagging paths.
+  * `tests/integration/test_listing_ingest.py` — ingestion agent flow.
+* Unit tests: `tests/unit/test_financial_forecaster*.py`, `tests/unit/test_strategist*.py`.
 * Run:
 
   ```bash
-  pytest -q tests/unit/test_agent_*.py
+  pytest -q tests/integration tests/unit/test_financial_forecaster.py
   ```
 
 ## Cross-links
 
-* Back to [Main README](../README.md)
+* Back to [Main README](../../README.md)
 * Types: [`../schemas/README.md`](../schemas/README.md)
-* Core Logic: [`../core/README.md`](../core/README.md)
-* Tools: [`../tools/README.md`](../tools/README.md)
+* Core logic: [`../core/README.md`](../core/README.md)
+* CLI entry points: [`../cli/README.md`](../cli/README.md)
 * Orchestrators: [`../orchestrators/README.md`](../orchestrators/README.md)
-* Reports: [`../reports/README.md`](../reports/README.md)
+* Reports: [`../core/reports/README.md`](../core/reports/README.md)
 * Market (future scenario inputs): [`../market/README.md`](../market/README.md)
 
-## Change Log Notes (scoped)
+---
 
-* Introduced PhotoTaggerAgent policy layer (`AIREAL_PHOTO_AGENT`).
-* Chief Strategist agent extended for LLM integration (`AIREAL_LLM_MODE`).
-* Listing Analyst unified deterministic + AI insights path.
-* Financial Forecaster wrapped core engine for stable API.
+_Last reconciled: 2026-07-23 against main @ e4716df._
