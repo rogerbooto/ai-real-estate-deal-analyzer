@@ -358,10 +358,12 @@ class ScenarioAnalysis(BaseModel):
 `str_viability` (the axis with no engine target, §1) is preserved inside
 `ScenarioOutcome.hypothesis.str_viability` for narration; it never touches the engine.
 
-`OrchestrationResult` (`src/orchestrators/crew.py:35-40`) gains an **additive**
-`scenarios: ScenarioAnalysis | None = None` (dataclass default None). `write_report` gains an
-optional `scenarios: ScenarioAnalysis | None = None` trailing param (default None → today's
-signature/behavior unchanged). Both additive, both default-off.
+`write_report`/`generate_report` gain an optional keyword-only
+`scenarios: ScenarioAnalysis | None = None` param (default None → today's signature/behavior
+unchanged), default-off. (An `OrchestrationResult.scenarios` field was proposed here but **dropped at
+Gate 2 per YAGNI** — `main.py` computes the `ScenarioAnalysis` and passes it straight to
+`write_report`, so the orchestrator never carries it; a future crewai path can add it when it has a
+real producer/consumer.)
 
 **Proposed new modules (Wave 2, per charter):** `src/market/adapter.py` (delta→inputs copy) and
 `src/market/scenario_runner.py` (snapshot → generate → reject → per-scenario engine run → aggregate).

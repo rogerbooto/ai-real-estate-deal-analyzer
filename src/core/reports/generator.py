@@ -655,7 +655,7 @@ def _render_market_scenarios(analysis: ScenarioAnalysis) -> str:
     if analysis.n_accepted == 0:
         lines.append("**No admissible scenarios under the current guardrails.**")
         lines.append("")
-        lines.append(f"None of the {analysis.n_generated} generated hypotheses passed the rejector, so there are no " "prior-weighted")
+        lines.append(f"None of the {analysis.n_generated} generated hypotheses passed the rejector, so there are no prior-weighted")
         lines.append("outcomes to report. No numbers are fabricated.")
         if analysis.notes:
             lines.append("")

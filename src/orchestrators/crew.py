@@ -33,7 +33,6 @@ from src.schemas.models import (
     FinancialInputs,
     InvestmentThesis,
     ListingInsights,
-    ScenarioAnalysis,
 )
 
 
@@ -44,9 +43,6 @@ class OrchestrationResult:
     insights: ListingInsights
     forecast: FinancialForecast
     thesis: InvestmentThesis
-    # Additive, default None. The opt-in Market Scenarios overlay (Mission 1); populated only
-    # when a caller runs the scenario engine. Off => None => byte-identical report output.
-    scenarios: ScenarioAnalysis | None = None
 
 
 def run_orchestration(
