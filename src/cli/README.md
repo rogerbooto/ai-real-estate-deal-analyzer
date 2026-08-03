@@ -45,10 +45,13 @@ python -m src.cli.report_cli \
   --insights data/examples/insights.json \
   --thesis data/examples/thesis.json \
   --media-insights data/examples/media.json \
-  --media-report data/examples/media_report.json \
-  --provenance data/examples/provenance.json \
   --out out/investment_report.md
 ```
+
+The example above uses only the JSON files committed under `data/examples/`, so it runs as
+written. `--media-report` and `--provenance` (below) take artifacts produced by an actual run —
+there are no committed examples of them, because a checked-in `provenance.json` would describe a
+run that never happened.
 
 * `--forecast` (required): `FinancialForecast` JSON.
 * `--insights`, `--thesis`, `--media-insights` (optional): `ListingInsights`, `InvestmentThesis`, `MediaInsights` JSON.

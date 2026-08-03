@@ -192,10 +192,21 @@ Most are T5/OPD-4 work that **Wave 3 must now cover**; they are additions to the
 2. `MarketSnapshot.vacancy_rate/cap_rate/rent_growth/expense_growth/interest_rate` — only `.region`
    ever prints; extends the charter's `.notes` finding to the whole snapshot.
 3. `ScenarioAnalysis.prior_sum` — computed by `scenario_runner.py`, never referenced in `generator.py`.
-4. **`ScenarioAnalysis.notes` whenever `n_accepted > 0` — a live silent drop.**
-   `_render_market_scenarios` prints `analysis.notes` only in the zero-accepted branch, but
-   `scenario_runner.py` sets `notes="Rejector: in=X, kept=Y"` unconditionally. Any run that admits a
-   scenario loses that note. This is a *current* defect, not a rendering nicety.
+4. **`ScenarioAnalysis.notes` whenever `n_accepted > 0` — dropped, but REDUNDANT, not a lost fact.**
+   `_render_market_scenarios` prints `analysis.notes` only in the zero-accepted branch, while
+   `scenario_runner.py` sets it unconditionally.
+   **CORRECTION OF RECORD (guardian M9, 2026-08-03) — my earlier entry here called this "a *current*
+   defect, not a rendering nicety". That was an overstatement and is withdrawn.** The guardian traced
+   the value end-to-end and I verified it: the note is
+   `f"Rejector: in={len(hset.items)}, kept={len(ordered)}"` (`rejector.py:173`), and the header line
+   already renders `f"{analysis.n_accepted} of {analysis.n_generated} scenarios admitted under
+   guardrails"` (`generator.py:905-907`) where `n_generated = len(generated.items)` **is** `in=` and
+   `n_accepted = len(outcomes_tuple)` **is** `kept=` (`scenario_runner.py:147,196`). The dropped note
+   carries **zero information the reader does not already have**, in a less legible form. It is a
+   redundant field. Deferring it to Wave 3 is correct.
+   *(This is the second defect I overstated — the first was the env-vector "even with `--config"` claim
+   at Gate 0, also caught by the guardian. Both are now corrected in place. Noting the pattern so the
+   remaining waves are read with appropriate scepticism of my severity language.)*
 5. `MediaInsights.image_quality` — never referenced in `_render_media_overview`.
 6. `MediaCoverage.version` — `_render_photo_coverage` prints `provider` but not `version`, while the
    sibling Media Overview section prints both.
@@ -247,9 +258,9 @@ covering trigger/label reconciliation, since the same shape may affect the ameni
 ## Wave 3 — Disposition (WIRE-FIRST; OPDs resolved)
 | ID | Task | Finding | Agent → tier | Status |
 | --- | --- | --- | --- | --- |
-| 3.1a | **OPD-1 sequence (`strategist.py`):** (1) audit its `dscr<1.20`/`coc<0.03` thresholds; (2) port any Roger-preferred values into `chief_strategist`'s tunable constants; (3) review the threshold change (code-reviewer + finance-interp), regenerate any verdict goldens; (4) **only then** delete `strategist.py` + its tests. Delete must not precede the review. | T4 | python-eng + finance-interp + code-reviewer → capable | TODO |
+| 3.1a | **OPD-1 sequence (`strategist.py`):** (1) audit its `dscr<1.20`/`coc<0.03` thresholds; (2) port any Roger-preferred values into `chief_strategist`'s tunable constants; (3) review the threshold change (code-reviewer + finance-interp), regenerate any verdict goldens; (4) **only then** delete `strategist.py` + its tests. Delete must not precede the review. **PLUS — guardian M4/M7, a HARD exit criterion, not advice: reconcile `chief_strategist.MIN_SPREAD` (hardcoded `0.015`, `:38`) against the engine's use of the *input* `mkt.cap_rate_spread_target` (`engine.py:301`).** Today a deal can print "cap-rate spread below target" in Warnings while its own thesis says "meets target", verdict BUY, levers empty so the warning is never explained. Same defect class as F1. Also consider the finance-interpreter's materiality recommendation: breach ≥ 25-50 bp **and** `DSCR < 1.00`, since the current 2-input shortcut is near-tautological at every shipped setting. | T4 | python-eng + finance-interp + code-reviewer → capable | TODO |
 | 3.1b | **OPD-3 wire-first:** wire each dead module into a live path — `narrative_builder`+`report_builder`→feed the report; `scenarios.py`→advisor what-ifs (CHANGELOG:17 claims they ship); `regional_income`→public entry point per `market/README`; `utils/markdown`→replace inline `advisor_cli.py:391-411`; `utils/serialize`→serialization sites; `photo_tagger`→ingest if a real consumer exists. **Delete only the un-wireable:** `orchestrator.py` (0-byte), `agents/listing_ingest.py` (true duplicate, no consumer), `advisor/__init__.py` (bypassed facade). Each wired item ships a RED-on-regression test. | T4 | python-eng + code-reviewer → std | TODO |
-| 3.2 | **OPD-4 populate:** render every computed-then-discarded field into the report — `RefinancePlan.market_cap_rate` (implement fallback or drop the false docstring), `YearBreakdown.{ltv_pct,available_equity,est_value}` (render stored values instead of recompute at `generator.py:592-596`), `MarketSnapshot.notes`, and the rest. Additive-only. Each field ships a RED-on-regression test. | T5 | python-eng + finance-interp → std | TODO |
+| 3.2 | **OPD-4 populate:** render every computed-then-discarded field into the report. **(a) HARD EXIT CRITERION — guardian M3/M8: the cap-rate FLOOR VALUE must reach the report.** Today a breach prints "Purchase cap rate breaches the configured floor." naming neither the cap nor the floor, while every sibling line names both. House style agreed with founder-proxy: *"Purchase cap rate is 6.35% (≥ the 5.00% floor you set)."* Note this is **not a template edit** — neither `generate_report` (`generator.py:916-926`) nor `synthesize_thesis` receives `FinancialInputs`, so it needs an **additive kwarg**. This also restores the positive claim dropped in `6fce278`. **(b)** charter T5 set: `RefinancePlan.market_cap_rate` (implement the fallback or drop the false docstring — **re-review F1's comparison if the fallback lands, since it changes what the floor is tested against**), `YearBreakdown.{ltv_pct,available_equity,est_value}` (render stored values instead of recomputing at `generator.py:592-596`), `MarketSnapshot.notes`. **(c)** the seven gaps the guard found (see the 1.5 record). **(d) guardian M11:** re-adjudicate — do not inherit — the three uncited `MediaReport.{report_version,ontology_version,provenance}` exclusions; a test author's uncited "not meant to render" must not become the product decision by default, least of all for a field named `provenance`. Additive-only. Each field ships a RED-on-regression test. | T5 | python-eng + finance-interp → std | TODO |
 
 ## Wave Validation
 | ID | Task | Agent → tier | Status |
@@ -371,7 +382,7 @@ value through (composes with OPD-4), (c) defer + unpin the test.
   states "Projected IRR (10y) is 0.00%" — reading as *break-even* when it is *undefined*. Pre-existing
   false precision, larger than the cap-rate wording. Recommend a distinct NOI ≤ 0 signal.
 
-### Newly-discovered defect #2 — logged to backlog, NOT fixed in Mission 2
+### Newly-discovered defect #2 — **MUST CLOSE IN THIS MISSION (guardian M4/M7)**, in row 3.1a
 **The engine and the strategist disagree about the spread threshold, and the report can contradict
 itself.** The engine warns using the *input* `mkt.cap_rate_spread_target` (`engine.py:302`) while
 `chief_strategist.MIN_SPREAD` is **hardcoded 0.015** (`:38`). Finance-interpreter reproduced: with
@@ -427,7 +438,38 @@ was previously a bare `except Exception:`), so `2dd36bc`'s "strict_dom behaviour
 is true. Not fixed here because it is outside the charter's validated finding set and the fix is a
 real behaviour change for `strict_dom` users (hard failure where they currently get a fallback), not
 a trivial correction. It is the same *class* as this mission's defects, so it belongs in a follow-on.
-- **Gate 1 (Wiring + guard):** _pending._
+- **Gate 1 (Wiring + guard):** **PASSED 2026-08-03** — code-reviewer **APPROVE**, guardian **NO VETO
+  (approve with modifications)**, QA pending at time of writing. Per the charter, Gate 1 does **not**
+  require Roger; he holds the mission gate.
+  - Both reviewers re-derived the invariants themselves rather than accepting the record: finance diff
+    still exactly F1's 5 lines, `src/schemas/` diff empty, demo report byte-identical against the Wave 0
+    tip, 356 passed / 82.68% / ruff + mypy clean. Both independently reproduced the guard's decisive
+    root-cause-2 case by injecting a new never-wired `ListingInsights` field (`parking_notes`,
+    `hoa_fee_monthly`) and confirming the report guard fails by name.
+  - **The `_EXCLUDED` table was audited entry-by-entry against the renderer by both reviewers and found
+    HONEST** — no exclusion laundering a live drop. `build_sentinel_model` **raises `TypeError`** on an
+    unhandled type rather than skipping, so there are no silent holes structurally.
+  - **F6 singled out as the best decision of the wave** — declining to construct `RunProvenance`
+    "honours the honesty trigger at the point where it would have been easiest to violate". Verified by
+    grep: `RunProvenance(` is constructed in exactly one place in all of `src/`, `main.py:302`.
+
+**Gate 1 HARD BLOCKERS — all closed 2026-08-03 before Wave 2 opened:**
+| # | Blocker | Status |
+| --- | --- | --- |
+| **M6** | `src/cli/README.md` documented a copy-pasteable example referencing `data/examples/media_report.json` and `provenance.json`, **neither of which exists** — a Wave 1 commit turned a working documented example into one that crashes with `FileNotFoundError`, in the mission whose thesis is that docs must not assert what isn't true. **This was an orchestrator verification miss:** I reviewed F6's README prose and never checked the paths resolved. | ✅ **FIXED** — example reduced to files that exist and re-run to exit 0; the two flags stay documented in the bullets with a note that no committed example exists *because a checked-in `provenance.json` would describe a run that never happened*. |
+| **M7** | M4 was decaying — defect #2's heading said "NOT fixed in Mission 2" while M4 binds it to close in-mission, and row 3.1a never mentioned `MIN_SPREAD`. | ✅ **FIXED** — heading corrected; `MIN_SPREAD` reconciliation written into row 3.1a as a hard exit criterion. |
+| **M8** | M3 lived in three prose records and **no executable row** — an executor working from row 3.2 would have missed a hard exit criterion. | ✅ **FIXED** — the floor value is now criterion (a) of row 3.2, with the additive-kwarg constraint and the agreed house style. |
+| **M9** | My own overstatement of `ScenarioAnalysis.notes`. | ✅ **CORRECTED** — see the 1.5 record; the note is redundant, not a lost fact. |
+
+**Process incident, 2026-08-03 — parked WIP nearly lost.** The Gate 1 code-reviewer ran `git stash`
+without first running `git stash list`, popping Mission 1's parked media-intelligence refactor WIP
+(unrelated to this mission). It re-stashed the content losslessly and **self-reported the near-miss**,
+which is the behaviour wanted. But the descriptive stash message was replaced by a generic
+auto-message reading `WIP on mission/2-wiring-gaps`, falsely implying it was Mission 2 work — and
+`ROADMAP_TRACKER.md §3` points at that stash. **Remediated:** content verified intact (both media
+files, matching magnitude), the descriptive message restored, and the commit **additionally tagged
+`parked/media-intelligence-refactor`** so it can never be lost to an errant stash command again.
+Future agents must not run bare `git stash` in this repo.
 - **Gate 2 (CLI + docs):** _pending._
 - **Gate 3 (Disposition):** _pending._ No blockers (OPD-1/3/4 resolved = wire-first; enforce the
   OPD-1 reconcile-before-delete sequence).
