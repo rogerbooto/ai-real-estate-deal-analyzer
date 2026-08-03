@@ -288,6 +288,33 @@ misleading exit 4 — "file or directory not found" — rather than the real exi
 the actual documented commands before acting.)*
 
 ## Wave 3 — Disposition (WIRE-FIRST; OPDs resolved)
+
+### OPD-1 pre-work — threshold audit, orchestrator, 2026-08-03 (step 1 of the binding sequence)
+`form_thesis` (`src/core/strategy/strategist.py`) confirmed dead: referenced **only** by
+`tests/unit/test_strategist.py`, zero production callers. But the audit turned up something that
+changes the disposition — **on one guardrail the dead code is MORE correct than the live one:**
+
+| Guardrail | LIVE `chief_strategist` | DEAD `strategist.py` | Engine warning (`engine.py:301`) |
+| --- | --- | --- | --- |
+| DSCR Y1 | `MIN_DSCR_Y1 = 1.20` | `dscr < 1.20` | — |
+| **Cap-rate spread** | **hardcoded `MIN_SPREAD = 0.015`** | **input `mkt.cap_rate_spread_target`** ✅ | **input `mkt.cap_rate_spread_target`** ✅ |
+| IRR 10y | `MIN_IRR_10YR = 0.12` | *(none)* | — |
+| **Year-1 CoC** | ***(none — `coc` is never consulted)*** | `coc < 0.03` | — |
+| Cash flow | Y1 ≥ 0 required | any year < 0 flagged | any year < 0 warns |
+
+**Two consequences for the OPD-1 sequence:**
+1. **This IS guardian M4.** The engine and `strategist.py` both honour the user's
+   `cap_rate_spread_target`; only the live `chief_strategist` hardcodes `0.015`. That is precisely
+   why a report can print "cap-rate spread below target" in Warnings while its own thesis says
+   "meets target". **Deleting `strategist.py` without porting this would discard the correct
+   behaviour** — which is exactly what the reconcile-before-delete sequence exists to prevent.
+2. **`PurchaseMetrics.coc` is computed and never consulted by the verdict engine at all.** The dead
+   code has a Year-1 CoC floor; the live one has none. That is both an OPD-1 question (port it?) and
+   a T5-adjacent finding (a computed metric no live decision reads).
+
+**Both are verdict-moving changes**, so per the Gate 0 lesson they go to Roger with generated
+before/after artifacts and reproduce commands — not a description. Sequence still binding: audit →
+port → **review** → only then delete.
 | ID | Task | Finding | Agent → tier | Status |
 | --- | --- | --- | --- | --- |
 | 3.1a | **OPD-1 sequence (`strategist.py`):** (1) audit its `dscr<1.20`/`coc<0.03` thresholds; (2) port any Roger-preferred values into `chief_strategist`'s tunable constants; (3) review the threshold change (code-reviewer + finance-interp), regenerate any verdict goldens; (4) **only then** delete `strategist.py` + its tests. Delete must not precede the review. **PLUS — guardian M4/M7, a HARD exit criterion, not advice: reconcile `chief_strategist.MIN_SPREAD` (hardcoded `0.015`, `:38`) against the engine's use of the *input* `mkt.cap_rate_spread_target` (`engine.py:301`).** Today a deal can print "cap-rate spread below target" in Warnings while its own thesis says "meets target", verdict BUY, levers empty so the warning is never explained. Same defect class as F1. Also consider the finance-interpreter's materiality recommendation: breach ≥ 25-50 bp **and** `DSCR < 1.00`, since the current 2-input shortcut is near-tautological at every shipped setting. | T4 | python-eng + finance-interp + code-reviewer → capable | TODO |
@@ -502,7 +529,56 @@ auto-message reading `WIP on mission/2-wiring-gaps`, falsely implying it was Mis
 files, matching magnitude), the descriptive message restored, and the commit **additionally tagged
 `parked/media-intelligence-refactor`** so it can never be lost to an errant stash command again.
 Future agents must not run bare `git stash` in this repo.
-- **Gate 2 (CLI + docs):** _pending._
+- **Gate 2 (CLI + docs):** 🔴 **VETOED 2026-08-03 by principles-guardian.** code-reviewer APPROVE (no
+  blocking). Guardian vetoed on four honesty defects, three authored by Wave 2 itself.
+  **All four independently reproduced by the orchestrator before escalation.**
+
+**Gate 2 binding modifications — recorded as a TABLE, not prose.** *(The guardian noted M10 decayed
+because it lived only in prose — the same M8 pattern. Not repeating it.)*
+
+| # | Blocker | Status |
+| --- | --- | --- |
+| **V1** | **`--ai`'s new help text is FALSE — a Wave 2 regression I approved.** It claims "output does not change from the default path yet". **Reproduced: `use_ai=1` changes 7 fields** — `amenities, version, image_detections, amenity_counts, parking, detections_total, provenance`. Parking flips from `{'parking_type': 'none'}` to **`{'parking_type': 'street', 'parking_spots': 1}`**, a property claim the `_provider_vision_stub` infers from `aspect == "landscape" and lum >= 0.50` (`amenities_defects.py:296-298`) and stamps `version="ai"`. Wave 2 took a flag with *no* help text and gave it help text asserting an inertness it does not have. | **OPEN** |
+| **V2** | The M10 caveats over-claim: "cannot appear on **any** real pipeline run today" is false — see V3's path. | **OPEN** |
+| **V3** | 🔴 **ESCALATED TO ROGER — live breach of the deterministic-core invariant.** See below. | **ROGER** |
+| **V4** | `src/schemas/README.md:47` is the **only uncaveated** "Adjustments Applied" mention **and is false**: it claims `notes` annotates IO/refi years. Guardian ran a forecast with `interest_only_years=3` and a realized year-5 refi → notes empty in all 10 years. `engine.py:212-215` writes notes **only** from `insight_notes`, **only** at `y == 1`. Claim was copied from `models.py:218`'s stale description — T6 must reconcile docs against *code*, not other docs. | **OPEN** |
+
+**Hard conditions C1-C6:** C1 dangling "charter finding M10" pointer (no such charter text); C2 the cited
+mechanism is partial (the live *text* path uses free-string `_CONDITION_KEYWORDS`, `listing_parser.py:37-45`,
+not only the closed enum); C3 the `amenities_defects.py:166` docstring fix assigned to 2.10 was not done;
+C4 four READMEs edited this wave still carry stale `_Last reconciled` stamps; C5 **the tracker itself
+understates what shipped** (Wave 2 row says `10 | 0 | TODO`; actual 391 tests / 83.09%) — in a mission
+about documents telling the truth, its own record must; C6 M5's "Gate 2 or follow-on" fork is now due.
+
+**Guardian APPROVED, for the record:** the CHANGELOG dated note (zero deletions, scoping independently
+verified accurate), `src/market/README.md` (does not pre-empt OPD-3), the eight `--no-cov` fixes
+(pre-fix failure reproduced: `tests/core` → exit 1, 60.39%), the `--pretty`/`--save-screenshot` split,
+both scope expansions as **discipline not drift** — and it confirmed the `address_struct` fix was
+*inside* the charter all along (charter `:94` names the `:107/:118` fallback dicts; my CLI-only framing
+of F20 was what was wrong). **M3, M4, M11 confirmed still carried in executable rows and not decayed.**
+
+**Scope limit of the reachability net, now on record:** it proves a flag is *read*, not that it *does
+what its help says*. `--ai` passes the net while its help text is false. Not a defect in the net — but
+no one should mistake a green net for verified flag semantics.
+
+### 🔴 V3 — ESCALATED TO ROGER 2026-08-03: an LLM can move the money numbers and author the verdict
+**Pre-existing — NOT created by Mission 2.** Orchestrator-verified line by line:
+
+| Claim | Verified |
+| --- | --- |
+| `crew.kickoff()` is never called | **FALSE** — called at `crewai_components.py:365` and `:495` whenever `_llm_enabled()` |
+| Gate | `AIREAL_LLM_MODE` (`:150-152`), documented at `.env.example:69`, `src/agents/README.md:64`, `src/orchestrators/README.md:57`. **No code change needed**; `python-dotenv` is declared, so a `.env` can set it invisibly |
+| LLM moves money numbers | `ListingAnalystAgent.run` → LLM-authored `condition_tags`/`defects`/`amenities`, **unnormalized** → `crewai_runner.py:81→84` → `run_financial_model` → `_apply_insight_modifiers` (`engine.py:64-70`) → OPEX/NOI/DSCR/**the very cap rate F1's floor test compares against**. Guardian measured on 36 Kelly: OPEX +$500, NOI −$500, DSCR 0.8960→0.8783, cap 6.345%→6.220% |
+| LLM authors the verdict | `ChiefStrategistAgent.run` (`:516-517`) → `_run_llm` → `_parse_json_as(InvestmentThesis, llm_text, …)` — **the BUY/DECLINE verdict itself**, bypassing `synthesize_thesis`'s metrics/thresholds/rules entirely |
+| Four docs deny it | `README.md:106` "parity shell … delegates to the same deterministic math"; `CHANGELOG.md:31` "`crew.kickoff()` not yet called"; `src/agents/README.md:56` "a future seam"; `crewai_runner.py:73-77` "not executed here" |
+
+**To be fair to the code:** `FinancialForecasterAgent` is deliberately **not** LLM-backed
+(`crewai_components.py:389-391`) — the arithmetic stays deterministic. The breach is at the *inputs*
+and the *verdict*, not the formulas.
+
+**Roger's decision (not the proxy's — this is whether the project's core promise is real):**
+**(a)** correct the four docs to describe the seam honestly (Wave 2, minimum for Gate 2), or
+**(b)** gate `AIREAL_LLM_MODE` off in `crewai_runner` pending a real decision, or **(c)** both.
 - **Gate 3 (Disposition):** _pending._ No blockers (OPD-1/3/4 resolved = wire-first; enforce the
   OPD-1 reconcile-before-delete sequence).
 - **Mission gate (Roger):** _pending._ Precondition of merge + push; also resolves the
