@@ -34,7 +34,8 @@ cheap agent struggling, or a capable agent doing mechanical work) — log that h
 orchestrator verifying) · `DONE` (verified inline) · `DEFERRED`
 
 ## Overall progress
-- Tasks: 9 / 28 DONE (one SCOPED — see 0.1) · 3 IN-PROGRESS · 0 BLOCKED · 16 TODO
+- Tasks: 14 / 28 DONE (one SCOPED — see 0.1) · 0 IN-PROGRESS · 0 BLOCKED · 14 TODO
+- Suite: **356 tests, exit 0, coverage 82.68%** (mission start: 310 / 81.87%)
 - Gates cleared: **1 / 5 — ✅ Gate 0 PASSED 2026-08-03** (code-reviewer APPROVE · finance-interp PASS ·
   guardian NO VETO, M1+M2 satisfied · **Roger signed off after reproducing the diff himself**)
 - **Open questions for Roger at Gate 0:** (1) lxml floor — **RESOLVED 2026-08-03: Roger said raise it
@@ -50,7 +51,7 @@ orchestrator verifying) · `DONE` (verified inline) · `DEFERRED`
 | Sync | Wave Sync (mission-zero commit) | 2 | 2 | **DONE** 2026-08-03 (mission-zero = `6147839`, already landed) | — |
 | Branch | Wave Branch | 1 | 1 | **DONE** 2026-08-03 | — |
 | 0 | Truth (Tier 0 + deps) | 5 | 5 | **DONE** 2026-08-03 — all five committed (`705149c`, `2dd36bc`, `5a061aa`, `6fce278`). 0.1 closure scoped to CLI flags (guardian M1). | **Gate 0: Roger only** |
-| 1 | Wiring + anti-regression guard | 5 | 0 | TODO | Gate 1 |
+| 1 | Wiring + anti-regression guard | 5 | 5 | **DONE** 2026-08-03 — `db366de`, `6f0642a`, `821cdac`, `369a1f0`, `252e517` | **Gate 1: ready** |
 | 2 | CLI honesty + docs | 10 | 0 | TODO | Gate 2 |
 | 3 | Disposition (wire-first) | 3 | 0 | TODO | Gate 3 |
 | Val | Validation | 1 | 0 | TODO | — |
@@ -159,8 +160,50 @@ Fix the docstring during Wave 2 living-doc reconciliation.
 | 1.1 | Render `YearBreakdown.notes` (OPEX-mutation explanations) in the report + RED-on-revert test | F3 | report-designer → std (sonnet) | **DONE** 2026-08-03 — committed `db366de`. New "Adjustments Applied" section. RED-on-revert reproduced. **Demo report byte-identical — the section is currently unreachable on real data; see defect #4.** |
 | 1.2 | Make `synthesize_listing_insights` carry all stated facts (`title/price/sqft/bedrooms/bathrooms/year_built`) + RED-on-revert test | F4 | python-eng → std (sonnet) | **DONE** 2026-08-03 — committed `6f0642a`. **Fixed the cause, not the instance:** intersection-passthrough (`_stated_facts_from`) so future shared fields flow through automatically. RED-on-revert reproduced. No demo diff — `main.py` never calls this function; it backs the `ingest-listing` CLI. |
 | 1.3 | `crewai_runner` sets `media_insights`/`media_report` on `OrchestrationResult` + RED-on-revert test | F5 | python-eng → std (sonnet) | **DONE** 2026-08-03 — committed `821cdac`. Orchestrator-verified: `crew.py` zero diff, RED-on-revert reproduced. **Guarded by a *parity* test** (crewai output `==` deterministic output), so re-drift between the two engines goes RED. Agent caught a vacuous-test trap: the existing zero-byte `.jpg` fixture makes both engines `None`, so parity would have passed comparing `None` to `None`; it added a real-PIL-image fixture instead. |
-| 1.4 | `report_cli` passes `media_report` + `provenance` to `write_report` + RED-on-revert test | F6 | python-eng + report-designer → std | TODO |
-| 1.5 | **Anti-regression guard:** construct each source model all-fields-non-default, push through each transform, assert no field reverts to default | root cause 2 | qa → std | TODO |
+| 1.4 | `report_cli` passes `media_report` + `provenance` to `write_report` + RED-on-revert test | F6 | python-eng → std (sonnet) | **DONE** 2026-08-03 — committed `369a1f0`. `provenance` **loaded, never constructed** (the CLI makes none of the choices RunProvenance asserts). RED-on-revert reproduced. Orchestrator trimmed a 5-line rationale out of `--help` into the README. |
+| 1.5 | **Anti-regression guard:** construct each source model all-fields-non-default, push through each transform, assert no field reverts to default | root cause 2 | qa → std (sonnet) | **DONE** 2026-08-03 — committed `252e517`. 16 tests, 4 transforms, **zero `src/` diff**. See verification record below. |
+
+### 1.5 — orchestrator verification record, 2026-08-03 · commit `252e517`
+The guard's design is right where it counts: `build_sentinel_model` enumerates
+`model_fields` **dynamically**. A guard that hand-listed field names would carry the identical
+defect it guards against. Exclusions live in one `_EXCLUDED[(model, field)] = reason` table — no
+silent skips.
+
+**Proven to catch real drops, four ways — two by the author, two independently by me:**
+
+| Break introduced | Caught? | Message |
+| --- | --- | --- |
+| Revert F4 `_stated_facts_from` (author) | ✅ | names all six fields individually |
+| Revert F5 crewai media wiring (author) | ✅ | names both fields |
+| **Drop `media_insights` from `crew.py`** — the *deterministic* engine, a transform the author never used for its proof (orchestrator) | ✅ | `[src.orchestrators.crew] OrchestrationResult.media_insights is still at its default` |
+| **Add a brand-new `ListingInsights` field nobody wires through** (orchestrator) — *the actual root-cause-2 scenario* | ✅ | report guard fails: sentinel present on source, absent from rendered text |
+
+The last one is the decisive test. Note the *synthesis* guard correctly stayed green there — the
+new field is not on `ListingNormalized`, so that transform legitimately cannot carry it; the
+**report-level guard is the backstop**. That division of responsibility is correct, not a gap.
+
+**Test-count correction:** the guard agent noted an "unexplained delta" against a 339 baseline.
+**The 339 was my error** — I quoted it to two agents without measuring. HEAD was **337**; F6 took it
+to 340; +16 guard tests = **356**, which reconciles exactly. No anomaly.
+
+### Seven live gaps the guard surfaced — logged, NOT fixed (zero `src/` diff was binding)
+Most are T5/OPD-4 work that **Wave 3 must now cover**; they are additions to the charter's T5 list:
+1. `YearBreakdown.principal_paid` / `.interest_paid` — T5-class recompute-vs-render.
+2. `MarketSnapshot.vacancy_rate/cap_rate/rent_growth/expense_growth/interest_rate` — only `.region`
+   ever prints; extends the charter's `.notes` finding to the whole snapshot.
+3. `ScenarioAnalysis.prior_sum` — computed by `scenario_runner.py`, never referenced in `generator.py`.
+4. **`ScenarioAnalysis.notes` whenever `n_accepted > 0` — a live silent drop.**
+   `_render_market_scenarios` prints `analysis.notes` only in the zero-accepted branch, but
+   `scenario_runner.py` sets `notes="Rejector: in=X, kept=Y"` unconditionally. Any run that admits a
+   scenario loses that note. This is a *current* defect, not a rendering nicety.
+5. `MediaInsights.image_quality` — never referenced in `_render_media_overview`.
+6. `MediaCoverage.version` — `_render_photo_coverage` prints `provider` but not `version`, while the
+   sibling Media Overview section prints both.
+7. `MediaReport.listing_title/source_url/address/defects/quality_flags/parking` — six fields that
+   never reach the report at all.
+
+**Also flagged for product review:** `MarketHypothesis.rationale` is excluded as borderline —
+defensible, since it is consumed by `.summary()`/CLI rather than that table.
 
 ### Newly-discovered defect #4 — logged, NOT fixable in this mission without Roger reopening the carve-out
 **The engine's OPEX modifiers test pre-normalization strings while the pipeline emits
