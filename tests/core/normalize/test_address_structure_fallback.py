@@ -54,13 +54,19 @@ def test_listing_normalized_silently_ignores_unknown_keys() -> None:
 @pytest.mark.parametrize("module", [listing_text, listing_html], ids=["listing_text", "listing_html"])
 def test_fallback_dicts_only_use_keys_the_model_accepts(module: object) -> None:
     """
-    Every dict-literal key in these parsers that names a listing field must be a real
-    `ListingNormalized` field.
+    EVERY dict-literal key in these parsers must be a real `ListingNormalized` field.
 
     Constructing input that actually trips the `except ValidationError` branch would mean
     fabricating something the parsers are specifically written to tolerate, pinning parser quirks
     rather than the contract under test. The contract is narrow and exact: because the model sets
     `extra="ignore"`, any key that is not a real field is discarded in silence.
+
+    The check is the unrestricted `keys <= fields`. An earlier version filtered to keys that were
+    already valid or began with "address" before comparing, which made it vacuous for exactly the
+    typos it most needed to catch: `"postal_cod"` or `"bedroom"` is neither a valid field nor
+    address-prefixed, so it was excluded from the comparison and would have sailed through. Both
+    modules use only real field names today, so no carve-out is needed — and if one ever is, it
+    should be argued in a comment rather than hidden in a filter expression.
     """
     keys = _dict_literal_keys(module)
     fields = set(ListingNormalized.model_fields)
@@ -71,9 +77,4 @@ def test_fallback_dicts_only_use_keys_the_model_accepts(module: object) -> None:
         f"dropped rather than raising. Use 'address_structure'."
     )
     assert "address_structure" in keys, f"{module.__name__} no longer carries the structured address through its fallback path"
-
-    # Any other unknown key in these dicts would be silently dropped the same way.
-    listing_shaped = {k for k in keys if k in fields or k.startswith("address")}
-    assert (
-        listing_shaped <= fields
-    ), f"{module.__name__} uses listing-shaped dict keys the model will silently ignore: {sorted(listing_shaped - fields)}"
+    assert keys <= fields, f"{module.__name__} uses dict keys the model will silently ignore (extra='ignore'): {sorted(keys - fields)}"

@@ -25,6 +25,7 @@ import json
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError as PydanticValidationError
 
 import src.cli.report_cli as report_cli
 from src.schemas.models import ListingInsights
@@ -181,3 +182,28 @@ def test_forecast_directory_instead_of_file_gives_clean_systemexit(tmp_path: Pat
         report_cli.main(["--forecast", str(a_dir), "--out", str(out_md)])
 
     assert "could not be read" in str(exc_info.value)
+
+
+def test_non_dict_insights_json_raises_pydantic_not_systemexit(tmp_path: Path) -> None:
+    """
+    Pin the boundary between the two failure modes this CLI deliberately keeps distinct.
+
+    `_read_json` converts *file-level* problems (missing, unreadable, malformed) into a clean
+    `SystemExit`, and the recognized-field gate does the same for a dict that shares no key with
+    `ListingInsights`. A JSON value of the wrong *shape* -- a list rather than an object -- is
+    neither: it is a schema mismatch, and it stays with pydantic's own `ValidationError`, matching
+    `test_forecast_bad_schema_json_still_raises_pydantic_error_not_systemexit` above.
+
+    That is a deliberate contract, not an oversight: pydantic's message here names the problem
+    precisely ("Input should be a valid dictionary ... input_type=list"), unlike the raw
+    `FileNotFoundError` that F19 replaced. This test exists so the boundary is stated and cannot
+    drift silently in either direction.
+    """
+    listish = tmp_path / "insights_list.json"
+    listish.write_text("[]", encoding="utf-8")
+    forecast = tmp_path / "forecast.json"
+    _write_forecast(forecast)
+    out_md = tmp_path / "report.md"
+
+    with pytest.raises(PydanticValidationError):
+        report_cli.main(["--forecast", str(forecast), "--insights", str(listish), "--out", str(out_md)])
