@@ -47,7 +47,11 @@ def normalize_input(d: dict[str, Any]) -> dict[str, Any]:
     if missing:
         raise SystemExit(
             f"Input is missing required key(s): {', '.join(missing)}. "
-            "See data/sample_listings/36_kelly_moncton/inputs.json for an example."
+            "A --files config JSON needs listing_path, photos_dir, and finance_inputs_path "
+            "(optional title) -- see data/examples/advisor_deal_config.json for a working example "
+            "(run: python -m src.cli.advisor_cli --files data/examples/advisor_deal_config.json), "
+            "or point --files/--dir at a bundle directory (e.g. data/sample_listings/36_kelly_moncton) "
+            "for auto-discovery instead."
         )
     return out
 
@@ -320,7 +324,7 @@ def main() -> None:
     ap.add_argument(
         "--debug",
         action="store_true",
-        help="Print ranked/portfolio to stdout.",
+        help="Print the full ranked/portfolio JSON payload to stdout, in addition to the compact table.",
     )
     ap.add_argument(
         "--save-artifacts",
@@ -380,6 +384,12 @@ def main() -> None:
         "portfolio": portfolio_summary([d for d, _ in ranked]),
     }
 
+    if args.debug:
+        # The compact table above is a summary; --debug dumps the exact
+        # ranked/portfolio structure that will be written to --out, so it's
+        # useful for troubleshooting without opening the output file.
+        print(json.dumps(payload, indent=2))
+
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -390,6 +400,14 @@ def main() -> None:
 
     if args.markdown:
         md_path = out_path.with_suffix(".md")
+        if md_path == out_path:
+            # --out already ends in .md, so out_path *is* the JSON artifact we
+            # just wrote above. Deriving the Markdown path with with_suffix()
+            # would resolve to the same file and overwrite that JSON with the
+            # Markdown summary -- silent data loss. Use a distinct filename
+            # instead, and say so loudly rather than clobbering quietly.
+            md_path = out_path.with_name(out_path.stem + "_report.md")
+            print(f"Note: --out ends in .md, so writing Markdown to {md_path} instead, to avoid overwriting the JSON at {out_path}.")
         lines = ["# Deal Advisor Report", ""]
 
         ranked_list = cast(list[dict[str, Any]], payload["ranked"])

@@ -104,7 +104,10 @@ def parse_listing_from_text(doc: str | Path) -> ListingNormalized:
         # Fallback: keep as many fields as we can; mirror HTML parser’s shape
         data = {
             "address": addr_line,
-            "address_struct": addr_res,  # mirrors listing_html fallback key
+            # Must be the real field name: ListingNormalized sets extra="ignore", so the old
+            # "address_struct" key was silently discarded here and the structured address was
+            # lost on every fallback. Same defect as F20's CLI print, one layer down.
+            "address_structure": addr_res,
             "postal_code": postal_code,
             "price": prc,
             "bedrooms": bds,
