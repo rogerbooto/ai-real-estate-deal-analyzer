@@ -684,6 +684,36 @@ def _render_opex_details(year1: YearBreakdown) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _render_year_adjustments(years: list[YearBreakdown]) -> str:
+    """
+    Render the engine's per-year adjustment notes (``YearBreakdown.notes``) — the traceability
+    trail for why the OPEX/income figures above differ from the raw listing inputs (e.g. a
+    condition tag adding to reserves, a defect adding to repairs & maintenance, an amenity
+    uplifting other income). In practice only Year 1 carries these (the insight modifiers are
+    applied once, at the top of the model), but every year is checked so the section stays
+    correct if that ever changes.
+
+    Notes render verbatim — they are machine-generated traceability strings, not prose to be
+    softened or rewritten. Degrades to "" when no year has notes, so a run with no listing
+    insights (or insights that trip no modifier) adds no empty heading to the report.
+    """
+    by_year = [(y.year, y.notes) for y in years if y.notes]
+    if not by_year:
+        return ""
+
+    lines = [
+        _section("Adjustments Applied"),
+        "Notes below explain why a year's OPEX or income differs from the raw inputs — each line "
+        "names the condition tag, defect, or amenity that triggered it. These are already reflected "
+        "in the figures above; nothing here changes a number, it only explains one.",
+        "",
+    ]
+    for year, notes in by_year:
+        for note in notes:
+            lines.append(f"- Year {year}: {note}")
+    return "\n".join(lines) + "\n"
+
+
 def _render_refi(refi: RefiEvent | None) -> str:
     """
     Render the refinance card if present.
@@ -938,6 +968,7 @@ def generate_report(
       - Valuation – Stress-Test table
       - Valuation – NOI-Based table
       - OPEX Detail (Year 1)
+      - Adjustments Applied (if any year carries YearBreakdown.notes — usually Year 1 only)
       - Refinance Event (if present)
       - Returns Summary
       - Warnings
@@ -965,6 +996,7 @@ def generate_report(
         _render_valuation_table_stress(forecast.years, forecast),
         _render_valuation_table_noi(forecast.years, forecast.purchase),
         _render_opex_details(forecast.years[0]),
+        _render_year_adjustments(forecast.years),
         _render_refi(forecast.refi),
         _render_returns(forecast),
         _render_warnings(forecast.warnings),
