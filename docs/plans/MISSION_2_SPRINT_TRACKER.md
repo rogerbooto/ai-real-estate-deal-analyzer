@@ -37,8 +37,10 @@ orchestrator verifying) · `DONE` (verified inline) · `DEFERRED`
 - Tasks: 9 / 28 DONE (one SCOPED — see 0.1) · 0 IN-PROGRESS · 0 BLOCKED · 19 TODO
 - Gates cleared: 0 / 5 — **Gate 0 awaiting Roger only** (code-reviewer APPROVE, finance-interp PASS,
   guardian NO VETO with M1+M2 satisfied; two open questions for Roger, see below)
-- **Open questions for Roger at Gate 0:** (1) lxml floor `>=5.0.0` vs `>=6.1.0` (CVE-2026-41066,
-  unreachable here); (2) confirm the demo report deliberately loses `investment_analysis.md:89`
+- **Open questions for Roger at Gate 0:** (1) lxml floor — **RESOLVED 2026-08-03: Roger said raise it
+  and ensure it is secure.** Floor now `>=6.1.0`, env upgraded to 6.1.1, CVE **verified closed by
+  test** (both vectors pointed at a local canary file; neither read it). Commit `b2f34f2`.
+  (2) **STILL OPEN** — confirm the demo report deliberately loses `investment_analysis.md:89`
 - Open product decisions outstanding: **0** — all four CLOSED by Roger 2026-08-03 (see ledger below)
 
 ## Wave summary
@@ -70,7 +72,7 @@ orchestrator verifying) · `DONE` (verified inline) · `DEFERRED`
 | --- | --- | --- | --- | --- |
 | 0.1 | Fix config/asset pairing so a lone `--listing`/`--photos` cannot inherit the default bundle's financials (loud-fail or explicit pairing) + RED-on-revert test | F2 | python-eng → capable (opus) | **DONE (SCOPED)** 2026-08-03 — committed `5a061aa`. Loud-fail chosen. **Closure scoped to CLI flags only; the `AIREAL_LISTING`/`AIREAL_PHOTOS` env vector remains OPEN** (guardian M1) — see defect #3. |
 | 0.2 | **F1 (OPD-2 = WIRE):** emit a real "cap rate below floor" warning in `run_financial_model` when purchase cap < `cap_rate_floor`; `chief_strategist` consumes the real signal (its `no_cap_floor_breach` DECLINE input goes live). **Finance-core carve-out — 16 prod + 25 test blast; MOVES every golden number.** Regenerate goldens + **human-review** the new values (must reflect only the added warning); confirm anti-regression tests still RED on true regressions. + RED-on-revert test | F1 | python-eng → capable (opus) | **DONE** 2026-08-03 — committed `705149c`. Orchestrator-verified (see 0.2 record below). **Charter premise overturned: zero goldens moved.** |
-| 0.3 | Declare `lxml` in `requirements.txt` (belt-and-suspenders; severity downgraded) | F7 | security-eng → std (sonnet) | **DONE** 2026-08-03 — committed `2dd36bc`. 8 unguarded `BeautifulSoup(..., "lxml")` sites confirmed. **Open Gate 0 decision for Roger: the `>=5.0.0` floor admits lxml < 6.1.0 (CVE-2026-41066); unreachable here but see record below.** |
+| 0.3 | Declare `lxml` in `requirements.txt` (belt-and-suspenders; severity downgraded) | F7 | security-eng → std (sonnet) | **DONE** 2026-08-03 — `2dd36bc` + `b2f34f2`. 8 unguarded `BeautifulSoup(..., "lxml")` sites confirmed. **Roger ruled: raise the floor.** Now `>=6.1.0` (env at 6.1.1), CVE-2026-41066 **verified closed by canary test**, not assumed from the version string. |
 | 0.4 | Replace the silent render swallow (`html_fetcher.py:336-337`) with a warning/signal; declare `playwright` as optional | F8 | security-eng → std (sonnet) | **DONE** 2026-08-03 — committed `2dd36bc`. **Two** swallow sites found and fixed, not one. `playwright` declared as an optional `render` extra, not runtime-required. RED-on-revert reproduced by the orchestrator. |
 | 0.5 | Doc-note `onnxruntime` as an optional opt-in provider dep (no code change) | F9 | docs-maintainer → cheap (haiku) | **DONE** 2026-08-03 — verified inline (see below). |
 
