@@ -114,6 +114,14 @@
 
 * Consumes types from [`../schemas/README.md`](../schemas/README.md).
 * AI vision/LLM providers are seams — deterministic stubs unless a user registers an ONNX model.
+
+  **ONNX provider (optional):** The `register_onnx_provider()` function allows you to bring your own trained ONNX classification model to the amenities/defects detector. This is a **Python-API-only, opt-in feature** — it is never invoked by any CLI command, only through direct Python code. To use it:
+  1. Install `onnxruntime` separately: `pip install onnxruntime`
+  2. Call `register_onnx_provider(model_path, labels_path)` once during your app initialization (not built into the default pipeline)
+  3. Pass `provider="onnx"` to `tag_amenities_and_defects()` or `detect_from_image()`
+
+  If `onnxruntime` is not installed, calling `register_onnx_provider()` raises a clear error message. The package is intentionally not declared in `requirements.txt` because it is an opt-in dependency for advanced users only.
+
 * Network/FS access is isolated in `fetch/` and `media/` for mocking in tests.
 
 ## Test Strategy

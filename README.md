@@ -346,6 +346,29 @@ pip install -r requirements.txt -r requirements-dev.txt
 
 > Note: `pip install -e .` is supported and installs the `ingest-listing`, `deal-report`, and `deal-advisor` console scripts. Runtime dependencies still come from the requirements files (this matches CI), so install those first, then `pip install -e .` for the entry points.
 
+### Optional Dependencies
+
+**ONNX Runtime** (for custom computer-vision models)
+
+If you want to bring your own trained ONNX image classification model to detect amenities and defects, install `onnxruntime`:
+
+```bash
+pip install onnxruntime
+```
+
+Then register your model in Python before running your analysis:
+
+```python
+from src.core.cv import register_onnx_provider
+
+register_onnx_provider(
+    model_path="path/to/your_model.onnx",
+    labels_path="path/to/labels.json"
+)
+```
+
+This is a **Python-API-only feature** — no CLI command automatically loads ONNX models. The ONNX provider is lazy-loaded and optional; if not installed, the default providers (`local` heuristics, `vision`/`llm` stubs) continue to work. See [`src/core/README.md`](src/core/README.md#dependencies--optional-providers) for details.
+
 ---
 
 ## Testing & Validation

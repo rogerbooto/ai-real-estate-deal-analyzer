@@ -7,6 +7,7 @@ and deterministic caching.
 from __future__ import annotations
 
 import json
+import warnings
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal, cast
@@ -47,6 +48,24 @@ def _fetch_for_robots(url: str, ua: str, timeout: float) -> tuple[int, str]:
         return code, b.decode("utf-8", errors="ignore")
     except Exception:
         return code, ""
+
+
+def _warn_render_fallback(url: str, exc: Exception) -> None:
+    """
+    Surface a non-fatal `--render` failure to the caller.
+
+    The JS-render path is best-effort: if Playwright is missing, mis-launches,
+    or a page fails to render, we must still degrade gracefully to the
+    unrendered (raw) HTML rather than crash the whole fetch. Silently
+    swallowing that failure leaves the caller believing they got a rendered
+    snapshot when they didn't, so we emit a visible `RuntimeWarning` naming
+    what failed and what we're doing instead.
+    """
+    warnings.warn(
+        f"--render requested but JS rendering failed for {url} " f"({type(exc).__name__}: {exc}); falling back to unrendered (raw) HTML.",
+        RuntimeWarning,
+        stacklevel=2,
+    )
 
 
 def _render_page_with_playwright(
@@ -246,9 +265,10 @@ def fetch_html(url: str, *, policy: FetchPolicy | None = None) -> HtmlSnapshot:
                     except Exception as e:
                         if pol.strict_dom:
                             raise InvalidHtmlError(f"Failed to parse/pretty RENDERED HTML for {url}: {type(e).__name__}") from e
-                except Exception:
+                except Exception as e:
                     rendered_bytes = None
                     rendered_html = None
+                    _warn_render_fallback(url, e)
 
                 # Post-render WAF check (Incapsula iframe etc.)
                 if rendered_html and _looks_like_waf_iframe(rendered_html):
@@ -333,9 +353,10 @@ def fetch_html(url: str, *, policy: FetchPolicy | None = None) -> HtmlSnapshot:
                 except Exception as e:
                     if pol.strict_dom:
                         raise InvalidHtmlError(f"Failed to parse/pretty RENDERED HTML for {url}: {type(e).__name__}") from e
-            except Exception:
+            except Exception as e:
                 rendered_bytes = None
                 rendered_html = None
+                _warn_render_fallback(url, e)
 
             # Post-render WAF check in normal path
             if rendered_bytes is not None and rendered_html is not None:
