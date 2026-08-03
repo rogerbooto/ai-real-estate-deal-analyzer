@@ -13,9 +13,18 @@
   * **media/**: media discovery, filtered download, bundle manifests, and media intelligence (phash/quality/palette/hero).
   * **fetch/**: HTML fetching, robots.txt policy, caching, typed errors.
   * **insights/**: synthesis of listing + photo insights into `ListingInsights`.
-  * **intelligence/**: deal fusion, composite scoring, narrative + report builders (`DealIntelligence`).
-  * **advisor/**: multi-deal ranking, portfolio summary, risk flags, scenario what-ifs.
-  * **strategy/**: rule-based thesis formation.
+  * **intelligence/**: deal fusion, composite scoring (`DealIntelligence`). `narrative_builder.py`
+    and `report_builder.py` also live here, implemented and tested, but as of 2026-08-03 have no
+    production caller (see Mission 2 charter finding T4).
+  * **advisor/**: multi-deal ranking, portfolio summary, risk flags. `advisor/scenarios.py`
+    ("scenario what-ifs") exists but as of 2026-08-03 has zero callers, production or test — see
+    Mission 2 charter finding T4.
+  * **strategy/**: `strategist.py` holds a second, rule-based thesis-formation implementation
+    (`form_thesis`) with its own hardcoded DSCR/CoC thresholds — but the live verdict path is
+    `agents/chief_strategist.synthesize_thesis`, not this module; `form_thesis` has no production
+    caller today. Mission 2 (OPD-1) will reconcile any thresholds worth keeping into
+    `chief_strategist`'s tunable constants and then delete `strategist.py`; until that lands, treat
+    this module as legacy/dead, not a second live code path.
   * **reports/**: Markdown report generation (see [`reports/README.md`](reports/README.md)).
   * **utils/**: markdown/serialization helpers.
 
@@ -51,13 +60,13 @@
   from src.core.intelligence.deal_fusion import fuse_deal_intelligence, DealIntelligence
   from src.core.intelligence.scoring import compute_composite_score
   from src.core.advisor import rank_deals, portfolio_summary, compute_risk_flags
-  from src.core.strategy.strategist import form_thesis
+  from src.core.strategy.strategist import form_thesis  # legacy, no production caller — see below
   ```
 
 ### Finance
 
 * `run_financial_model(fi: FinancialInputs, *, horizon_years: int = 10, insights: ListingInsights | None = None) -> FinancialForecast`
-  Main underwriting entrypoint; returns forecast with `YearBreakdown[]`, `PurchaseMetrics`, optional `RefiEvent`, and warnings. Insight-aware modifiers only adjust income when `income_is_estimated` is set.
+  Main underwriting entrypoint; returns forecast with `YearBreakdown[]`, `PurchaseMetrics`, optional `RefiEvent`, and warnings. Insight-aware **income** modifiers only fire when `income_is_estimated` is set (read at `engine.py:98`). Insight-aware **OPEX** modifiers (`"old roof"` → +$300/yr reserves, `"water stain"` → +$200/yr repairs & maintenance, `_apply_insight_modifiers` in `engine.py:64-70`) are unconditional in code but **currently unreachable from any real pipeline run**: `"old roof"` matches nothing in the closed `ConditionTag` enum (`src/schemas/labels.py`), and `"water stain"` is normalized to `DefectLabel.water_leak_suspected` by `labels.py:241` before the engine's literal string check ever sees it. They only fire if a caller hand-constructs a `ListingInsights` with those exact unnormalized strings (e.g. a unit test), never from the real ingestion/synthesis path. See Mission 2 charter finding M10 (`docs/plans/MISSION_2_wiring_gaps.md`) and `core/reports/README.md`'s "Adjustments Applied" section, which the same defect makes unreachable in the rendered report.
 * `amortization_schedule(principal, rate, amort_years, *, io_years=0, horizon_years) -> list[YearDebt]`
   Deterministic annual schedule; interest-only years precede amortization; padded to horizon.
 * `irr(cash_flows, *, max_iter=100, tol=1e-6) -> float | None`
@@ -99,7 +108,10 @@
 * `compute_composite_score(...)` — weighted scoring components (see `intelligence/types.py`).
 * `rank_deals(deals)` / `portfolio_summary(deals)` / `compute_risk_flags(...)` — advisor layer used by the `deal-advisor` CLI.
 * `form_thesis(ff: FinancialForecast, mkt: MarketAssumptions) -> InvestmentThesis`
-  Rule-based thesis used by the Chief Strategist.
+  Rule-based thesis formation. **Not** what the live Chief Strategist uses: the deterministic
+  pipeline calls `agents.chief_strategist.synthesize_thesis`, and `form_thesis` has no production
+  caller today (only `tests/unit/test_strategist.py`, `tests/unit/test_strategist_rules_unit.py`).
+  See Mission 2 charter OPD-1 for the planned reconcile-then-delete disposition.
 
 ## Design Notes / Invariants
 
@@ -131,7 +143,7 @@
 * Run:
 
   ```bash
-  pytest -q tests/core
+  pytest -q --no-cov tests/core
   ```
 
 ## Cross-links
@@ -146,4 +158,4 @@
 
 ---
 
-_Last reconciled: 2026-07-23 against main @ e4716df (including uncommitted working-tree refactors of `media/insights.py` and `media/intelligence.py`)._
+_Last reconciled: 2026-08-03 against mission/2-wiring-gaps @ 74c985c (Mission 2 Wave 2 T6: corrected the claim that insight-aware OPEX modifiers work on real data — see M10; clarified `strategist.py`/`form_thesis`, `narrative_builder.py`/`report_builder.py`, and `advisor/scenarios.py` are dead code with no production caller today, pending Mission 2 Wave 3 disposition)._

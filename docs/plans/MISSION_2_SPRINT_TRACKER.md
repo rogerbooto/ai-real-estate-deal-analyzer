@@ -246,14 +246,46 @@ covering trigger/label reconciliation, since the same shape may affect the ameni
 | --- | --- | --- | --- | --- |
 | 2.1 | `ingest_cli` surfaces `result.insights`/`result.photos` (or documents why not) | F10 | python-eng → std | TODO |
 | 2.2 | Wire `collect_local_assets` into `--file` mode so media flags do something (or reject them with a clear message) | F11 | python-eng → std | TODO |
-| 2.3 | Remove/implement `advisor_cli --debug`; implement or delete | F12 | python-eng → cheap | TODO |
-| 2.4 | `advisor_cli --markdown` must not clobber the JSON when `--out` ends `.md` | F13 | python-eng → std | TODO |
-| 2.5 | `report_cli --insights` rejects JSON with no recognized fields | F14 | python-eng → std | TODO |
+| 2.3 | Remove/implement `advisor_cli --debug`; implement or delete | F12 | python-eng → std (sonnet) | **DONE** 2026-08-03 — **implemented, not removed.** The help text already promised "Print ranked/portfolio to stdout"; that promise was simply never honoured. Honouring an existing user-facing contract beats inventing a new knob or silently retracting one. |
+| 2.4 | `advisor_cli --markdown` must not clobber the JSON when `--out` ends `.md` | F13 | python-eng → std (sonnet) | **DONE** 2026-08-03 — orchestrator-verified end-to-end: `--out clob.md --markdown` now writes markdown to `clob_report.md`, prints a loud note naming both paths, and the JSON at `--out` still parses. Silent data loss closed. |
+| 2.5 | `report_cli --insights` rejects JSON with no recognized fields | F14 | python-eng → std (sonnet) | **DONE** 2026-08-03 — boundary is **"shares ≥1 field name with the model"**, not "complete": `{"totally":"unrelated"}` rejected with a message listing the valid fields; `{"address":"12 Real St"}` still works, because absent facts are legitimate and this project never fabricates listing data. Scoped to `--insights` only — every other `_maybe_load` model has ≥1 *required* field, so unrelated JSON already fails there via pydantic; adding the gate would swap one clear error for another. |
 | 2.6 | `ingest_cli --ai` help text (+ honest description) | F15 | python-eng → cheap | TODO |
 | 2.7 | `ingest_cli --pretty` documented / split dual purpose | F16 | python-eng → cheap | TODO |
-| 2.8 | `advisor_cli --files` error points at a real valid example (add one if none exists) | F17 | python-eng → cheap | TODO |
+| 2.8 | `advisor_cli --files` error points at a real valid example (add one if none exists) | F17 | python-eng → std (sonnet) | **DONE** 2026-08-03 — new `data/examples/advisor_deal_config.json` with the real `listing_path`/`photos_dir`/`finance_inputs_path` keys. **Orchestrator ran the cited command verbatim → exit 0.** Deliberate check, given Gate 1's M6 blocker was exactly this class (a documented example that crashed). |
 | 2.9 | `--media-kinds` invalid → argparse usage error, not a raw traceback; `report_cli` missing-file → clean error; fix `address_struct`→`address_structure` in the CLI print | F18, F19, F20 | python-eng → std | TODO |
-| 2.10 | T6 living-doc reconcile (README:46-47, market/README:22,86, reports/README) + CHANGELOG:17 **dated note** (not rewrite); **feature→reachable-path test** | T6, root causes 1&4 | docs-maintainer + qa → cheap/std | TODO |
+| 2.10 | T6 living-doc reconcile + CHANGELOG:17 **dated note** (not rewrite); **feature→reachable-path test** | T6, root causes 1&4 | docs-maintainer → std (sonnet) + qa → std (sonnet) | **DOCS DONE** 2026-08-03; reachability test in progress. See record below. |
+
+### 2.10 docs — orchestrator verification record, 2026-08-03
+Six files reconciled: `README.md` (ingest example corrected — the old one implied media intelligence
+works in `--file` mode, which F11 shows it does not), `src/market/README.md` (`build_regional_income`
+restated as reachable only from tests, **without** pre-empting Wave 3's OPD-3 wire-or-delete call),
+`src/core/reports/README.md` (signatures gain `media_report`/`provenance`; "Adjustments Applied"
+added), `src/schemas/README.md` (`ListingInsights` stated facts + the seven `YearBreakdown` fields),
+`src/core/README.md` (the OPEX-modifier claim corrected; reachability caveats on `strategist.py`,
+`narrative_builder`, `report_builder`, `advisor/scenarios.py`), and `CHANGELOG.md`.
+
+**Guardian M10 satisfied, and proved rather than asserted.** Both README mentions of "Adjustments
+Applied" state it cannot appear on real pipeline data today and cite the mechanism. The agent
+demonstrated it programmatically:
+
+    Real-path (normalized) Year1 notes:     []
+    Hand-constructed unnormalized Year1 notes: ['condition: old roof → reserves +$300/yr',
+                                                'defect: water stain → R&M +$200/yr']
+
+**CHANGELOG:17 — dated note appended under `[Unreleased]`, released history NOT rewritten.** It flags
+that the "narrative/report builders + scenario what-ifs" clause is contradicted by the T4 reachability
+finding, and explicitly notes the rest of that bullet (deal fusion, scoring, ranking, portfolio, risk
+flags, CSV/MD exports) is unaffected — so the correction does not overreach.
+
+**Systemic doc defect found and FIXED by the orchestrator (not in the charter's T6 list):** all eight
+documented `pytest -q tests/<subset>` commands across `src/*/README.md` **exited non-zero**. Cause:
+`pytest.ini`'s global `--cov-fail-under=80` applies to every invocation, and no subset short of the
+full suite reaches 80% (`tests/core` alone is 60.39%). Every one now carries `--no-cov`, and **all
+eight were executed to exit 0** rather than eyeballed. Same class as Gate 1's M6 blocker — a
+documented command that does not work.
+*(Orchestrator note: my first check of this used invented paths like `tests/market`, which gave a
+misleading exit 4 — "file or directory not found" — rather than the real exit 1. Re-tested against
+the actual documented commands before acting.)*
 
 ## Wave 3 — Disposition (WIRE-FIRST; OPDs resolved)
 | ID | Task | Finding | Agent → tier | Status |

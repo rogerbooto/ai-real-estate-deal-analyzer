@@ -7,7 +7,13 @@
   * Build a `MarketSnapshot` from user/JSON inputs.
   * Generate a small **Cartesian grid** of “what-if” `MarketHypothesis` deltas around a snapshot.
   * Apply **rejector** rules to prune unrealistic combos and renormalize priors.
-  * Produce **regional income tables** for sanity-checks and scenario seeding.
+  * Produce **regional income tables** for sanity-checks and scenario seeding. **Not currently
+    wired into any production caller**: `build_regional_income` (`regional_income.py`) is a
+    working, directly-importable function, but as of 2026-08-03 the only thing that calls it is
+    `tests/unit/test_market_regional_income.py` — no CLI, orchestrator, or agent reaches it.
+    Whether/how to wire it as a real public entry point is an open Mission 2 Wave 3 decision
+    (see `docs/plans/MISSION_2_wiring_gaps.md`, finding T4, OPD-3 "wire-first"); this README
+    will be updated once that lands.
   * **NEW — Wave 2:** Perturb financial inputs per hypothesis and re-run the frozen finance engine to produce prior-weighted scenario outcomes (`adapter.py`, `scenario_runner.py`).
 * **Current status**: fully implemented and tested; wired into the pipeline as an **opt-in** “Market Scenarios” overlay behind `--scenarios` / `AIREAL_SCENARIOS` / `run.scenarios`. When OFF (default), the hot path adds zero scenario imports and produces byte-identical output. Scenarios are deterministic what-if calculations, not predictions.
 
@@ -38,7 +44,9 @@
   * `reject_unrealistic(hs: HypothesisSet, snap: MarketSnapshot) -> HypothesisSet`
     Applies hard bounds and soft penalties, flips incoherent STR flags, **renormalizes priors**, and returns a **deterministically ordered** set.
   * `build_regional_income(region: str, bedrooms: int, comps: list[float]) -> RegionalIncomeTable`
-    Aggregates comp rents; returns frozen table with convenience `summary()`.
+    Aggregates comp rents; returns frozen table with convenience `summary()`. **Reachable only
+    from tests today** (0 production callers) — see the reachability note above and Mission 2's
+    T4/OPD-3.
   * `perturb_inputs(fi: FinancialInputs, hypothesis: MarketHypothesis, *, base_cap: float) -> FinancialInputs`
     (Wave 2) Returns a perturbed **deep copy** of `FinancialInputs` with deltas applied (income, opex, financing, market fields) per the hypothesis. Original untouched. `base_cap` is the engine-derived purchase cap from untouched inputs.
   * `resolve_snapshot(inputs: FinancialInputs, *, market_block: Mapping | None) -> MarketSnapshot`
@@ -89,6 +97,11 @@ tbl = build_regional_income("Metro A", bedrooms=2, comps=[1500, 1550, 1600, 1700
 print(tbl.summary())  # includes P25/Median/P75 and turnover; STR multiplier if present
 ```
 
+> This example uses a real, working import — the function runs fine standalone. What it does
+> **not** have, today, is a caller inside `src/` (main pipeline, any CLI, any agent); the only
+> current caller is `tests/unit/test_market_regional_income.py`. See the reachability note in
+> "Purpose / Responsibilities" above.
+
 ## Design Notes / Invariants
 
 * **Fractions everywhere** for baseline snapshot fields (e.g., `0.05` = 5%). (Models are frozen; extra keys ignored.)
@@ -119,7 +132,7 @@ print(tbl.summary())  # includes P25/Median/P75 and turnover; STR multiplier if 
 * Depends on `src.schemas.models` types (`MarketSnapshot`, `MarketHypothesis`, `HypothesisSet`, `RegionalIncomeTable`, `ScenarioAnalysis`, `ScenarioOutcome`, `ScenarioMetricBand`).
 * Depends on `src.core.finance.engine.run_financial_model` for scenario re-runs (one-way composition; no core edit).
 * No external services; **pure deterministic** utilities.
-* **Wired** into the main pipeline: called from `main.py` when `--scenarios` is ON; results passed to `write_report` for the "Market Scenarios" overlay section. With scenarios OFF, zero market imports occur on the hot path.
+* **Wired** into the main pipeline: called from `main.py` when `--scenarios` is ON; results passed to `write_report` for the "Market Scenarios" overlay section. With scenarios OFF, zero market imports occur on the hot path. This wiring covers `snapshot.py` → `hypotheses.py` → `rejector.py` → `adapter.py` → `scenario_runner.py`; it does **not** include `regional_income.py`, which has no caller in that chain (see reachability note above).
 
 ## Test Strategy
 
@@ -132,7 +145,7 @@ print(tbl.summary())  # includes P25/Median/P75 and turnover; STR multiplier if 
 * Run:
 
   ```
-  pytest -q tests/unit/test_market_*.py tests/unit/test_rejector.py
+  pytest -q --no-cov tests/unit/test_market_*.py tests/unit/test_rejector.py
   ```
 
 ## Cross-links
@@ -152,4 +165,4 @@ print(tbl.summary())  # includes P25/Median/P75 and turnover; STR multiplier if 
 
 ---
 
-_Last reconciled: 2026-07-24 against main @ e4716df._
+_Last reconciled: 2026-08-03 against mission/2-wiring-gaps @ 74c985c (Mission 2 Wave 2 T6: clarified `build_regional_income` is reachable only from tests today; Wave 3/OPD-3 will decide whether to wire it — this note does not pre-empt that decision)._

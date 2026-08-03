@@ -111,7 +111,7 @@ python -m src.cli.advisor_cli --glob "data/sample_listings/*" --save-artifacts -
 Run:
 
 ```bash
-pytest -q tests/integration
+pytest -q --no-cov tests/integration
 ```
 
 ## Cross-links

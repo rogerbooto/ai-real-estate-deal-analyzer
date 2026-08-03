@@ -8,6 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _Status note (2026-07-24): section reconciled against main @ e4716df — the entries below reflect work actually merged since v0.1.0. Market Scenarios (opt-in scenarios overlay, Mission 1 Wave 2) now shipped._
 
+_Status note (2026-08-03, Mission 2 Wave 2 reachability audit — does not rewrite the entries below):
+the "Deal intelligence & advisor" bullet's "narrative/report builders" and "scenario what-ifs" are
+narrated as shipped alongside the rest of that feature set. Per Mission 2's reachability analysis
+(`docs/plans/MISSION_2_wiring_gaps.md`, finding T4, re-verified 2026-08-03 @ 74c985c):
+`src/core/intelligence/narrative_builder.py` and `report_builder.py` exist and are unit-tested, but
+have zero production callers (only reachable from `tests/core/intelligence/`); `src/core/advisor/scenarios.py`
+has zero callers of any kind, production or test. Neither is reachable from `main.py`, any `src/cli/*`
+entry point, or any orchestrator today. Mission 2 Wave 3 (OPD-3, "wire-first") will either wire each
+into a live path or delete it as un-wireable; this note will be updated once that lands. The rest of
+that bullet (deal fusion, composite scoring, multi-deal ranking, portfolio summary, risk flags,
+CSV/Markdown exports) is unaffected — those are live and reachable from the `deal-advisor` CLI._
+
 ### Added
 - **Market Scenarios overlay** (Mission 1, Wave 2): opt-in `--scenarios` / `AIREAL_SCENARIOS` / `run.scenarios` flag wires `src/market` (snapshot → hypotheses → rejector) through the frozen finance engine; produces prior-weighted scenario outcomes (DSCR, CoC, cash flow, IRR). New modules: `src/market/adapter.py` (delta → FinancialInputs perturbation), `src/market/scenario_runner.py` (composition + deterministic weighted-percentile aggregation). New Pydantic models: `ScenarioAnalysis`, `ScenarioOutcome`, `ScenarioMetricBand`. Report section appended last with fixed verbatim honesty block, top-N-by-prior grid, prior-weighted bands (p25/p50/mean/min/max), caveats (priors-heuristic, cap-sensitivity, rate-shock, IO-period), and narrative-flag rendering. Default OFF → byte-identical to V2. Scenarios are deterministic what-ifs, not predictions/live data.
 - **Listing ingestion pipeline** (`src/core/ingest`, `ingest-listing` CLI): file/URL ingestion with `FetchPolicy` (network opt-in, robots.txt respect, caching, optional JS rendering).

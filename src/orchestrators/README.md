@@ -67,7 +67,7 @@
 * Run:
 
   ```bash
-  pytest -q tests/integration tests/orchestrators
+  pytest -q --no-cov tests/integration tests/orchestrators
   ```
 
 ## Cross-links

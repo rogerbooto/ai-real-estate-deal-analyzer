@@ -18,7 +18,7 @@
 
 ### Report Generator
 
-* `generate_report(insights: ListingInsights | None, forecast: FinancialForecast, thesis: InvestmentThesis | None = None, title_override: str | None = None, *, media_insights: MediaInsights | None = None, scenarios: ScenarioAnalysis | None = None) -> str`
+* `generate_report(insights: ListingInsights | None, forecast: FinancialForecast, thesis: InvestmentThesis | None = None, title_override: str | None = None, *, media_insights: MediaInsights | None = None, media_report: MediaReport | None = None, provenance: RunProvenance | None = None, scenarios: ScenarioAnalysis | None = None) -> str`
 
   Builds a Markdown investment report with sections:
 
@@ -34,11 +34,28 @@
   6. **Investment Thesis** (when provided).
   7. **Pro Forma (Summary)** — annual GSI/GOI/OPEX/NOI/DS/CF/DSCR/balance table.
   8. **Valuation tables** — Baseline, Stress-Test, and NOI-Based.
-  9. **OPEX Detail (Year 1)**, **Refinance Event**, **Returns Summary**, **Warnings**.
-  10. **Market Scenarios** — opt-in what-if overlay, appended **last** and rendered **only** when a `ScenarioAnalysis` is supplied (keyword-only `scenarios`). With `scenarios=None` the output is byte-for-byte identical to today's. Includes the fixed verbatim "About these scenarios" honesty block (`ABOUT_SCENARIOS_BLOCK`), a top-5-by-prior grid, prior-weighted bands (`downside (p25)` / `median (p50)` / `mean (expected)` / `min` / `max`), caveats, and an honest empty-set state when no scenarios are admitted.
+  9. **OPEX Detail (Year 1)**.
+  10. **Adjustments Applied** — renders `YearBreakdown.notes` for any year that carries them (in
+      practice only Year 1, since insight modifiers apply once at the top of the model). **⚠ Cannot
+      appear on any real pipeline run today.** The engine's OPEX-bump triggers
+      (`src/core/finance/engine.py:64,68`) check for the literal strings `"old roof"` in
+      `condition_tags` and `"water stain"` in `defects` — but `"old roof"` matches nothing in the
+      closed `ConditionTag` enum (`src/schemas/labels.py`), and `"water stain"` is normalized to
+      `DefectLabel.water_leak_suspected` by `labels.py:241` *before* the engine's literal check
+      ever sees it. Both triggers are therefore dead against any `ListingInsights` produced by the
+      real ingestion/synthesis path; the demo report is byte-identical with and without this
+      section. It only renders if a caller hand-constructs a `ListingInsights` with those exact
+      unnormalized strings (e.g. directly in a unit test). See Mission 2 charter finding M10
+      (`docs/plans/MISSION_2_wiring_gaps.md`) — this is a documentation-honesty note, not a claim
+      that the section is a working feature.
+  11. **Refinance Event**, **Returns Summary**, **Warnings**.
+  12. **Market Scenarios** — opt-in what-if overlay, appended **last** and rendered **only** when a `ScenarioAnalysis` is supplied (keyword-only `scenarios`). With `scenarios=None` the output is byte-for-byte identical to today's. Includes the fixed verbatim "About these scenarios" honesty block (`ABOUT_SCENARIOS_BLOCK`), a top-5-by-prior grid, prior-weighted bands (`downside (p25)` / `median (p50)` / `mean (expected)` / `min` / `max`), caveats, and an honest empty-set state when no scenarios are admitted.
+  13. **Appendix — Run Provenance** (always emitted; see below).
+  14. **Appendix — Definitions** (always emitted, last; see below).
 
-* `write_report(path, insights, forecast, thesis=None, *, media_insights=None, scenarios=None) -> None`
-  Convenience wrapper; creates parent directories and writes the Markdown file. `scenarios` is forwarded to `generate_report` unchanged.
+* `write_report(path: str | Path, insights: ListingInsights | None, forecast: FinancialForecast, thesis: InvestmentThesis | None = None, *, media_insights: MediaInsights | None = None, media_report: MediaReport | None = None, provenance: RunProvenance | None = None, scenarios: ScenarioAnalysis | None = None) -> None`
+  Convenience wrapper; creates parent directories and writes the Markdown file. All keyword-only
+  arguments are forwarded to `generate_report` unchanged.
 
 ### Media Report
 
@@ -58,7 +75,7 @@
 * **Deterministic layout:** section order and headings are fixed for consistency; empty sections are omitted.
 * **Stable rounding:** monetary values to two decimals; rates to two percentage decimals.
 * **Pure function:** `generate_report()` has no side effects; `write_report()` only writes the target file.
-* **Portable:** output is plain Markdown; PDF/HTML rendering is external (see also `core/intelligence/report_builder.py` for the deal-intelligence Markdown/HTML path).
+* **Portable:** output is plain Markdown; PDF/HTML rendering is external (see also `core/intelligence/report_builder.py` for the deal-intelligence Markdown/HTML path — as of 2026-08-03 that module exists and is tested but has no production caller; see Mission 2 charter finding T4).
 
 ## Test Strategy
 
@@ -67,7 +84,7 @@
 * Run:
 
   ```bash
-  pytest -q tests/core/reports tests/integration/test_report_cli_minimal.py
+  pytest -q --no-cov tests/core/reports tests/integration/test_report_cli_minimal.py
   ```
 
 ## Cross-links
@@ -81,7 +98,7 @@
 
 ---
 
-_Last reconciled: 2026-07-24 against main @ e4716df._
+_Last reconciled: 2026-08-03 against mission/2-wiring-gaps @ 74c985c (Mission 2 Wave 2 T6: `generate_report`/`write_report` signatures corrected to include `media_report`/`provenance`; added the "Adjustments Applied" section to the numbered list with an M10 honesty note that it cannot fire on real pipeline data today)._
 
 ### Appendix — Definitions
 

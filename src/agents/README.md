@@ -79,7 +79,7 @@
 * Run:
 
   ```bash
-  pytest -q tests/integration tests/unit/test_financial_forecaster.py
+  pytest -q --no-cov tests/integration tests/unit/test_financial_forecaster.py
   ```
 
 ## Cross-links

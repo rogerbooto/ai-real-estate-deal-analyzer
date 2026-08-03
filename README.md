@@ -43,8 +43,12 @@ Thesis verdict: DECLINE
 Beyond `main.py`, three CLIs cover ingestion, reporting, and multi-deal advising (run as modules; see note on packaging below):
 
 ```bash
-# Ingest a listing (file or URL) with optional media download & media intelligence
-python -m src.cli.ingest_cli --file listing.html --photos ./photos --media-intel 1
+# Ingest a listing (file or URL): prints synthesized listing insights + photo insights, and a
+# media summary. Media discovery/download/intelligence flags (--download-media/--media-intel/
+# --media-kinds) only take effect with --url (an HTML source to scan for media links); --file
+# input alone still gets photo insights via --photos, and prints a note on stderr explaining why
+# those media flags are ignored in that mode. See src/cli/README.md for the full flag reference.
+python -m src.cli.ingest_cli --file listing.html --photos ./photos
 
 # Render a Markdown investment report from JSON artifacts
 python -m src.cli.report_cli --forecast forecast.json --insights insights.json --out report.md
@@ -442,4 +446,4 @@ testpaths = tests
 
 ---
 
-_Last reconciled: 2026-07-24 against main @ e4716df (post-Wave-2 Market Scenarios implementation)._
+_Last reconciled: 2026-08-03 against mission/2-wiring-gaps @ 74c985c (Mission 2 Wave 2 T6 doc reconciliation: ingest CLI example corrected to reflect F10/F11 media-flag reachability)._

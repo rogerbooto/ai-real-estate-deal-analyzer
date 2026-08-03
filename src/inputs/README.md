@@ -90,7 +90,7 @@
 * Run:
 
   ```bash
-  pytest -q tests/integration
+  pytest -q --no-cov tests/integration
   ```
 
 ## Cross-links
