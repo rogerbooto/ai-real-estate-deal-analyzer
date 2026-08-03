@@ -156,11 +156,36 @@ Fix the docstring during Wave 2 living-doc reconciliation.
 ## Wave 1 — Wiring + anti-regression guard
 | ID | Task | Finding | Agent → tier | Status |
 | --- | --- | --- | --- | --- |
-| 1.1 | Render `YearBreakdown.notes` (OPEX-mutation explanations) in the report + RED-on-revert test | F3 | report-designer → std | TODO |
-| 1.2 | Make `synthesize_listing_insights` carry all stated facts (`title/price/sqft/bedrooms/bathrooms/year_built`) + RED-on-revert test | F4 | python-eng + qa → std | TODO |
-| 1.3 | `crewai_runner` sets `media_insights`/`media_report` on `OrchestrationResult` + RED-on-revert test | F5 | python-eng → std | TODO |
+| 1.1 | Render `YearBreakdown.notes` (OPEX-mutation explanations) in the report + RED-on-revert test | F3 | report-designer → std (sonnet) | **DONE** 2026-08-03 — committed `db366de`. New "Adjustments Applied" section. RED-on-revert reproduced. **Demo report byte-identical — the section is currently unreachable on real data; see defect #4.** |
+| 1.2 | Make `synthesize_listing_insights` carry all stated facts (`title/price/sqft/bedrooms/bathrooms/year_built`) + RED-on-revert test | F4 | python-eng → std (sonnet) | **DONE** 2026-08-03 — committed `6f0642a`. **Fixed the cause, not the instance:** intersection-passthrough (`_stated_facts_from`) so future shared fields flow through automatically. RED-on-revert reproduced. No demo diff — `main.py` never calls this function; it backs the `ingest-listing` CLI. |
+| 1.3 | `crewai_runner` sets `media_insights`/`media_report` on `OrchestrationResult` + RED-on-revert test | F5 | python-eng → std (sonnet) | **DONE** 2026-08-03 — committed `821cdac`. Orchestrator-verified: `crew.py` zero diff, RED-on-revert reproduced. **Guarded by a *parity* test** (crewai output `==` deterministic output), so re-drift between the two engines goes RED. Agent caught a vacuous-test trap: the existing zero-byte `.jpg` fixture makes both engines `None`, so parity would have passed comparing `None` to `None`; it added a real-PIL-image fixture instead. |
 | 1.4 | `report_cli` passes `media_report` + `provenance` to `write_report` + RED-on-revert test | F6 | python-eng + report-designer → std | TODO |
 | 1.5 | **Anti-regression guard:** construct each source model all-fields-non-default, push through each transform, assert no field reverts to default | root cause 2 | qa → std | TODO |
+
+### Newly-discovered defect #4 — logged, NOT fixable in this mission without Roger reopening the carve-out
+**The engine's OPEX modifiers test pre-normalization strings while the pipeline emits
+post-normalization labels, so both triggers are unreachable from any real run.**
+
+`_apply_insight_modifiers` (`engine.py:64-70`) fires on two literal strings. Orchestrator-verified
+that neither can ever arrive:
+
+| Trigger | Why it never matches |
+| --- | --- |
+| `"old roof" in conds` | **Not in the closed `ConditionTag` set at all** — that set is `renovated_kitchen, updated_bath, well_maintained, new_flooring, natural_light, curb_appeal`. No roof concept exists. |
+| `"water stain" in defs` | The string **is** in the vocabulary, but `labels.py:241` normalizes it to `DefectLabel.water_leak_suspected` (value `"water_leak_suspected"`) **before** the engine sees it. The engine's literal check can never match the normalized label. |
+
+Consequence: the engine's OPEX-bump feature is dead on real data, and F3's new "Adjustments
+Applied" section can only ever appear from hand-written synthetic JSON. `python main.py` is
+byte-identical before and after F3 for exactly this reason. F3 itself is correct — it renders
+whatever the engine puts in `notes` — and was verified end-to-end against a synthetic forecast that
+does trip the modifiers.
+
+**Why it is not fixed here:** the engine side is inside `src/core/finance/`, where binding
+constraint 1 permits **exactly one** diff this mission and it is already spent on F1. The
+alternative — changing the normalization map — has its own blast radius across the CV/label layer.
+Either way this is a product decision for Roger, not a cleanup. **Recommend a follow-on mission**
+covering trigger/label reconciliation, since the same shape may affect the amenity uplifts
+(`"in-unit laundry"`, `"parking"`) which are only reachable when `income_is_estimated=True`.
 
 ## Wave 2 — CLI honesty + docs
 | ID | Task | Finding | Agent → tier | Status |
