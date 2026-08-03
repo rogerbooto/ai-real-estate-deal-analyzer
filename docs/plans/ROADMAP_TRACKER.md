@@ -58,9 +58,47 @@ Base (this run): `main @ 6147839`, synced 2026-08-03. **`origin/main` has never 
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | ✅ 1 | **Scenario Intelligence** — wire `src/market` hypotheses/rejector into pipeline + report scenario section | **SHIPPED 2026-07-24 (Mission 1)** — delivered exactly as scoped; Market C→B+, Reports B+→A-; plus an authorized IRR-solver core fix | — | — | Market C→B+, Reports B+→A- | Market, Reports, Orchestration, Docs | — done |
 | ✅ 2 | Packaging metadata fix (`[project]` table) | **SHIPPED 2026-07-24 (Mission 1 Wave 0.2)** — Packaging D→B; `pip install -e .` + 3 console scripts verified | — | pyproject only | Packaging D→B | Packaging, Docs | — done |
-| 3 | Real AI provider behind existing seams (OpenAI vision for CV; CrewAI kickoff for thesis narrative) | High (makes the "AI" headline true) | Med-High (API keys, cost, non-determinism policy needed; guardian gate) | CV provider registry + crewai_runner shell | CV/AI C+→B+ | CV/AI, Orchestration | Mission 1 done (stable scenario outputs to narrate); determinism policy approved |
+| 3 | **Real vision provider behind the existing CV seam** — see the detailed note below, added 2026-08-03 at Roger's request | High (makes the "AI" headline true) | Med-High (API keys, cost, non-determinism policy; guardian gate) | CV provider registry (`register_onnx_provider` **already exists**) | CV/AI C+→B+ | CV/AI, Orchestration | Determinism policy approved; Mission 2's honest-provenance labelling landed |
 | 4 | Streamlit UI for interactive scenario exploration | High (portfolio wow) | Med (new surface, new deps) | Reads existing JSON artifacts | Distribution | Packaging, Portfolio | #1 (scenarios give the UI something to explore), #2 |
 | 5 | Live market data ingestion (comps, cap-rate drift) | Med | High (network, data licensing, freshness) | fetch/ policy | Market realism | Market | #1; compliance review |
+
+### Backlog #3 in detail — why `--ai` is a stub, and what "real" looks like
+_Added 2026-08-03 at Roger's request during Mission 2, so a future mission can plan it properly._
+
+**What `--ai 1` does today.** It is wired end-to-end — `use_ai=True` reaches
+`core.cv.build_photo_insights` — but the provider behind the seam is
+`_provider_vision_stub` (`src/core/cv/amenities_defects.py:253-300`), a **deterministic heuristic, not
+a model**. It infers labels from image statistics: notably `"street parking", parking_spots=1` from
+`aspect == "landscape" and lum >= 0.50`, i.e. a property claim derived from a photo being wide and
+bright. Switching it on changes **7 fields** of `PhotoInsights` (`amenities, version,
+image_detections, amenity_counts, parking, detections_total, provenance`), so it is **not** inert —
+Mission 2 corrected help text that wrongly said it was, and corrected the provenance labelling so
+stub output is distinguishable from a future real classifier's.
+
+**Roger's stated direction (verbatim, 2026-08-03):**
+> "it's currently a stub, but in the long-run I want to hook it with either a custom classifier
+> (fine-tuned for real estate and based on ViT; or a SOTA one; or even letting the user add their API
+> key to a model or hook their own model)"
+
+So there are **three distinct offerings** behind one seam, and they have different blast profiles —
+a future mission should probably not treat them as one item:
+1. **Bring-your-own-model (ONNX).** ⚠️ **Largely already built.** `register_onnx_provider(model_path,
+   labels_path)` (`amenities_defects.py:161`) registers a user's own ONNX classifier behind the same
+   provider registry, and raises a clear error if `onnxruntime` is absent. **It has zero callers and
+   no CLI can reach it** — Python-API only. Making this real is mostly *wiring plus docs*, not new
+   capability. Lowest blast of the three; highest ratio of value to effort.
+2. **User-supplied API key to a hosted vision model.** Needs the cost/non-determinism/key-hygiene
+   policy that gates this whole backlog item, plus a caching story (the CV cache is content-addressed
+   by sha256, so it already suits this well).
+3. **A fine-tuned real-estate ViT shipped by the project.** Largest effort: training data, licensing,
+   model distribution size, and an accuracy claim the project would then have to stand behind.
+
+**Constraint any of these must respect** (established by Mission 2, Roger's ruling): the AI layer
+produces **observations only**. All arithmetic stays in `src/core/finance/`, and the
+BUY/CONDITIONAL/DECLINE verdict must come from the deterministic `synthesize_thesis` — an AI must
+never author it. Mission 2 also added AI-impact transparency to the report (baseline vs
+AI-influenced, with per-line attribution of what each observation changed), which any real provider
+inherits for free.
 
 ---
 
