@@ -77,12 +77,27 @@ def test_file_mode_with_download_media_off_suppresses_the_note(capsys: pytest.Ca
 
 
 def test_ai_flag_help_is_present_and_honest() -> None:
-    help_text = ingest_cli._build_parser().format_help()
-    assert "--ai AI" in help_text
-    # It must not claim AI does nothing -- it IS wired through to build_photo_insights.
-    assert "wired" in help_text
-    # It must not overclaim real model inference either.
-    assert "deterministic stub" in help_text
+    """The help text must be honest in both directions.
+
+    This test previously pinned the wording "output does not change from the default path
+    yet", which was verified FALSE: `use_ai=1` changes `version`, `image_detections`,
+    `amenity_counts`, `detections_total` and `provenance`. The measured behaviour behind
+    these assertions lives in tests/integration/test_ai_claims_are_truthful.py.
+    """
+    raw = ingest_cli._build_parser().format_help()
+    assert "--ai AI" in raw
+    # argparse hard-wraps help text, so match against a whitespace-normalized copy.
+    help_text = " ".join(raw.split())
+
+    # It must not claim AI does nothing -- the flag IS wired through to build_photo_insights
+    # and it demonstrably changes the output.
+    assert "does not change from the default path" not in help_text
+    assert "DOES change the output" in help_text
+
+    # It must not overclaim real model inference either: the 'vision' slot is a stub, and the
+    # artifacts it produces are labelled as such.
+    assert "NOT a model call" in help_text
+    assert "heuristic_stub" in help_text
 
 
 # ---------------------------------------------------------------------------

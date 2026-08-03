@@ -9,7 +9,7 @@ from pathlib import Path
 from statistics import mean
 from typing import Any, cast
 
-from src.core.cv.amenities_defects import ProviderName
+from src.core.cv.amenities_defects import ProviderName, provider_kind
 from src.core.cv.runner import tag_amenities_and_defects, tag_images
 
 # Centralized labels/enums + helpers
@@ -29,6 +29,19 @@ from src.schemas.models import MediaAsset, PhotoInsights
 AssetLike = str | Path | MediaAsset
 
 _IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff"}
+
+#: `PhotoInsights.version` for the `use_ai=True` path.
+#:
+#: The `"vision"` provider slot holds a hand-written heuristic, not a model (see
+#: `core.cv.amenities_defects._provider_vision_stub`). Stamping its output `"ai"` made those
+#: artifacts indistinguishable from a future real classifier's, so the value names the actual
+#: producer instead. A real vision provider registered into the slot ships its own version
+#: string with it; `provenance["provider_kind"]` flips to `"model"` automatically either way.
+VISION_STUB_VERSION = "vision-stub-v1"
+
+#: `PhotoInsights.version` for the default (`use_ai=False`) path. Unchanged: the local provider
+#: is also a heuristic, but this label claims only determinism, which is true.
+DETERMINISTIC_VERSION = "deterministic"
 
 # Sanity thresholds
 _MIN_BYTES = 1024  # 1 KiB
@@ -225,13 +238,19 @@ def build_photo_insights(photo_dir: Path, *, use_ai: bool = False) -> PhotoInsig
     # Filter images with sanity checks
     paths, quality_warnings, drop_reasons = _filter_photos(paths_all)
 
+    # Provider selection and its provenance labels are computed once so the empty-folder
+    # early return and the main path can never disagree about what produced the artifact.
+    provider: ProviderName = "vision" if use_ai else "local"
+    version = VISION_STUB_VERSION if use_ai else DETERMINISTIC_VERSION
+    kind = provider_kind(provider)
+
     if not paths:
         return PhotoInsights(
             room_counts={},
             amenities={a.value: False for a in PHOTOINSIGHTS_AMENITY_SURFACE},
             quality_flags={k: 0.0 for k in _QUALITY_PREDICATES},
             provider="cv_v2",
-            version="ai" if use_ai else "deterministic",
+            version=version,
             image_index={},
             image_labels={},
             image_detections={},
@@ -242,7 +261,8 @@ def build_photo_insights(photo_dir: Path, *, use_ai: bool = False) -> PhotoInsig
             images_total=0,
             detections_total=0,
             provenance={
-                "selected_provider": "local" if not use_ai else "vision",
+                "selected_provider": provider,
+                "provider_kind": kind,
                 "use_ai": bool(use_ai),
                 "cache_root": os.getenv("AIREDEAL_CACHE_DIR", str(Path(".") / ".cache" / "cv")),
                 "quality_warnings": quality_warnings,
@@ -254,8 +274,6 @@ def build_photo_insights(photo_dir: Path, *, use_ai: bool = False) -> PhotoInsig
                 },
             },
         )
-
-    provider: ProviderName = "vision" if use_ai else "local"
 
     # 1) Generic filename-derived labels (schema form)
     generic_schema: dict[str, Any] = cast(
@@ -327,7 +345,7 @@ def build_photo_insights(photo_dir: Path, *, use_ai: bool = False) -> PhotoInsig
         amenities=amenities_bool,
         quality_flags=quality_flags,
         provider="cv_v2",
-        version="ai" if use_ai else "deterministic",
+        version=version,
         image_index=image_index,
         image_labels=image_labels,
         image_detections=dets,
@@ -339,6 +357,7 @@ def build_photo_insights(photo_dir: Path, *, use_ai: bool = False) -> PhotoInsig
         detections_total=total_dets,
         provenance={
             "selected_provider": provider,
+            "provider_kind": kind,
             "use_ai": bool(use_ai),
             "cache_root": os.getenv("AIREDEAL_CACHE_DIR", str(Path(".") / ".cache" / "cv")),
             "quality_warnings": quality_warnings,

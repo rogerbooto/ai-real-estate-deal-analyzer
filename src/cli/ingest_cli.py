@@ -51,11 +51,16 @@ def _build_parser() -> argparse.ArgumentParser:
         type=int,
         default=0,
         help=(
-            "Enable the AI-labeled photo-insight code path (passed through to "
-            "core.cv.build_photo_insights(use_ai=True)). It is wired end-to-end, but the CV "
-            "providers behind it today are deterministic stubs, not a live model call -- so "
-            "output does not change from the default path yet. The flag exists for when a real "
-            "vision provider is registered behind that seam."
+            "Switch the photo-insight detection provider from 'local' to 'vision' "
+            "(core.cv.build_photo_insights(use_ai=True)). This DOES change the output: "
+            "image_detections, amenity_counts, detections_total, version and provenance all "
+            "differ from the default path, and derived fields (the amenities booleans, the "
+            "parking summary) can move with them. It is NOT a model call -- the 'vision' slot "
+            "currently holds a hand-written threshold over image brightness, colour spread and "
+            "aspect ratio, so results are stamped version='vision-stub-v1' with "
+            "provenance.provider_kind='heuristic_stub'. Treat its labels as a placeholder, not "
+            "as observations. The flag exists so a real classifier can be registered behind "
+            "that seam later; provider_kind flips to 'model' when one is."
         ),
     )
     p.add_argument("--render", type=int, default=0, help="Render JS via a headless browser before parsing (requires --url).")

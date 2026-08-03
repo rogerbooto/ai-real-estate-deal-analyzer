@@ -30,6 +30,17 @@ AssetLike = str | Path | MediaAsset
 
 # ---------- Cache paths & helpers ----------
 
+# Bump when a provider's DETECTION BEHAVIOUR changes, so previously-cached results stop being
+# served. Entries are keyed by (provider, image sha256) alone, which encodes *what was looked at*
+# but not *what the looker would say today* — so without this segment a behaviour fix silently
+# fails to reach anyone holding a warm cache, on disk, indefinitely.
+#
+# This is not hypothetical: v1 → v2 is the fix that stopped `_provider_vision_stub` asserting
+# "street parking, 1 spot" from an image merely being wide and bright. 8 cached entries in this
+# checkout still carried that fabricated detection after the code was corrected, and would have
+# kept serving it. A cached answer must not outlive the reason it was true.
+_CACHE_BEHAVIOUR_VERSION = "v2"
+
 
 def _cache_root() -> Path:
     env_dir = os.getenv("AIREDEAL_CACHE_DIR")
@@ -39,7 +50,7 @@ def _cache_root() -> Path:
 
 
 def _provider_cache_dir(provider: str) -> Path:
-    p = _cache_root() / "providers" / provider
+    p = _cache_root() / "providers" / provider / _CACHE_BEHAVIOUR_VERSION
     p.mkdir(parents=True, exist_ok=True)
     return p
 

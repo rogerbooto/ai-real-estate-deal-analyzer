@@ -4,9 +4,26 @@ V2 Orchestrator (CrewAI seam)
 
 Purpose
 -------
-Mirror the deterministic orchestrator but back it with CrewAI Agent/Task
-wrappers that *delegate to local Python functions*. This keeps behavior
-identical by default while establishing a real CrewAI integration seam.
+Mirror the deterministic orchestrator, backed by the CrewAI Agent/Task wrappers
+in ``src/agents/crewai_components.py``.
+
+What actually executes
+----------------------
+With ``AIREAL_LLM_MODE`` unset (the default), every step delegates to the same
+local deterministic functions the ``crew`` orchestrator uses, and output matches
+that engine.
+
+With ``AIREAL_LLM_MODE`` set **and** a provider key present, exactly one step
+changes: ``ListingAnalystAgent`` runs a real ``crew.kickoff()`` and the model
+authors the ``ListingInsights`` (a network call; falls back to the deterministic
+analyzer if the call or the JSON parse fails). That is an *observation* layer —
+it reports what it reads in the listing text and photo names.
+
+The forecast and the verdict never go through a model, in any mode:
+``FinancialForecasterAgent`` always calls the local engine, and
+``ChiefStrategistAgent`` always calls ``synthesize_thesis``. So an LLM run can
+move the *inputs* to the analysis (via the deterministic insight modifiers), but
+never the arithmetic and never the BUY/CONDITIONAL/DECLINE judgment.
 
 Public API
 ----------
@@ -72,8 +89,13 @@ def run_orchestration(
 
     Behavior:
         - Validates env/dep presence for CrewAI usage and fails with a friendly error.
-        - Delegates actual work to local deterministic functions for identical math.
-        - Constructs Agent/Task shells for future CrewAI LLM runs (not executed here).
+        - Analyst: deterministic by default; with ``AIREAL_LLM_MODE`` set and a provider
+          key present it runs a real ``crew.kickoff()`` and the model authors the
+          ListingInsights (observations only), falling back to the deterministic
+          analyzer on any error.
+        - Forecaster and Strategist: always the local deterministic functions, in every
+          mode -- identical math and an identical, rule-derived verdict.
+        - Media stats are plain deterministic calls over ``photos_folder`` (see below).
     """
     _require_provider_env()
 
@@ -86,16 +108,11 @@ def run_orchestration(
     strategist = ChiefStrategistAgent()
     thesis = strategist.run(forecast=forecast, insights=insights)
 
-    # (Optional parity) Example of how we'd wire a real Crew:
-    # if _CREW_AVAILABLE:
-    #     crew = Crew(
-    #         agents=[analyst.agent, forecaster.agent, strategist.agent],
-    #         tasks=[analyst.task, forecaster.task, strategist.task],
-    #         process=Process.sequential,
-    #         verbose=False,
-    #     )
-    #     # NOTE: We do NOT call crew.kickoff() in deterministic mode.
-    #     # Real LLM integration would replace .run() calls above with kickoff().
+    # Note: there is deliberately no single Crew spanning all three agents. Only the analyst
+    # may reason, and it owns its own one-agent Crew inside `ListingAnalystAgent._run_llm`.
+    # Building a shared sequential Crew over all three Agent shells here would put the
+    # forecast and the verdict back in a model's hands -- their `llm=None` would not prevent
+    # it, since crewai substitutes a default model for that value. Do not add one.
 
     # Descriptive media stats over the same folder the analyst tagged. Mirrors
     # src/orchestrators/crew.py's derivation exactly (not an agent/LLM concern —

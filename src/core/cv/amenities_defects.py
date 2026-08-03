@@ -252,36 +252,45 @@ def _describe_image(img: Image.Image) -> ImageDesc:
 
 def _provider_vision_stub(img: Image.Image) -> Iterable[RawCandidate]:
     """
-    Deterministic *vision stub* provider used when no real computer-vision model is loaded.
+    Placeholder occupying the ``"vision"`` provider slot until a real model is wired in.
 
-    Purpose
-    -------
-    Simulates basic visual tagging behavior using simple image statistics
-    (brightness, color spread, and aspect ratio) as low-cost proxies for
-    higher-level semantic concepts such as lighting quality or materials.
+    THIS IS NOT A MODEL. It is a hand-written threshold over three image statistics.
+    Callers that surface its output must label it as such — see ``provider_kind()``
+    and the ``version`` / ``provenance`` fields set by
+    ``src.core.cv.photo_insights.build_photo_insights``.
 
     Method
-    -------
-    1. Calls `_describe_image(img)` to extract:
+    ------
+    1. `_describe_image(img)` yields:
        • luminance (float, [0-1]) — average brightness
-       • spread (float) — RGB channel variance proxy (low spread ≈ gray/metallic)
+       • spread (float) — RGB channel spread (low spread ≈ gray/metallic)
        • aspect ("landscape" | "portrait" | "square") — image orientation
-    2. Generates heuristic tags based on thresholds:
-       • High luminance (≥ 0.75) → `"natural light"` (proxy for well-lit room)
-       • Medium luminance and low spread → `"stainless appliances"` (proxy for stainless steel kitchen)
-       • Landscape + moderate brightness → `"street parking"` (proxy for exterior/driveway scenes)
-    3. Returns a list of raw candidate detections with structure:
-       {"name": str, "confidence": float, "rationale": str}
+    2. Two thresholds fire:
+       • High luminance (≥ 0.75) → `"natural light"` (proxy for a well-lit room)
+       • Mid-high luminance and low channel spread → `"stainless appliances"`
+         (proxy for a stainless finish)
+    3. Returns raw candidates: {"name": str, "confidence": float, "rationale": str}
+
+    What it deliberately does NOT emit
+    ----------------------------------
+    A parking label. This stub used to emit `"street parking"` for any landscape-
+    oriented image at luminance ≥ 0.50 — i.e. it asserted a *property attribute*
+    from the photo being wide and not dark. On the committed demo listing that fired
+    on 8 of 12 photos and drove `parking={"parking_type": "street", "parking_spots": 1}`
+    plus `amenities["parking"]=True` in the report. Those roll-ups carry no room for
+    a caveat, so the guess could not be labelled at the point a user reads it. A
+    fabricated parking claim on a real listing is worse than saying nothing, so the
+    threshold is removed rather than annotated. A real classifier registered into
+    this slot may of course emit `street_parking`; the ontology entry and the
+    `_parking_summary` roll-up that consume it are untouched.
 
     Notes
     -----
-    - This stub is *deterministic* and purely heuristic; it introduces no ML randomness.
-    - Used during offline tests or deterministic CV runs to ensure consistent outputs.
+    - Deterministic and purely heuristic; no ML, no randomness.
     """
     description = _describe_image(img)
     lum = description["luminance"]
     spr = description["spread"]
-    asp = description["aspect"]
 
     out: list[RawCandidate] = []
 
@@ -292,10 +301,6 @@ def _provider_vision_stub(img: Image.Image) -> Iterable[RawCandidate]:
     # gray-ish mid-high brightness → stainless_appliances proxy
     if 115.0 <= (lum * 255.0) <= 210.0 and spr <= 14.0:
         out.append({"name": "stainless appliances", "confidence": 0.66, "rationale": "vision_stub: low channel spread"})
-
-    # landscape aspect → weak hint of outdoor/parking
-    if asp == "landscape" and lum >= 0.50:
-        out.append({"name": "street parking", "confidence": 0.62, "rationale": "vision_stub: landscape & bright"})
 
     return out
 
@@ -364,6 +369,28 @@ _PROVIDERS: dict[ProviderName, ProviderFn] = {
     "vision": _provider_vision_stub,
     "llm": _provider_llm_stub,
 }
+
+ProviderKind = Literal["heuristic_stub", "model"]
+
+#: Every provider function defined in this module is a hand-written threshold over image
+#: statistics, not a trained model. Anything bound into `_PROVIDERS` at runtime -- e.g. by
+#: `register_onnx_provider`, or by a future fine-tuned ViT / hosted-API provider -- is a real
+#: model. Membership is checked by identity against the *current* binding, so a slot that gets
+#: overwritten reports "model" from that moment on without anyone remembering to update a list.
+_BUILTIN_STUB_FNS: frozenset[ProviderFn] = frozenset({_provider_local, _provider_vision_stub, _provider_llm_stub})
+
+
+def provider_kind(provider: ProviderName) -> ProviderKind:
+    """Report whether the function currently bound to ``provider`` is a stub or a real model.
+
+    Exists so that artifacts produced by a placeholder are identifiable as such and are never
+    indistinguishable from a future real classifier's output. Raises ``ValueError`` for an
+    unregistered provider, matching ``detect_from_image``.
+    """
+    fn = _PROVIDERS.get(provider)
+    if fn is None:
+        raise ValueError(f"Unknown provider: {provider}")
+    return "heuristic_stub" if fn in _BUILTIN_STUB_FNS else "model"
 
 
 # --- Normalization helpers ---------------------------------------------------
