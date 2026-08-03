@@ -11,12 +11,13 @@ identical by default while establishing a real CrewAI integration seam.
 Public API
 ----------
 run_orchestration(listing_txt_path, photos_folder, inputs, horizon_years=10)
-  -> OrchestrationResult(insights, forecast, thesis)
+  -> OrchestrationResult(insights, forecast, thesis, media_insights, media_report)
 """
 
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 try:
     # Importing Crew to verify availability for helpful errors
@@ -29,8 +30,13 @@ from src.agents.crewai_components import (
     FinancialForecasterAgent,
     ListingAnalystAgent,
 )
+from src.core.cv.photo_insights import build_photo_insights
+from src.core.media.insights import analyze_media
+from src.core.media.local import collect_local_assets
+from src.core.reports.photo_report import build_media_report
+from src.core.reports.report_models import MediaReport
 from src.orchestrators.crew import OrchestrationResult
-from src.schemas.models import FinancialInputs
+from src.schemas.models import FinancialInputs, MediaInsights
 
 
 def _require_provider_env() -> None:
@@ -91,4 +97,30 @@ def run_orchestration(
     #     # NOTE: We do NOT call crew.kickoff() in deterministic mode.
     #     # Real LLM integration would replace .run() calls above with kickoff().
 
-    return OrchestrationResult(insights=insights, forecast=forecast, thesis=thesis)
+    # Descriptive media stats over the same folder the analyst tagged. Mirrors
+    # src/orchestrators/crew.py's derivation exactly (not an agent/LLM concern —
+    # collect_local_assets/analyze_media/build_photo_insights/build_media_report are
+    # plain deterministic calls), so both engines reach parity on the report's
+    # Media Overview and Photo Coverage sections. Defensive by the same rule as the
+    # agents: a bad photo folder degrades the report, it never fails the run.
+    media_insights: MediaInsights | None = None
+    media_report: MediaReport | None = None
+    if photos_folder:
+        try:
+            assets = collect_local_assets(photos_folder)
+            if assets:
+                media_insights = analyze_media(assets)
+        except Exception:
+            media_insights = None
+        try:
+            media_report = build_media_report(build_photo_insights(Path(photos_folder)))
+        except Exception:
+            media_report = None
+
+    return OrchestrationResult(
+        insights=insights,
+        forecast=forecast,
+        thesis=thesis,
+        media_insights=media_insights,
+        media_report=media_report,
+    )
