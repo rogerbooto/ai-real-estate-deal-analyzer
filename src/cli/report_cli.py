@@ -7,11 +7,13 @@ from pathlib import Path
 from typing import Any, Protocol, TypeVar, cast
 
 from src.core.reports.generator import write_report
+from src.core.reports.report_models import MediaReport
 from src.schemas.models import (
     FinancialForecast,
     InvestmentThesis,
     ListingInsights,
     MediaInsights,
+    RunProvenance,
 )
 
 
@@ -50,6 +52,22 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--thesis", help="Path to InvestmentThesis JSON (optional).")
     ap.add_argument("--media-insights", help="Path to MediaInsights JSON (optional).")
     ap.add_argument(
+        "--media-report",
+        help="Path to MediaReport JSON (optional). Renders the Photo Coverage section.",
+    )
+    # Deliberately loaded, never constructed here: RunProvenance asserts which engine ran, whether
+    # scenarios/vision were on, and which config was used. This CLI renders already-computed JSON
+    # and makes none of those choices, so a self-constructed one would describe *this* process
+    # while claiming to describe the run that produced the artifacts. Full rationale in
+    # src/cli/README.md; the help text stays short because it lands in `--help` output.
+    ap.add_argument(
+        "--provenance",
+        help=(
+            "Path to RunProvenance JSON (optional), from the run that produced the other "
+            "artifacts. Renders the Run Provenance pipeline rows."
+        ),
+    )
+    ap.add_argument(
         "--out",
         required=True,
         help="Output markdown path, e.g., ./out/investment_report.md",
@@ -68,6 +86,8 @@ def main(argv: list[str] | None = None) -> int:
     insights = _maybe_load(ListingInsights, args.insights)
     thesis = _maybe_load(InvestmentThesis, args.thesis)
     media = _maybe_load(MediaInsights, args.media_insights)
+    media_report = _maybe_load(MediaReport, args.media_report)
+    provenance = _maybe_load(RunProvenance, args.provenance)
 
     # Write report
     out_path = Path(args.out)
@@ -83,6 +103,8 @@ def main(argv: list[str] | None = None) -> int:
         forecast=forecast,
         thesis=thesis,
         media_insights=media,
+        media_report=media_report,
+        provenance=provenance,
     )
 
     if args.title:

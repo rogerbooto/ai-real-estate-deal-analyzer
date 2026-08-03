@@ -45,11 +45,15 @@ python -m src.cli.report_cli \
   --insights data/examples/insights.json \
   --thesis data/examples/thesis.json \
   --media-insights data/examples/media.json \
+  --media-report data/examples/media_report.json \
+  --provenance data/examples/provenance.json \
   --out out/investment_report.md
 ```
 
 * `--forecast` (required): `FinancialForecast` JSON.
 * `--insights`, `--thesis`, `--media-insights` (optional): `ListingInsights`, `InvestmentThesis`, `MediaInsights` JSON.
+* `--media-report` (optional): `MediaReport` JSON (`src/core/reports/report_models.py`) — renders the **Photo Coverage** section. Distinct from `--media-insights`, which drives the file-level **Media Overview** section.
+* `--provenance` (optional): `RunProvenance` JSON (`src/schemas/models.py`) — renders the pipeline-facts rows of the **Run Provenance** appendix. This CLI only renders already-computed JSON artifacts; it does not itself pick an orchestration engine, run Market Scenarios, or run vision tagging, so it cannot truthfully *construct* a `RunProvenance` describing those choices. Point it at the provenance file emitted by the run that produced the other artifacts (e.g. `main.py`'s) rather than fabricating one — an absent `--provenance` simply omits those rows (the appendix header and valuation-knob rows still render, since those apply to every run).
 * `--title`: override the report H1.
 * Delegates to `src.core.reports.generator.write_report()`.
 
@@ -77,7 +81,7 @@ python -m src.cli.advisor_cli --glob "data/sample_listings/*" --save-artifacts -
 ## Test Strategy
 
 * `tests/integration/test_advisor_cli_dir_mode.py` — advisor directory discovery & ranking.
-* `tests/integration/test_report_cli_minimal.py`, `test_report_cli_media.py`, `test_report_cli_errors.py` — report CLI paths.
+* `tests/integration/test_report_cli_minimal.py`, `test_report_cli_media.py`, `test_report_cli_errors.py`, `test_report_cli_media_report_and_provenance.py` — report CLI paths.
 * `tests/integration/test_listing_ingest.py`, `tests/listing/test_ingest.py` — ingestion flows.
 
 Run:
