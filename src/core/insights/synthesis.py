@@ -7,7 +7,9 @@ Inputs:
   - PhotoInsights    : room counts, amenity booleans, quality scores
 
 Output:
-  - ListingInsights  : address (guaranteed non-empty), amenities, condition_tags, defects, notes
+  - ListingInsights  : address (guaranteed non-empty), stated facts (title, price, sqft,
+                       bedrooms, bathrooms, year_built - passed through from the normalized
+                       listing, None when not stated), amenities, condition_tags, defects, notes
 
 Design goals
 ------------
@@ -172,20 +174,42 @@ def _notes_from(listing: ListingNormalized, photos: PhotoInsights) -> list[str]:
 
 
 # ----------------------------
-# Public API
+# Stated-fact passthrough
 # ----------------------------
+
+# Fields on ListingInsights that we compute ourselves (via the helpers above) rather
+# than copy verbatim from ListingNormalized. "address" and "notes" happen to exist on
+# both models but with different semantics/types there (address is resolved with
+# fallbacks; notes is a derived list vs. a raw string) so they must stay excluded.
+_COMPUTED_INSIGHT_FIELDS = frozenset({"address", "amenities", "condition_tags", "defects", "notes"})
+
+
+def _stated_facts_from(listing: ListingNormalized) -> dict[str, object]:
+    """
+    Carry every "stated fact" straight through from the normalized listing to
+    ListingInsights: any field whose name is shared by both schemas (title, price,
+    sqft, bedrooms, bathrooms, year_built today) and isn't one of the fields we derive
+    ourselves. Computed as a set intersection - rather than hand-listing the field
+    names - so that a future field added with the same name to both schemas flows
+    through automatically instead of being silently dropped by this transform.
+    """
+    shared = (set(ListingInsights.model_fields) & set(ListingNormalized.model_fields)) - _COMPUTED_INSIGHT_FIELDS
+    return {name: getattr(listing, name) for name in shared}
 
 
 def synthesize_listing_insights(listing: ListingNormalized, photos: PhotoInsights) -> ListingInsights:
     """
     Deterministically construct ListingInsights:
       • address: always non-empty (resolver fallback)
+      • stated facts (title/price/sqft/bedrooms/bathrooms/year_built): passed through
+        verbatim from the normalized listing; None when not stated/parsed
       • amenities: merged from listing + photos
       • condition_tags: derived from photo quality flags (thresholded)
       • defects: (placeholder for future wired signals; empty for now)
       • notes: compact, human-friendly rollup
     """
     address = _resolve_address(listing)
+    stated_facts = _stated_facts_from(listing)
     amenities = _amenities_from(listing, photos)
     condition = _condition_tags_from(photos)
     defects: list[str] = []  # keep empty until wired to explicit signals
@@ -207,4 +231,5 @@ def synthesize_listing_insights(listing: ListingNormalized, photos: PhotoInsight
         condition_tags=condition,
         defects=defects,
         notes=notes,
+        **stated_facts,
     )
