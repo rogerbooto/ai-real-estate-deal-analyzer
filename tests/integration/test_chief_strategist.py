@@ -152,3 +152,78 @@ def test_thesis_buy_mixed_pass_buckets():
         assert isinstance(thesis.rationale, list) and len(thesis.rationale) > 0
         if thesis.verdict != "BUY":
             assert len(thesis.levers) > 0  # should suggest actions
+
+
+# ---------------------------------------------------------------------------
+# Cap-rate floor guardrail (Mission 2 / F1)
+#
+# The engine emits "cap rate below floor" when the purchase cap breaches
+# `MarketAssumptions.cap_rate_floor`; the strategist consumes that warning as its
+# sixth DECLINE input. These tests pin the end-to-end signal: engine warning ->
+# `no_cap_floor_breach` -> rationale line -> lever. They turn RED if the engine
+# stops emitting the warning or the strategist stops matching it.
+# ---------------------------------------------------------------------------
+
+RESPECTS_FLOOR = "Purchase cap rate respects the floor policy."
+BREACHES_FLOOR = "Purchase cap rate breaches the configured floor."
+
+
+def _inputs_with_floor(cap_rate_purchase: float | None, cap_rate_floor: float | None) -> FinancialInputs:
+    """`_inputs_good()` (a clean BUY) with only the cap policy varied."""
+    good = _inputs_good()
+    return good.model_copy(
+        update={
+            "market": MarketAssumptions(
+                cap_rate_purchase=cap_rate_purchase,
+                cap_rate_floor=cap_rate_floor,
+                cap_rate_spread_target=0.015,
+            )
+        }
+    )
+
+
+def test_cap_floor_breach_drives_breach_rationale_and_lever():
+    """A purchase cap below an explicit floor must reach the thesis as a breach."""
+    forecast = forecast_financials(_inputs_with_floor(cap_rate_purchase=0.04, cap_rate_floor=0.05))
+    thesis = synthesize_thesis(forecast)
+
+    assert "cap rate below floor" in forecast.warnings
+    assert BREACHES_FLOOR in thesis.rationale
+    assert RESPECTS_FLOOR not in thesis.rationale
+    # The breach is a live verdict input, so this deal can no longer be a BUY.
+    assert thesis.verdict != "BUY"
+    assert "Address: cap rate below floor" in thesis.levers
+
+
+def test_cap_floor_respected_keeps_the_positive_rationale():
+    """At or above the floor, the reassuring line is a true claim, not a default."""
+    forecast = forecast_financials(_inputs_with_floor(cap_rate_purchase=0.05, cap_rate_floor=0.05))
+    thesis = synthesize_thesis(forecast)
+
+    assert not any("below floor" in w.lower() for w in forecast.warnings)
+    assert RESPECTS_FLOOR in thesis.rationale
+    assert BREACHES_FLOOR not in thesis.rationale
+
+
+def test_no_floor_policy_never_breaches():
+    """`cap_rate_floor=None` means no policy configured — never a breach."""
+    forecast = forecast_financials(_inputs_with_floor(cap_rate_purchase=0.01, cap_rate_floor=None))
+    thesis = synthesize_thesis(forecast)
+
+    assert not any("below floor" in w.lower() for w in forecast.warnings)
+    assert RESPECTS_FLOOR in thesis.rationale
+
+
+def test_cap_floor_breach_plus_weak_dscr_forces_decline():
+    """
+    The strategist's two-input DECLINE shortcut (`cap-floor breach AND DSCR fail`) was
+    unreachable while the engine never emitted the warning. This pins it as live.
+    """
+    weak = _inputs_poor()  # DSCR well below 1.20, cap floor 0.055 breached
+    forecast = forecast_financials(weak)
+    thesis = synthesize_thesis(forecast)
+
+    assert "cap rate below floor" in forecast.warnings
+    assert forecast.years[0].dscr < 1.20
+    assert thesis.verdict == "DECLINE"
+    assert BREACHES_FLOOR in thesis.rationale
