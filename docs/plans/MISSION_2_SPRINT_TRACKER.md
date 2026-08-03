@@ -19,13 +19,26 @@ summary + rows), never partial. Date every gate decision._
 > Every subagent prompt issued in this mission MUST carry the GRAPHIFY CONTRACT verbatim (see the
 > handoff). Reachability/blast claims cite `graphify affected` but are confirmed against the file.
 
+## Cost routing (kickoff, 2026-08-03)
+
+Applied the planner's proposed routing table **directly** rather than spawning
+`staff-cost-aware-model-router`: that agent's own charter says to invoke it only for *ambiguous*
+calls, policy review, or spend post-mortems, and the planner's per-task proposal is unambiguous and
+already recorded in the rows below. Spawning it to re-confirm an unambiguous table would be pure
+cost. Tier→model mapping used: **capable = opus · standard = sonnet · cheap = haiku.** Each row's
+"Agent → tier" column records the actual dispatch. Revisit only if a task turns out mis-tiered (a
+cheap agent struggling, or a capable agent doing mechanical work) — log that here if it happens.
+
 ## Status legend
 `TODO` · `IN-PROGRESS` · `BLOCKED` (needs an OPD or a prior gate) · `REVIEW` (agent says done,
 orchestrator verifying) · `DONE` (verified inline) · `DEFERRED`
 
 ## Overall progress
-- Tasks: 3 / 28 DONE · 0 IN-PROGRESS · 0 BLOCKED · 25 TODO
-- Gates cleared: 0 / 5 (Gate 0, 1, 2, 3, Mission)
+- Tasks: 9 / 28 DONE (one SCOPED — see 0.1) · 0 IN-PROGRESS · 0 BLOCKED · 19 TODO
+- Gates cleared: 0 / 5 — **Gate 0 awaiting Roger only** (code-reviewer APPROVE, finance-interp PASS,
+  guardian NO VETO with M1+M2 satisfied; two open questions for Roger, see below)
+- **Open questions for Roger at Gate 0:** (1) lxml floor `>=5.0.0` vs `>=6.1.0` (CVE-2026-41066,
+  unreachable here); (2) confirm the demo report deliberately loses `investment_analysis.md:89`
 - Open product decisions outstanding: **0** — all four CLOSED by Roger 2026-08-03 (see ledger below)
 
 ## Wave summary
@@ -34,7 +47,7 @@ orchestrator verifying) · `DONE` (verified inline) · `DEFERRED`
 | --- | --- | --- | --- | --- | --- |
 | Sync | Wave Sync (mission-zero commit) | 2 | 2 | **DONE** 2026-08-03 (mission-zero = `6147839`, already landed) | — |
 | Branch | Wave Branch | 1 | 1 | **DONE** 2026-08-03 | — |
-| 0 | Truth (Tier 0 + deps) | 5 | 0 | TODO (F1 = wire into engine, re-baselines goldens) | Gate 0 |
+| 0 | Truth (Tier 0 + deps) | 5 | 5 | **DONE** 2026-08-03 — all five committed (`705149c`, `2dd36bc`, `5a061aa`, `6fce278`). 0.1 closure scoped to CLI flags (guardian M1). | **Gate 0: Roger only** |
 | 1 | Wiring + anti-regression guard | 5 | 0 | TODO | Gate 1 |
 | 2 | CLI honesty + docs | 10 | 0 | TODO | Gate 2 |
 | 3 | Disposition (wire-first) | 3 | 0 | TODO | Gate 3 |
@@ -55,11 +68,88 @@ orchestrator verifying) · `DONE` (verified inline) · `DEFERRED`
 ## Wave 0 — Truth (Tier 0 + dependency hygiene)
 | ID | Task | Finding | Agent → tier | Status |
 | --- | --- | --- | --- | --- |
-| 0.1 | Fix config/asset pairing so a lone `--listing`/`--photos` cannot inherit the default bundle's financials (loud-fail or explicit pairing) + RED-on-revert test | F2 | python-eng + finance-interp → capable | TODO |
-| 0.2 | **F1 (OPD-2 = WIRE):** emit a real "cap rate below floor" warning in `run_financial_model` when purchase cap < `cap_rate_floor`; `chief_strategist` consumes the real signal (its `no_cap_floor_breach` DECLINE input goes live). **Finance-core carve-out — 16 prod + 25 test blast; MOVES every golden number.** Regenerate goldens + **human-review** the new values (must reflect only the added warning); confirm anti-regression tests still RED on true regressions. + RED-on-revert test | F1 | python-eng + finance-interp → capable | TODO |
-| 0.3 | Declare `lxml` in `requirements.txt` (belt-and-suspenders; severity downgraded) | F7 | security-eng → std | TODO |
-| 0.4 | Replace the silent render swallow (`html_fetcher.py:336-337`) with a warning/signal; declare `playwright` as optional | F8 | security-eng → std | TODO |
-| 0.5 | Doc-note `onnxruntime` as an optional opt-in provider dep (no code change) | F9 | docs-maintainer → cheap | TODO |
+| 0.1 | Fix config/asset pairing so a lone `--listing`/`--photos` cannot inherit the default bundle's financials (loud-fail or explicit pairing) + RED-on-revert test | F2 | python-eng → capable (opus) | **DONE (SCOPED)** 2026-08-03 — committed `5a061aa`. Loud-fail chosen. **Closure scoped to CLI flags only; the `AIREAL_LISTING`/`AIREAL_PHOTOS` env vector remains OPEN** (guardian M1) — see defect #3. |
+| 0.2 | **F1 (OPD-2 = WIRE):** emit a real "cap rate below floor" warning in `run_financial_model` when purchase cap < `cap_rate_floor`; `chief_strategist` consumes the real signal (its `no_cap_floor_breach` DECLINE input goes live). **Finance-core carve-out — 16 prod + 25 test blast; MOVES every golden number.** Regenerate goldens + **human-review** the new values (must reflect only the added warning); confirm anti-regression tests still RED on true regressions. + RED-on-revert test | F1 | python-eng → capable (opus) | **DONE** 2026-08-03 — committed `705149c`. Orchestrator-verified (see 0.2 record below). **Charter premise overturned: zero goldens moved.** |
+| 0.3 | Declare `lxml` in `requirements.txt` (belt-and-suspenders; severity downgraded) | F7 | security-eng → std (sonnet) | **DONE** 2026-08-03 — committed `2dd36bc`. 8 unguarded `BeautifulSoup(..., "lxml")` sites confirmed. **Open Gate 0 decision for Roger: the `>=5.0.0` floor admits lxml < 6.1.0 (CVE-2026-41066); unreachable here but see record below.** |
+| 0.4 | Replace the silent render swallow (`html_fetcher.py:336-337`) with a warning/signal; declare `playwright` as optional | F8 | security-eng → std (sonnet) | **DONE** 2026-08-03 — committed `2dd36bc`. **Two** swallow sites found and fixed, not one. `playwright` declared as an optional `render` extra, not runtime-required. RED-on-revert reproduced by the orchestrator. |
+| 0.5 | Doc-note `onnxruntime` as an optional opt-in provider dep (no code change) | F9 | docs-maintainer → cheap (haiku) | **DONE** 2026-08-03 — verified inline (see below). |
+
+### 0.2 (F1) — orchestrator verification record, 2026-08-03 · commit `705149c`
+
+**The charter's central premise for F1 is FALSE and Gate 0 must record it as resolved, not open.**
+Charter line 121 and tracker row 0.2 both state this fix "moves every golden number in the suite".
+**It moves none.** Evidence, independently reproduced by the orchestrator (not taken from the agent):
+
+| Check | Method | Result |
+| --- | --- | --- |
+| Finance carve-out is minimal | `git diff src/core/finance/` | **Exactly** the 5-line hunk, nothing else |
+| Schema untouched | `git diff --stat src/schemas/models.py` | Empty |
+| No golden rewritten | `git diff --numstat tests/` | `test_chief_strategist.py` **+75 / −0** — pure append, zero expectations edited |
+| **RED-on-revert + no-goldens-moved, one experiment** | Reverted the hunk to HEAD, ran the **full** suite | **Only the 5 new tests fail.** Zero pre-existing tests fail → nothing was re-baselined. Restored → green |
+| Suite | `pytest` | 323 collected, exit 0 (baseline 310 + 12 F1 + 1 F8) |
+| Coverage | | 81.89% (baseline 81.87%) |
+| Demo output unchanged | `python main.py` | Emits no breach warning; 36 Kelly cap 6.35% vs 5% floor |
+
+Why the charter was wrong: the suite had **no coverage of the sub-floor regime at all** — 1 of 3797
+engine invocations breaches, and that test asserts only `verdict == "DECLINE"` and `len(levers) > 0`,
+both already true. That absence of coverage is *why* the dead code survived unnoticed. The 12 new
+tests are the first coverage of it. The finance-interpreter's Gate 0 job is therefore **not** to
+human-review moved numbers (there are none) — it is to confirm the warning's semantics and the
+strategist consequence below.
+
+**Flagged for 3.1a, deliberately NOT changed:** with the DECLINE input now live, a floor breach
+combined with a DSCR failure reaches DECLINE at **2** fails via the `pass_condition` shortcut
+(`chief_strategist.py:158`), where every other DECLINE path needs ≥3. Confirmed by reading the code:
+`num_fails >= 3 or ((not no_cap_floor_breach) and (not dscr_ok))`. Also confirmed
+`REQUIRE_POSITIVE_CF_ALL = False` (`:40`), so there are **5** live verdict inputs, not 6. 3.1a should
+inherit this threshold deliberately rather than by accident.
+
+**Also logged for Wave 3 (OPD-4):** the floor *value* is still rendered nowhere. A reader sees
+"cap rate below floor" with no number to act on. Correctly out of scope for a minimum-diff
+finance-core carve-out; it is exactly OPD-4 territory.
+
+### 0.3/0.4 (F7/F8) — orchestrator verification record, 2026-08-03 · commit `2dd36bc`
+
+- **F8 RED-on-revert independently reproduced:** reverted `html_fetcher.py`, both new tests failed
+  with `DID NOT WARN`; restored, green. The fix degrades rather than raising and leaves `strict_dom`
+  behaviour unchanged.
+- **Scope expansion accepted:** the agent found and fixed a **second**, structurally identical
+  swallow site (the CAPTCHA/WAF branch) beyond the one the charter documents. Accepted — same defect,
+  same trigger; fixing only the documented one would have left the same lie reachable by another
+  route. It was flagged rather than silently widened.
+- **Charter path correction:** F8's file is `src/core/fetch/html_fetcher.py`, **not**
+  `src/core/ingest/html_fetcher.py` as the charter states. The cited lines 336-337 were exact once
+  the right path was found.
+
+**⚠ OPEN GATE 0 DECISION FOR ROGER — lxml floor.** The agent researched CVE-2026-41066 (XXE via
+`iterparse()`/`ETCompatXMLParser()`, CVSS 7.5, affects lxml **< 6.1.0**) and correctly concluded it
+does not apply here. Orchestrator verified both halves: the codebase **never** calls either API
+(grep across `src/`, `main.py`, `tests/` → no hits), **and** the installed lxml is **6.0.2, which is
+itself in the vulnerable range**, admitted by the new `>=5.0.0` floor. So the declaration is honest
+today but pins a floor that permits a known-vulnerable version — and declaring lxml explicitly makes
+that *our* choice rather than a transitive accident. **Options:** (a) keep `>=5.0.0` (unreachable, no
+upgrade churn), or (b) raise to `>=6.1.0` (defence-in-depth; needs a resolve check against the
+`python-docx`/crewai tree). **Recommendation: (b) if it resolves cleanly, else (a) with this note as
+the record.** Not taken silently. The orchestrator trimmed the 5-line CVE comment out of
+`requirements.txt` to a one-line house-style note and moved the analysis into the commit message,
+per binding constraint 6 ("justified in the commit").
+
+### 0.5 (F9) — orchestrator verification record, 2026-08-03
+Agent edited `README.md` (+23) and `src/core/README.md` (+8) only — no `.py`, no `requirements.txt`,
+no `src/core/finance/`. Every behavioural claim in the new prose was checked against the code:
+
+| Claim in the doc | Verified against | Verdict |
+| --- | --- | --- |
+| ONNX is Python-API-only, never invoked by a CLI | `grep` for callers of `register_onnx_provider` | **TRUE, and stronger than claimed** — there are *zero* callers anywhere, including tests |
+| `register_onnx_provider()` raises a clear error if `onnxruntime` is missing | `make_onnx_provider` (`amenities_defects.py:152`) constructs `_OnnxModel` **eagerly** → `import onnxruntime` (`:70`) → `RuntimeError("onnxruntime not available; install it to use provider=onnx")` (`:71-72`) | **TRUE** — raises at registration, not deferred to first use |
+| Signature `register_onnx_provider(model_path, labels_path)` | `amenities_defects.py:161-165` | **TRUE** |
+| Pass `provider="onnx"` to `tag_amenities_and_defects()` / `detect_from_image()` | `runner.py:214-219`, `amenities_defects.py:451-456` | **TRUE** (both keyword-only) |
+| Cross-link anchor `#dependencies--optional-providers` | `src/core/README.md:113` `## Dependencies / Optional Providers` | **TRUE** — anchor resolves |
+
+**Follow-up logged for 2.10 (not fixed here — F9 was correctly barred from `.py`):** the docstring at
+`src/core/cv/amenities_defects.py:167` says *"Call once during app/CLI init"*, but no CLI (and in fact
+no caller at all) ever does. That is a false in-code claim of exactly the class this mission targets.
+Fix the docstring during Wave 2 living-doc reconciliation.
 
 ## Wave 1 — Wiring + anti-regression guard
 | ID | Task | Finding | Agent → tier | Status |
@@ -102,8 +192,155 @@ orchestrator verifying) · `DONE` (verified inline) · `DEFERRED`
 | I.1 | Re-sync, re-run battery, `--no-ff` merge to `main`, reconcile+push the 7-commit origin delta (Roger's timing); record merge sha | release-coordinator → std | TODO (Roger gate) |
 
 ## Gate decision records
-- **Gate 0 (Truth):** _pending._ No blockers (OPD-2 resolved = wire F1 into engine; Gate 0 review
-  must include the re-baselined golden numbers).
+- **Gate 0 (Truth):** _in progress 2026-08-03._
+  - **code-reviewer → APPROVE, zero blocking findings** (commits `705149c`, `2dd36bc`). Verified
+    independently rather than asserted: finance-core diff is exactly 5 insertions and nothing else;
+    `models.py` diff empty; **units confirmed consistent** (both sides fractions — no percent-scale
+    literal at any call site, the severe-bug candidate); strict `<` correct against the field's own
+    "flag deals **below** this threshold" wording; hyphenated neighbour still correctly does not
+    match the consumer; `stacklevel=2` correct; `RuntimeWarning` **is** visible by default (not in
+    Python's default-ignored set — checked in a fresh interpreter); tests hit no network.
+  - **The "re-baselined goldens" review item is RESOLVED, not open** — there are no moved goldens
+    (see the 0.2 record). The reviewer re-derived this from the test factory: baseline cap ≈ 7.4-7.5%
+    vs the 0.05 default floor, so the suite never crosses the threshold.
+  - Two non-blocking follow-ups accepted as backlog, not fixed here (charter YAGNI): the stringly-typed
+    warning coupling (2 producers → 1 consumer; a constant/enum is premature at n=3), and the
+    `strict_dom` bypass below.
+  - **finance-interpreter → PASS on the math, with ONE BLOCKING honesty item (B1, below).** Certified:
+    Year-1 vacancy/credit-adjusted NOI over purchase price is the right basis; **units clean at every
+    call site** (no percent-valued cap rate anywhere in `src/`, `data/`, `tests/`); strict `<` correct
+    and consistent with all four sibling guardrails (`>=`); `None` handled per the field's contract;
+    negative cap (−0.27%) compares soundly. Ran a sensitivity sweep — no single perturbation
+    (occ −5pts, rent −10%, opex +10%, price +10%) brings 36 Kelly below its 5.00% floor.
+  - **founder-proxy (B1 remedy) → DECIDED:** (a) drop the positive floor claim **now**, (b) restore it
+    in Wave 3 with OPD-4 in the house style naming both numbers (*"Purchase cap rate is 6.35%
+    (≥ the 5.00% floor you set)."*), and invert **both** pinning tests to assert silence rather than a
+    string. Grounded in the charter's own statement of F1 (`:75` — *"'respects the floor policy'
+    always prints"*), so this **finishes** F1 rather than amending OPD-2. Implemented + verified,
+    commit `6fce278`.
+  - **guardian VETO → APPROVE WITH MODIFICATIONS (NO VETO)** at `6fce278`. Independently re-derived
+    rather than accepting the record: reproduced B1 both pre- and post-remedy; proved **three** of the
+    four RED-on-revert claims itself in an isolated worktree (F1 engine hunk, F2 call site, and the B1
+    `_flag` line); confirmed the finance diff is 5 insertions and the `src/schemas/` diff is empty;
+    confirmed two consecutive `main.py` runs byte-identical with a one-line delta. Ruled B1 **would
+    have been a VETO** had `6fce278` not landed — *"aggravated, not mitigated, by F1: wiring the engine
+    lent the unconditional claim the appearance of having been checked."* Also cleared licence posture
+    (lxml BSD-3, playwright Apache-2.0 — both permissive, compatible with the dual-licence stance).
+  - **Roger → PENDING.** Gate 0 may proceed to him: **M1 and M2 are satisfied** (below).
+
+**Guardian's binding modifications:**
+| # | Condition | Binds | Status |
+| --- | --- | --- | --- |
+| **M1** | F2 may not be recorded as CLOSED while the env vector reproduces it; scope the closure language | **Gate 0** | ✅ **DONE** — row 0.1 now reads DONE (SCOPED); defect #3 rewritten, including the correction of my own overstatement |
+| **M2** | `investment_analysis.md` is untracked *and un-gitignored* and still contains the removed false line — a careless `git add -A` would commit it | **Gate 0** | ✅ **DONE** — added to `.gitignore` |
+| **M3** | The floor threshold must reach the report — a **hard Wave 3 exit criterion, not guidance**. The breach line names neither the cap nor the floor while every sibling line names both | Gate 3 / OPD-4 | Carried |
+| **M4** | The engine/strategist spread contradiction must close **in this mission**, not slip to a follow-on — OPD-1 already owns the reconciliation | Gate 3 / 3.1a | Carried |
+| **M5** | `strict_dom` bypass — keep the logged entry live, *"do not let it decay into folklore"*; timing is Roger's call | Gate 2 or follow-on | Carried |
+
+**Guardian advisories (non-blocking):** F8's warning lead clause always says *"JS rendering failed"*
+even in the nested `strict_dom` path where the render **succeeded** and the DOM parse failed (true
+cause is still carried via `type(exc).__name__`) — worth a word-change when M5 is addressed. F2's
+refusal message names `DEFAULT_INPUTS` before the `.exists()` check, so on a checkout with the bundle
+deleted it names a missing file (unreachable in practice, cosmetic).
+
+#### 🔴 B1 — BLOCKING (Gate 0): the false claim is only HALF fixed
+`cap_rate_floor` defaults to `None` (`models.py:113`), so any config omitting it still prints
+**"Purchase cap rate respects the floor policy."** — a claim about a policy that does not exist.
+**Orchestrator-reproduced directly:**
+
+    cap_rate       : 0.01   (a 1% cap rate)
+    cap_rate_floor : None   <-- no floor policy configured at all
+    rationale      : "Purchase cap rate respects the floor policy."
+
+F1's own finding was *"'respects the floor policy' always prints"*. F1 closed the **configured** case
+(all shipped inputs incl. 36 Kelly) and left the **default** case live — and the new test
+`tests/integration/test_chief_strategist.py:208-214` now **asserts** the false line, pinning it.
+
+Structural constraint: `synthesize_thesis` receives only `FinancialForecast` and infers the breach
+from a substring match on `forecast.warnings`; the forecast does not carry `cap_rate_floor`, so the
+strategist **cannot** distinguish "no floor" from "floor respected". Remedy is therefore a product
+call — `principal-founder-proxy` is deciding between (a) drop the positive claim, (b) plumb the floor
+value through (composes with OPD-4), (c) defer + unpin the test.
+
+#### Finance review — guidance for later waves (recorded, not acted on)
+- **For 3.1a — the 2-input DECLINE shortcut is weaker than it looks.** Because
+  `DSCR ≈ cap / (LTV × debt_constant)` and the measured annual debt constant is 0.0578–0.0727 at
+  4–6%, DSCR ≥ 1.20 requires cap ≥ 5.85% @75% LTV. **Every shipped input sets floor = 0.05**, so any
+  deal breaching that floor at ≥70% leverage already fails DSCR — the "AND DSCR" conjunct is
+  **near-tautological at shipped settings**, making it behave as a *single*-input DECLINE. Also
+  `MIN_DSCR_Y1 = 1.20` is a lender-preference threshold, not the cannot-cover line (1.00), so the
+  code comment overstates it. And there is no materiality band: a measured case flips CONDITIONAL →
+  DECLINE on a **0.0002 percentage-point** breach despite +$3,385 Y1 CF and 17.37% IRR.
+  **Recommendation for 3.1a:** keep the conjunction but make both legs material — breach ≥ 25–50 bp
+  **and** `DSCR < 1.00`.
+- **For OPD-4 — rendering the floor is NOT a template edit.** `generate_report`
+  (`generator.py:916-926`) receives `FinancialForecast` but **not** `FinancialInputs`, and
+  `synthesize_thesis` likewise. The floor value is out of scope at *both* render sites, so it needs
+  an additive kwarg. Composes with B1 remedy (b).
+- **For OPD-4 — `RefinancePlan.market_cap_rate` (`models.py:101-103`) documents a purchase fallback
+  the engine does not implement.** If OPD-4 implements it, it silently changes *what the floor is
+  tested against* — OPD-4 must re-review the F1 comparison, not just render a field.
+- **Negative NOI deserves distinct treatment.** With NOI(Y1) < 0 the engine zeroes `est_value` for
+  all 10 years (`engine.py:179`) and `irr()` returns `None` coalesced to `0.0` (`:296`), so the report
+  states "Projected IRR (10y) is 0.00%" — reading as *break-even* when it is *undefined*. Pre-existing
+  false precision, larger than the cap-rate wording. Recommend a distinct NOI ≤ 0 signal.
+
+### Newly-discovered defect #2 — logged to backlog, NOT fixed in Mission 2
+**The engine and the strategist disagree about the spread threshold, and the report can contradict
+itself.** The engine warns using the *input* `mkt.cap_rate_spread_target` (`engine.py:302`) while
+`chief_strategist.MIN_SPREAD` is **hardcoded 0.015** (`:38`). Finance-interpreter reproduced: with
+`cap_rate_spread_target=0.030`, cap 7.0%, rate 5.0% → the Warnings section says *"cap-rate spread
+below target"* while the rationale says *"Cap-rate spread meets target at 2.00% (≥ 1.50%)"*, verdict
+**BUY** — and because BUY yields empty levers, the warning is never explained. Exactly the F1 class,
+still live. Belongs with OPD-1's threshold reconciliation (3.1a).
+
+### Newly-discovered defect #3 — logged, NOT fixed in Mission 2 · **F2 IS THEREFORE NOT FULLY CLOSED**
+**`AIREAL_LISTING` / `AIREAL_PHOTOS` reach the same defect F2 closes, through a channel F2's guard
+cannot see.** `src/inputs/inputs.py:281-287` sets `updates["listing"]`/`updates["photos"]` inside
+`InputsLoader.load`, i.e. **after** `resolve_config_path` has already returned. With no `--config`,
+`args.listing is None`, so F2's guard never fires and the run falls through to the demo bundle.
+
+**Orchestrator-reproduced** (`AIREAL_LISTING=<other> python main.py`, no `--config`):
+
+    # Investment Analysis – 12 Elsewhere Street, Moncton NB …
+    **As listed:** List price $1,250,000.00 · 3 bd / 2 ba · 4,000 sq ft
+    | Inputs file | data/sample_listings/36_kelly_moncton/inputs.json | `--config` |
+
+A $1.25M property underwritten against a $399,900 deal — verbatim the F2 defect.
+
+**Correction of record (guardian, M1).** An earlier revision of this tracker claimed the env vars do
+this "even with an explicit `--config`". **That overstated it.** `--config mine.json` +
+`AIREAL_LISTING=other.txt` is the same user-chosen pairing that F2 deliberately permits at the CLI
+(pinned by `test_listing_with_explicit_config_is_a_legitimate_pairing`) — not a new defect. The real
+defect is **env-listing with no `--config`**, which is what reproduces above. Recorded accurately
+rather than left overstated, in a mission about not overstating things.
+
+**Partial mitigation, recorded for accuracy:** the Run Provenance appendix *does* name the inputs file
+(see the third line above), so the run is partially self-disclosing — unlike the pure-CLI form of F2.
+
+**Consequence for the record (guardian M1, binding):** **F2 must NOT be reported as CLOSED.** Its
+closure is scoped to **CLI flags only; the env vector remains open.** Closing the env vector means
+constraining a documented env contract (`.env.example:29-30`, `src/inputs/README.md:67-68`,
+`src/orchestrators/README.md:58`) pinned by `tests/test_env_example.py`, so it is a deliberate
+follow-on, not a silent omission. `python-dotenv` is a declared dependency, so a VS Code `.env` can
+set these invisibly.
+  - Minor: the `705149c` message says "12 tests"; the true count of *new* test functions is 11
+    (12 collected in that file including 1 pre-existing). Noted, not amended — the commit is signed
+    and the inaccuracy is immaterial.
+
+### Newly-discovered defect — logged to backlog, NOT fixed in Mission 2
+**`strict_dom` is silently bypassed for rendered-HTML DOM-parse failures.**
+`src/core/fetch/html_fetcher.py:350-359` (and the identical `:262-271` CAPTCHA branch): the inner
+`raise InvalidHtmlError(...)` guarded by `if pol.strict_dom` at `:354-355` is nested **inside** the
+outer `try`, whose `except Exception as e` at `:356` catches it — so a caller who set
+`strict_dom=True` gets a warning and a raw fallback instead of the error they asked for. The RAW-path
+equivalent at `:333-335` is not nested and correctly propagates.
+
+Orchestrator-confirmed by reading the code. **Pre-existing** — F8 did not create it (the outer clause
+was previously a bare `except Exception:`), so `2dd36bc`'s "strict_dom behaviour is unchanged" claim
+is true. Not fixed here because it is outside the charter's validated finding set and the fix is a
+real behaviour change for `strict_dom` users (hard failure where they currently get a fallback), not
+a trivial correction. It is the same *class* as this mission's defects, so it belongs in a follow-on.
 - **Gate 1 (Wiring + guard):** _pending._
 - **Gate 2 (CLI + docs):** _pending._
 - **Gate 3 (Disposition):** _pending._ No blockers (OPD-1/3/4 resolved = wire-first; enforce the
