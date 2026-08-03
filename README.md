@@ -28,7 +28,7 @@ Report written to investment_analysis.md
 Thesis verdict: DECLINE
 ```
 
-> With no arguments, `main.py` underwrites the committed sample bundle at `data/sample_listings/36_kelly_moncton/` — a $399,900 legal up/down duplex in Moncton, NB. The bundle holds `listing.txt`, `photos/`, and `inputs.json` (financing, per-unit income, opex), so the listing, the photos, and the financials all describe the same deal. Pass `--config`, `--listing`, or `--photos` to point at your own.
+> With no arguments, `main.py` underwrites the committed sample bundle at `data/sample_listings/36_kelly_moncton/` — a $399,900 legal up/down duplex in Moncton, NB. The bundle holds `listing.txt`, `photos/`, and `inputs.json` (financing, per-unit income, opex), so the listing, the photos, and the financials all describe the same deal. To analyse your own, pass `--config` — and pass it *with* `--listing`/`--photos`, never instead of them: an asset flag on its own would be underwritten against the demo deal's price and rent roll, so the run refuses with an error rather than reporting your address above someone else's numbers.
 
 ### Demo Artifacts
 
@@ -262,7 +262,7 @@ You can run the full pipeline (Listing Analyst → Financial Forecaster → Chie
 # Run demo analysis
 python main.py
 
-# Or with explicit config/assets
+# Or with explicit config/assets (--listing/--photos require --config for the same property)
 python main.py --config data/sample_listings/36_kelly_moncton/inputs.json --out out.md --horizon 10 \
                --listing data/sample_listings/36_kelly_moncton/listing.txt --photos data/sample_listings/36_kelly_moncton/photos
 
