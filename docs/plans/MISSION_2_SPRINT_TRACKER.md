@@ -34,9 +34,9 @@ cheap agent struggling, or a capable agent doing mechanical work) — log that h
 orchestrator verifying) · `DONE` (verified inline) · `DEFERRED`
 
 ## Overall progress
-- Tasks: 9 / 28 DONE (one SCOPED — see 0.1) · 0 IN-PROGRESS · 0 BLOCKED · 19 TODO
-- Gates cleared: 0 / 5 — **Gate 0 awaiting Roger only** (code-reviewer APPROVE, finance-interp PASS,
-  guardian NO VETO with M1+M2 satisfied; two open questions for Roger, see below)
+- Tasks: 9 / 28 DONE (one SCOPED — see 0.1) · 3 IN-PROGRESS · 0 BLOCKED · 16 TODO
+- Gates cleared: **1 / 5 — ✅ Gate 0 PASSED 2026-08-03** (code-reviewer APPROVE · finance-interp PASS ·
+  guardian NO VETO, M1+M2 satisfied · **Roger signed off after reproducing the diff himself**)
 - **Open questions for Roger at Gate 0:** (1) lxml floor — **RESOLVED 2026-08-03: Roger said raise it
   and ensure it is secure.** Floor now `>=6.1.0`, env upgraded to 6.1.1, CVE **verified closed by
   test** (both vectors pointed at a local canary file; neither read it). Commit `b2f34f2`.
@@ -228,7 +228,23 @@ Fix the docstring during Wave 2 living-doc reconciliation.
     have been a VETO** had `6fce278` not landed — *"aggravated, not mitigated, by F1: wiring the engine
     lent the unconditional claim the appearance of having been checked."* Also cleared licence posture
     (lxml BSD-3, playwright Apache-2.0 — both permissive, compatible with the dual-licence stance).
-  - **Roger → PENDING.** Gate 0 may proceed to him: **M1 and M2 are satisfied** (below).
+  - **Roger → ✅ SIGNED OFF 2026-08-03. GATE 0 PASSED.** Roger rejected the abstract sign-off request
+    ("How am I supposed to validate that... how am I supposed to reproduce the thing that will
+    generate the data to compare?") — a fair challenge, and the orchestrator had been asking him to
+    approve a change it had never actually shown him. Remedied by generating both report versions
+    plus a no-floor-configured config, and handing him copy-pasteable reproduce commands. **He then
+    reproduced the diff independently and got the identical result:**
+
+        $ diff /tmp/before.md /tmp/after.md
+        89d88
+        <   - Purchase cap rate respects the floor policy.
+
+    Both Gate 0 questions resolved: **lxml floor raised to `>=6.1.0`** (his instruction: "raise it and
+    ensure it's secure" — CVE verified closed by canary test, `b2f34f2`), and **the demo report's
+    one-line loss confirmed by his own reproduction.**
+    **Process lesson for the remaining gates:** never ask Roger to confirm an output change without
+    first generating the before/after artifacts *and* the commands to regenerate them. He reads the
+    document; a diff hunk quoted in chat is not a reviewable artifact.
 
 **Guardian's binding modifications:**
 | # | Condition | Binds | Status |
