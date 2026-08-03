@@ -97,7 +97,7 @@ def _inputs_mixed() -> FinancialInputs:
 
 
 def _inputs_poor() -> FinancialInputs:
-    # Weak income → likely PASS
+    # Weak income → likely DECLINE
     return FinancialInputs(
         financing=FinancingTerms(
             purchase_price=520_000.0,
@@ -142,12 +142,12 @@ def test_thesis_buy_mixed_pass_buckets():
     for builder, expected in [
         (_inputs_good, "BUY"),
         (_inputs_mixed, "CONDITIONAL"),
-        (_inputs_poor, "PASS"),
+        (_inputs_poor, "DECLINE"),
     ]:
         forecast = forecast_financials(builder())
         thesis = synthesize_thesis(forecast)
 
-        assert thesis.verdict in {"BUY", "CONDITIONAL", "PASS"}
+        assert thesis.verdict in {"BUY", "CONDITIONAL", "DECLINE"}
         assert thesis.verdict == expected
         assert isinstance(thesis.rationale, list) and len(thesis.rationale) > 0
         if thesis.verdict != "BUY":

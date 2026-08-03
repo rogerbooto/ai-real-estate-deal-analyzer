@@ -5,7 +5,7 @@ Chief Strategist Agent (V1)
 Purpose
 -------
 Convert a deterministic FinancialForecast into an InvestmentThesis:
-  - Verdict: BUY | CONDITIONAL | PASS
+  - Verdict: BUY | CONDITIONAL | DECLINE
   - Rationale: human-readable bullet points citing the key metrics
   - Levers: actionable suggestions to improve the deal
 
@@ -103,7 +103,7 @@ def synthesize_thesis(forecast: FinancialForecast) -> InvestmentThesis:
       - No critical warnings (cap rate below explicit floor)
 
     Else if most but not all pass -> CONDITIONAL with suggested levers.
-    Else -> PASS with levers.
+    Else -> DECLINE with levers.
 
     Returns:
         InvestmentThesis with verdict, rationale, and levers.
@@ -154,14 +154,14 @@ def synthesize_thesis(forecast: FinancialForecast) -> InvestmentThesis:
     num_fails = sum(1 for f in fails if f)
 
     # Heuristic thresholds (tunable):
-    # - PASS if ≥3 critical items fail, OR cap-floor breach + DSCR fail together.
+    # - DECLINE if ≥3 critical items fail, OR cap-floor breach + DSCR fail together.
     pass_condition = num_fails >= 3 or ((not no_cap_floor_breach) and (not dscr_ok))
 
     if not any(fails):  # all pass
         verdict = "BUY"
         levers: list[str] = []
     elif pass_condition:  # many critical fails
-        verdict = "PASS"
+        verdict = "DECLINE"
         levers = _levers_for(forecast)
     else:  # some fail, some pass
         verdict = "CONDITIONAL"

@@ -12,11 +12,14 @@ from src.schemas.models import (
     MediaInsights,
     PurchaseMetrics,
     RefiEvent,
+    RunProvenance,
     ScenarioAnalysis,
     ScenarioMetricBand,
     ScenarioOutcome,
     YearBreakdown,
 )
+
+from .report_models import MediaReport
 
 
 def _fmt_currency(x: float) -> str:
@@ -112,9 +115,34 @@ def _render_header(insights: ListingInsights | None) -> str:
     """
     Render the report header with subject property summary.
     """
-    addr = insights.address if insights and insights.address else "Subject Property"
+    # address → inferred title → generic. The title fallback keeps a report identifiable when the
+    # listing's street line has no street type (e.g. "36 Kelly") and no address could be parsed.
+    addr = "Subject Property"
+    if insights:
+        addr = insights.address or insights.title or addr
 
     body = [f"# Investment Analysis – {addr}", ""]
+
+    # Stated facts from the listing copy. Rendered as a single line so a listing that states
+    # nothing adds nothing — these are the seller's claims, not computed figures, and every
+    # money number in the sections below comes from the finance engine instead.
+    if insights:
+        facts: list[str] = []
+        if insights.price is not None:
+            facts.append(f"List price {_fmt_currency(insights.price)}")
+        if insights.bedrooms is not None or insights.bathrooms is not None:
+            beds = f"{insights.bedrooms:g}" if insights.bedrooms is not None else "?"
+            baths = f"{insights.bathrooms:g}" if insights.bathrooms is not None else "?"
+            facts.append(f"{beds} bd / {baths} ba")
+        if insights.sqft is not None:
+            facts.append(f"{insights.sqft:,} sq ft")
+            if insights.price is not None and insights.sqft > 0:
+                facts.append(_glossary_link("ppsf", f"{_fmt_currency(insights.price / insights.sqft)}/sq ft"))
+        if insights.year_built is not None:
+            facts.append(f"built {insights.year_built}")
+        if facts:
+            body.append(f"**As listed:** {' · '.join(facts)}")
+            body.append("")
 
     # Amenities
     if insights and insights.amenities:
@@ -151,11 +179,11 @@ def _render_purchase_metrics(p: PurchaseMetrics) -> str:
     """
     lines = [
         _section("Purchase Metrics"),
-        f"- **Cap Rate (Y1):** {_fmt_pct(p.cap_rate)}",
-        f"- **Cash-on-Cash (Y1):** {_fmt_pct(p.coc)}",
-        f"- **DSCR (Y1):** {p.dscr:.2f}",
-        f"- **Annual Debt Service (Y1):** {_fmt_currency(p.annual_debt_service)}",
-        f"- **Acquisition Cash Outlay:** {_fmt_currency(p.acquisition_cash)}",
+        f"- **{_glossary_link('cap', 'Cap Rate')} (Y1):** {_fmt_pct(p.cap_rate)}",
+        f"- **{_glossary_link('coc', 'Cash-on-Cash')} (Y1):** {_fmt_pct(p.coc)}",
+        f"- **{_glossary_link('dscr', 'DSCR')} (Y1):** {p.dscr:.2f}",
+        f"- **Annual {_glossary_link('ds', 'Debt Service')} (Y1):** {_fmt_currency(p.annual_debt_service)}",
+        f"- **{_glossary_link('acq', 'Acquisition Cash Outlay')}:** {_fmt_currency(p.acquisition_cash)}",
         f"- **Cap Rate – Interest Spread:** {_fmt_pct(p.spread_vs_rate)}",
     ]
     return "\n".join(lines) + "\n"
@@ -282,6 +310,201 @@ def _render_media_overview(mi: MediaInsights | None) -> str:
 # -----------------------
 
 
+#: Glossary entries: (anchor id, term, expansion, definition-as-implemented).
+#
+# Each definition states what THIS engine computes, not the textbook general case — the two
+# diverge (see the amortization note), and a reader reconciling a number against the tables
+# needs the implemented formula. Keep in sync with src/core/finance/engine.py.
+_GLOSSARY: tuple[tuple[str, str, str, str], ...] = (
+    (
+        "gsi",
+        "GSI",
+        "Gross Scheduled Income",
+        "Annualized rent plus other income for every unit at full occupancy, before any vacancy or collection loss.",
+    ),
+    (
+        "goi",
+        "GOI",
+        "Gross Operating Income",
+        "GSI after economic vacancy and bad debt: `GOI = GSI × occupancy × bad_debt_factor`.",
+    ),
+    (
+        "opex",
+        "OPEX",
+        "Operating Expenses",
+        "The sum of all itemized annual operating costs. Excludes debt service, income tax, and capital expenditure.",
+    ),
+    ("noi", "NOI", "Net Operating Income", "`NOI = GOI − OPEX`. The property's income before financing — the basis for cap rate and DSCR."),
+    (
+        "ds",
+        "Debt Service",
+        "Annual principal + interest",
+        "Annual mortgage payment. Computed on **annual** periods (`payment = r × P ÷ (1 − (1+r)^−n)`, r annual, n in years), "
+        "which runs slightly above a real monthly-pay loan of the same rate and term.",
+    ),
+    (
+        "dscr",
+        "DSCR",
+        "Debt Service Coverage Ratio",
+        "`DSCR = NOI ÷ Debt Service`. Below 1.00 the property does not cover its own mortgage from operations.",
+    ),
+    (
+        "cap",
+        "Cap Rate",
+        "Capitalization Rate",
+        "`Cap Rate = NOI (Year 1) ÷ purchase price`, unless a cap rate is supplied explicitly in the inputs.",
+    ),
+    (
+        "coc",
+        "CoC",
+        "Cash-on-Cash Return",
+        "`CoC = Year 1 cash flow ÷ acquisition cash outlay`. Unlike cap rate, it is net of financing.",
+    ),
+    (
+        "acq",
+        "Acquisition Cash Outlay",
+        "Total cash to close",
+        "`down payment + closing costs + upfront CapEx reserve + mortgage insurance premium` "
+        "(the premium applies only when the down payment is below 20%).",
+    ),
+    (
+        "ltv",
+        "LTV",
+        "Loan-to-Value",
+        "`LTV = mortgage balance ÷ estimated value`. The 80% threshold is the conventional refinance-ready mark.",
+    ),
+    (
+        "irr",
+        "IRR",
+        "Internal Rate of Return",
+        "The discount rate at which the projected cash flows net to zero. The series is the acquisition cash outlay "
+        "(negative), each year's cash flow, any refinance cash-out, and terminal equity in the final year.",
+    ),
+    (
+        "em",
+        "Equity Multiple",
+        "Total return multiple",
+        "`sum of all cash returned ÷ acquisition cash outlay`, including terminal equity. Undiscounted — unlike IRR it ignores timing.",
+    ),
+    (
+        "te",
+        "Terminal Equity",
+        "Modeled exit proceeds",
+        "`max(0, 0.80 × final-year value − mortgage balance)`. A proxy for sale proceeds to the owner; no sale costs are modeled.",
+    ),
+    ("io", "IO", "Interest-Only", "A front period during which payments cover interest only and the balance does not amortize."),
+    (
+        "ppsf",
+        "$/sq ft",
+        "Price per square foot",
+        "List price ÷ stated finished area. Taken from the listing copy, not computed by the engine.",
+    ),
+)
+
+
+def _glossary_link(anchor: str, text: str) -> str:
+    """Link a term to its glossary entry. Anchors are explicit so links survive PDF export."""
+    return f"[{text}](#g-{anchor})"
+
+
+def _render_provenance(pipeline: RunProvenance | None) -> str:
+    """
+    Record the settings that shaped the numbers above.
+
+    Closes a real reproducibility gap: ``.env`` is gitignored and VS Code auto-loads it, so two
+    runs of the same command on the same inputs could disagree with nothing in either report
+    explaining why. A reader comparing two reports can now diff this block first.
+
+    The three valuation knobs are read from the SAME accessors that produced the valuation
+    tables, so this block cannot drift out of sync with the figures it describes. Everything the
+    generator cannot observe for itself arrives via ``pipeline``.
+    """
+    drift_bps = round(_cap_drift_per_year() * 10_000)
+    rows: list[tuple[str, str, str]] = [
+        ("Cap-rate drift", f"{drift_bps} bps/yr", "AIREAL_CAP_DRIFT_BPS"),
+        ("Baseline appreciation", _fmt_pct(_appreciation_rate()), "AIREAL_APPRECIATION_PCT"),
+        ("Stress basis adjustment", _fmt_currency(_stress_adj()), "AIREAL_STRESS_ADJ"),
+    ]
+    if pipeline is not None:
+        rows.extend(
+            [
+                ("Orchestration engine", pipeline.engine, "AIREAL_ENGINE / --engine"),
+                ("Market Scenarios", "on" if pipeline.scenarios_enabled else "off", "AIREAL_SCENARIOS / --scenarios"),
+                ("AI photo tagging", "on" if pipeline.vision_enabled else "off", "AIREAL_USE_VISION"),
+                ("Inputs file", pipeline.config_path or "(hardcoded demo inputs)", "--config"),
+            ]
+        )
+
+    lines = [
+        _section("Appendix — Run Provenance"),
+        "The settings this report was generated under. Environment variables silently change the "
+        "figures above, so reproducing a report means matching this table — see `.env.example` for "
+        "the defaults.",
+        "",
+        "| Setting | Value | Source |",
+        "| :--- | :--- | :--- |",
+    ]
+    lines.extend(f"| {label} | {value} | `{source}` |" for label, value, source in rows)
+    return "\n".join(lines) + "\n"
+
+
+def _render_glossary() -> str:
+    """
+    Render the definitions appendix.
+
+    Placed last and always emitted: a reader hitting "DSCR 0.90" needs somewhere to land, and
+    an appendix that appears only sometimes is worse than one that is always in the same place.
+    """
+    lines = [
+        _section("Appendix — Definitions"),
+        "Every term below is defined **as this engine computes it**. Where a convention differs from the "
+        "textbook form, the difference is stated rather than glossed over.",
+        "",
+        "| Term | Stands for | Definition |",
+        "| :--- | :--- | :--- |",
+    ]
+    for anchor, term, expansion, definition in _GLOSSARY:
+        lines.append(f'| <a id="g-{anchor}"></a>**{term}** | {expansion} | {definition} |')
+    return "\n".join(lines) + "\n"
+
+
+def _render_photo_coverage(report: MediaReport | None) -> str:
+    """
+    Render which rooms the photo set actually documents.
+
+    Complements Media Overview: that section describes the *files* (counts, dimensions,
+    duplicates); this one describes what they *show*. Gaps matter to an underwriter — a
+    listing with no mechanical-room or basement photo is withholding something.
+    """
+    if not report:
+        return ""
+
+    lines: list[str] = [_section("Photo Coverage")]
+
+    cov = report.coverage
+    lines.append(
+        f"- **Images:** {cov.images_readable} readable of {cov.images_total} · "
+        f"{cov.detections_total} detections · provider `{cov.provider}`"
+    )
+
+    if report.room_counts:
+        rooms = ", ".join(f"{room} {count}" for room, count in sorted(report.room_counts.items()))
+        lines.append(f"- **Rooms Documented:** {rooms}")
+    else:
+        lines.append("- **Rooms Documented:** none identified")
+
+    detected = sorted(name for name, present in report.amenities.items() if present)
+    if detected:
+        lines.append(f"- **Amenities Seen in Photos:** {', '.join(detected)}")
+
+    if report.warnings:
+        lines.append("- **Coverage Warnings:**")
+        for w in report.warnings[:6]:
+            lines.append(f"  - {w}")
+
+    return "\n".join(lines) + "\n"
+
+
 def _render_year_table(years: list[YearBreakdown]) -> str:
     """
     Render a compact Markdown table of key annual metrics.
@@ -292,7 +515,9 @@ def _render_year_table(years: list[YearBreakdown]) -> str:
     horizon = len(years)
     header = [
         _section(f"{horizon}-Year Pro Forma (Summary)"),
-        "| Year | GSI | GOI | Total OPEX | NOI | Debt Service | Cash Flow | DSCR | Ending Balance |",
+        f"| Year | {_glossary_link('gsi', 'GSI')} | {_glossary_link('goi', 'GOI')} "
+        f"| Total {_glossary_link('opex', 'OPEX')} | {_glossary_link('noi', 'NOI')} "
+        f"| {_glossary_link('ds', 'Debt Service')} | Cash Flow | {_glossary_link('dscr', 'DSCR')} | Ending Balance |",
         "| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     rows = []
@@ -358,7 +583,8 @@ def _render_valuation_table_noi(years: list[YearBreakdown], purchase: PurchaseMe
 
     header = [
         _section("Valuation – NOI-Based (with Cap Drift)"),
-        "| Year | Cap Rate (applied) | Estimated Value | LTV % | Available Equity @80% |",
+        f"| Year | {_glossary_link('cap', 'Cap Rate')} (applied) | Estimated Value "
+        f"| {_glossary_link('ltv', 'LTV')} % | Available {_glossary_link('te', 'Equity')} @80% |",
         "| ---: | ---: | ---: | ---: | ---: |",
     ]
     rows = []
@@ -387,7 +613,7 @@ def _render_valuation_table_baseline(years: list[YearBreakdown], forecast: Finan
 
     header = [
         _section(f"Valuation – Baseline Appreciation (g = {_fmt_pct(g)})"),
-        "| Year | Estimated Value | LTV % | Available Equity @80% |",
+        f"| Year | Estimated Value | {_glossary_link('ltv', 'LTV')} % | Available {_glossary_link('te', 'Equity')} @80% |",
         "| ---: | ---: | ---: | ---: |",
     ]
     rows = []
@@ -418,7 +644,7 @@ def _render_valuation_table_stress(years: list[YearBreakdown], forecast: Financi
 
     header = [
         _section(f"Valuation – Stress-Test (rate-anchored: r/3 = {_fmt_pct(r / 3 if r else 0.0)}, adj = {_fmt_currency(_stress_adj())})"),
-        "| Year | Estimated Value | LTV % | Available Equity @80% |",
+        f"| Year | Estimated Value | {_glossary_link('ltv', 'LTV')} % | Available {_glossary_link('te', 'Equity')} @80% |",
         "| ---: | ---: | ---: | ---: |",
     ]
     rows = []
@@ -481,8 +707,8 @@ def _render_returns(forecast: FinancialForecast) -> str:
     """
     lines = [
         _section("Returns Summary (10-Year)"),
-        f"- **IRR:** {_fmt_pct(forecast.irr_10yr)}",
-        f"- **Equity Multiple:** {forecast.equity_multiple_10yr:.2f}x",
+        f"- **{_glossary_link('irr', 'IRR')}:** {_fmt_pct(forecast.irr_10yr)}",
+        f"- **{_glossary_link('em', 'Equity Multiple')}:** {forecast.equity_multiple_10yr:.2f}x",
     ]
     return "\n".join(lines) + "\n"
 
@@ -694,6 +920,8 @@ def generate_report(
     title_override: str | None = None,
     *,
     media_insights: MediaInsights | None = None,
+    media_report: MediaReport | None = None,
+    provenance: RunProvenance | None = None,
     scenarios: ScenarioAnalysis | None = None,
 ) -> str:
     """
@@ -704,6 +932,7 @@ def generate_report(
       - Purchase Metrics: cap rate, CoC, DSCR, debt service, acquisition cash, spread
       - Forecasting Methodology: baseline, stress-test, NOI-based formulas and refi rule
       - Media Overview (if available)
+      - Photo Coverage (if a MediaReport is supplied)
       - Pro Forma (Summary): annual table of GSI, GOI, OPEX, NOI, DS, CF, DSCR, Ending Balance (horizon-aware title)
       - Valuation – Baseline table
       - Valuation – Stress-Test table
@@ -712,7 +941,9 @@ def generate_report(
       - Refinance Event (if present)
       - Returns Summary
       - Warnings
-      - Market Scenarios (opt-in overlay; appended last, only when ``scenarios`` is supplied)
+      - Market Scenarios (opt-in overlay; only when ``scenarios`` is supplied)
+      - Appendix — Run Provenance (always emitted)
+      - Appendix — Definitions (always emitted, last)
     """
     header = _render_header(insights)
     if title_override:
@@ -727,6 +958,7 @@ def generate_report(
         _render_purchase_metrics(forecast.purchase),
         _render_methodology(),
         _render_media_overview(media_insights),
+        _render_photo_coverage(media_report),
         _render_thesis(thesis) if thesis else "",
         _render_year_table(forecast.years),
         _render_valuation_table_baseline(forecast.years, forecast),
@@ -739,6 +971,11 @@ def generate_report(
     ]
     if scenarios is not None:
         parts.append(_render_market_scenarios(scenarios))
+
+    # Appendices last: reference material a reader returns to, not something between them and
+    # the numbers. Provenance precedes definitions so 'why do these differ?' is answered first.
+    parts.append(_render_provenance(provenance))
+    parts.append(_render_glossary())
     return "\n".join(part for part in parts if part).strip() + "\n"
 
 
@@ -749,13 +986,23 @@ def write_report(
     thesis: InvestmentThesis | None = None,
     *,
     media_insights: MediaInsights | None = None,
+    media_report: MediaReport | None = None,
+    provenance: RunProvenance | None = None,
     scenarios: ScenarioAnalysis | None = None,
 ) -> None:
     """
     Convenience helper to write the generated report to disk.
     Ensures parent directories exist.
     """
-    md = generate_report(insights, forecast, thesis=thesis, media_insights=media_insights, scenarios=scenarios)
+    md = generate_report(
+        insights,
+        forecast,
+        thesis=thesis,
+        media_insights=media_insights,
+        media_report=media_report,
+        provenance=provenance,
+        scenarios=scenarios,
+    )
 
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)

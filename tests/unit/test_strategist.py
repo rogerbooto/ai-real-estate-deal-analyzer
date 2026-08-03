@@ -10,5 +10,5 @@ def test_strategist_verdict_fields_present():
     fin = make_financial_inputs(do_refi=False)
     ff = run_financial_model(fin, insights=None, horizon_years=10)
     thesis = form_thesis(ff, fin.market)
-    assert thesis.verdict in {"BUY", "CONDITIONAL", "PASS"}
+    assert thesis.verdict in {"BUY", "CONDITIONAL", "DECLINE"}
     assert isinstance(thesis.rationale, list)

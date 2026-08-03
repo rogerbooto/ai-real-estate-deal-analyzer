@@ -150,6 +150,17 @@ class ListingInsights(BaseModel):
     """Signals extracted from listing text and photos. Used by Strategist and to adjust OPEX/CapEx if desired."""
 
     address: str | None = Field(None, description="Human-readable address or short identifier.")
+    title: str | None = Field(
+        None,
+        description="Inferred listing title, used to name the report when no address could be parsed.",
+    )
+    # --- Stated facts, parsed from the listing copy (all optional; None = not stated/parsed) ---
+    price: float | None = Field(None, description="List price as stated in the listing copy.")
+    sqft: int | None = Field(None, description="Finished floor area in square feet.")
+    bedrooms: float | None = Field(None, description="Bedroom count (float to allow half-counts in some feeds).")
+    bathrooms: float | None = Field(None, description="Bathroom count (e.g., 1.5).")
+    year_built: int | None = Field(None, description="Year the property was built.")
+
     amenities: list[str] = Field(default_factory=list, description="Recognized amenities (e.g., 'in-unit laundry', 'parking').")
     condition_tags: list[str] = Field(default_factory=list, description="Condition features (e.g., 'renovated kitchen', 'old roof').")
     defects: list[str] = Field(default_factory=list, description="Potential issues (e.g., 'water stain', 'mold', 'foundation crack').")
@@ -251,7 +262,7 @@ class FinancialForecast(BaseModel):
 class InvestmentThesis(BaseModel):
     """Human-readable decision synthesized by the Chief Strategist."""
 
-    verdict: str = Field(..., description='One of: "BUY", "CONDITIONAL", or "PASS".')
+    verdict: str = Field(..., description='One of: "BUY" (proceed), "CONDITIONAL" (proceed with fixes), or "DECLINE" (walk away).')
     rationale: list[str] = Field(..., description="Bulleted reasons supporting the verdict.")
     levers: list[str] = Field(
         default_factory=list, description="Suggested actions to strengthen the deal (e.g., negotiate, increase rents)."
@@ -1040,6 +1051,31 @@ class ScenarioOutcome(BaseModel):
     cash_flow_y1: float = Field(..., description="Year-1 levered cash flow (currency units).")
     irr_10yr: float = Field(..., description="Levered 10-year IRR (fraction).")
     equity_multiple_10yr: float = Field(..., description="10-year equity multiple (x).")
+
+
+class RunProvenance(BaseModel):
+    """
+    Pipeline-level facts about how a report was produced.
+
+    Exists because environment knobs silently change reported numbers: ``.env`` is gitignored
+    and VS Code's Python extension auto-loads it, so two people running the same command on the
+    same inputs can get different reports with nothing in either one explaining the difference.
+
+    Carries only what the report generator cannot observe for itself. The valuation knobs
+    (cap drift, appreciation, stress adjustment) are read by the generator from the same
+    accessors that produced the tables, so they can never disagree with the numbers above them.
+    """
+
+    engine: str = Field(..., description='Orchestration engine actually used: "deterministic" or "crewai".')
+    scenarios_enabled: bool = Field(..., description="Whether the Market Scenarios overlay was run.")
+    vision_enabled: bool = Field(
+        ...,
+        description="Whether the AI photo-tagging path was active (AIREAL_USE_VISION). Changes which amenities appear.",
+    )
+    config_path: str | None = Field(
+        None,
+        description="Inputs file used, exactly as supplied. None when the run fell back to hardcoded demo inputs.",
+    )
 
 
 class ScenarioAnalysis(BaseModel):

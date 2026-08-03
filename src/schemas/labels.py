@@ -183,7 +183,16 @@ AMENITY_TOKEN_ALIASES = {
     "in unit laundry": AmenityLabel.in_unit_laundry,
     "in suite laundry": AmenityLabel.in_unit_laundry,
     "laundry in unit": AmenityLabel.in_unit_laundry,
+    # Multi-unit MLS phrasings that unambiguously mean each unit has its own laundry.
+    # Bare "laundry" is deliberately NOT an alias: it may describe a shared/common room.
+    "separate laundry": AmenityLabel.in_unit_laundry,
+    "private laundry": AmenityLabel.in_unit_laundry,
+    "own laundry": AmenityLabel.in_unit_laundry,
+    "ensuite laundry": AmenityLabel.in_unit_laundry,
+    "en-suite laundry": AmenityLabel.in_unit_laundry,
     "washer/dryer": AmenityLabel.in_unit_laundry,
+    "washer and dryer": AmenityLabel.in_unit_laundry,
+    "washer & dryer": AmenityLabel.in_unit_laundry,
     "w/d": AmenityLabel.in_unit_laundry,
     "wd": AmenityLabel.in_unit_laundry,
     "balcony": AmenityLabel.balcony,
@@ -452,16 +461,37 @@ def to_photoinsights_amenities_surface(amenities_found: Iterable[AmenityLabel]) 
 # Listing parsing regex & helpers (shared by HTML/Text normalizers)
 # =========================
 
-# Inline (number BEFORE label) — "3 bed", "1.5 bath"
-_BED_INLINE_RE = re.compile(r"(?i)\b(\d+(?:\.\d+)?)\s*(?:bed(?:room)?s?|bdrm|br)\b")
-_BATH_INLINE_RE = re.compile(r"(?i)\b(\d+(?:\.\d+|½|1/2)?)\s*(?:bath(?:room)?s?|ba)\b")
+# Inline (number BEFORE label) — "3 bed", "1.5 bath".
+# The number/label separator is HORIZONTAL whitespace only. With a bare ``\s*`` these spanned
+# newlines, so "Square Feet: 1,936\nBedrooms: 3" matched "936 Bedrooms" and reported 936 beds.
+_BED_INLINE_RE = re.compile(r"(?i)\b(\d+(?:\.\d+)?)[ \t\u00A0\u2009\u202F]*(?:bed(?:room)?s?|bdrm|br)\b")
+_BATH_INLINE_RE = re.compile(r"(?i)\b(\d+(?:\.\d+|½|1/2)?)[ \t\u00A0\u2009\u202F]*(?:bath(?:room)?s?|ba)\b")
 
-# Label-first (label BEFORE number) — "Bedrooms: 3", "Bathrooms - 1 1/2"
-_BED_LABEL_RE = re.compile(r"(?im)^\s*bed(?:room)?s?\s*[:\-]?\s*(\d+(?:\.\d+)?)\b")
-_BATH_LABEL_RE = re.compile(r"(?im)^\s*bath(?:room)?s?\s*[:\-]?\s*(\d+(?:\.\d+|½|1/2)?)\b")
+# Label-first (label BEFORE number) — "Bedrooms: 3", "Bathrooms - 1 1/2".
+# Not anchored to ``^``: callers such as ``parse_listing_string`` collapse the text to a single
+# line first, which would leave the anchored form unmatchable and fall through to the inline
+# pattern above. The ':'/'-' separator is required so prose like "3 bedrooms" is not re-read here.
+_BED_LABEL_RE = re.compile(r"(?i)\bbed(?:room)?s?[ \t]*[:\-][ \t]*(\d+(?:\.\d+)?)\b")
+_BATH_LABEL_RE = re.compile(r"(?i)\bbath(?:room)?s?[ \t]*[:\-][ \t]*(\d+(?:\.\d+|½|1/2)?)\b")
 
-# sqft — supports 1,016 / thin spaces / "~ 1 200"
-_SQFT_RE = re.compile(r"(?i)\b(~?\s*(?:\d{1,3}(?:[,\u00A0\u2009\u202F\. ]\d{3})+|\d{3,5}))\s*(?:sq\s?ft|ft²|sqft|square\s?feet)\b")
+# sqft — supports 1,016 / thin spaces / "~ 1 200", plus the label-first "Square Feet: 1,936".
+#
+# Separators are HORIZONTAL whitespace only. A bare ``\s*`` spans newlines, which let a number on
+# one line splice onto a unit on the next: "Price: $399,900\nSquare Feet: 1,936" matched "399,900"
+# followed by "Square Feet" and reported the purchase price as the floor area.
+_H = r"[ \t\u00A0\u2009\u202F]"
+_SQFT_NUM = r"(?:\d{1,3}(?:[,\u00A0\u2009\u202F\. ]\d{3})+|\d{3,5})"
+_SQFT_UNIT = rf"(?:sq{_H}?ft|ft\u00B2|sqft|square{_H}?feet|square{_H}?footage)"
+
+# Inline (number BEFORE unit) — "1,016 sq ft", "~ 1 200 sqft"
+_SQFT_RE = re.compile(rf"(?i)(~?{_H}*{_SQFT_NUM}){_H}*{_SQFT_UNIT}\b")
+
+# Label-first (unit BEFORE number) — "Square Feet: 1,936", "Sq Ft - 900".
+# The ':'/'-' separator is REQUIRED: without it this would read the second number in
+# "1,016 sq ft 1200" as the area. Tried BEFORE the inline form, because callers such as
+# ``parse_listing_string`` collapse newlines first, which would otherwise let the inline
+# pattern splice a price onto a following "Square Feet" label on the same line.
+_SQFT_LABEL_RE = re.compile(rf"(?i)\b{_SQFT_UNIT}{_H}*[:\-]{_H}*({_SQFT_NUM})\b")
 
 # price — allows optional "List price:" prefix
 _PRICE_RE = re.compile(r"(?i)(?:list(?:ing)?\s*price\s*[:\-]?\s*)?(?:\$|usd|cad)\s*([0-9][0-9,\.]{1,})")
@@ -502,8 +532,9 @@ def extract_listing_common(text: str, notes: list[str]) -> tuple[float | None, f
         raw = _normalize_half_notation(m_bath.group(1))
         bas = _clean_num(raw)
 
-    # Sqft
-    m_sqft = _SQFT_RE.search(text)
+    # Sqft — label-first ("Square Feet: 1,936") wins over inline ("1,016 sq ft"): the labelled
+    # form is unambiguous, while inline can splice a preceding price onto a following label.
+    m_sqft = _SQFT_LABEL_RE.search(text) or _SQFT_RE.search(text)
     sqft_i = int(_clean_num(m_sqft.group(1)) or 0) if m_sqft else None
 
     # Price

@@ -25,14 +25,16 @@ Expected output:
 ```text
 Running AI Real Estate Deal Analyzer (V2)...
 Report written to investment_analysis.md
-Thesis verdict: CONDITIONAL
+Thesis verdict: DECLINE
 ```
 
-> `main.py` auto-creates minimal demo assets under `data/sample/` on first run if you don't pass `--listing`/`--photos`.
+> With no arguments, `main.py` underwrites the committed sample bundle at `data/sample_listings/36_kelly_moncton/` — a $399,900 legal up/down duplex in Moncton, NB. The bundle holds `listing.txt`, `photos/`, and `inputs.json` (financing, per-unit income, opex), so the listing, the photos, and the financials all describe the same deal. Pass `--config`, `--listing`, or `--photos` to point at your own.
 
 ### Demo Artifacts
 
-* Sample deal bundle: `data/sample_listings/47_perrot_shediac/` (listing.txt, photos/, finance.json)
+* Sample deal bundles under `data/sample_listings/`:
+  * `36_kelly_moncton/` — **the default demo** (listing.txt, photos/, inputs.json); a $399,900 two-unit duplex, underwritable end-to-end
+  * `47_perrot_shediac/` — advisor fixture (listing.txt, photos/, finance.json); a single-family leasehold mini-home with advisor-shaped scoring inputs, not a full `FinancialInputs` config
 * Example JSON artifacts: `data/examples/` (forecast, insights, media, thesis)
 * Example outputs: `artifacts/*.md` / `artifacts/*.pdf` (e.g., `36_kelly_analysis.md`, `20_gallagher_analysis.md`)
 
@@ -68,7 +70,7 @@ This section links to in-depth READMEs for each `src/` subfolder.
 | **agents/**        | High-level wrappers managing listing, finance, and strategy tasks.                                   | [agents/README.md](src/agents/README.md)               |
 | **core/reports/**  | Markdown report generator for forecasts, media insights, and investment theses.                      | [core/reports/README.md](src/core/reports/README.md)   |
 | **inputs/**        | Input loading, validation, and environment override logic.                                           | [inputs/README.md](src/inputs/README.md)               |
-| **market/**        | Market hypothesis and rejector utilities (V2 optional — not yet wired into the main pipeline).       | [market/README.md](src/market/README.md)               |
+| **market/**        | Market snapshot, hypothesis grid, and rejector; wired into the pipeline as the opt-in `--scenarios` overlay. | [market/README.md](src/market/README.md)               |
 
 > Relationships: `inputs → orchestrators → agents → core → core/reports`, with `market` optional and `cli` as user-facing entry points.
 
@@ -253,7 +255,7 @@ This model feeds into our per-year pro forma:
 
 ## Usage Example
 
-The demo comes with hardcoded sample inputs.
+The demo runs on the committed `36_kelly_moncton` bundle (see [Demo Artifacts](#demo-artifacts)); hardcoded inputs are only a last-resort fallback if that bundle is missing.
 You can run the full pipeline (Listing Analyst → Financial Forecaster → Chief Strategist) directly:
 
 ```bash
@@ -261,11 +263,11 @@ You can run the full pipeline (Listing Analyst → Financial Forecaster → Chie
 python main.py
 
 # Or with explicit config/assets
-python main.py --config data/sample/inputs.json --out out.md --horizon 10 \
-               --listing data/sample/listing.txt --photos data/sample/photos
+python main.py --config data/sample_listings/36_kelly_moncton/inputs.json --out out.md --horizon 10 \
+               --listing data/sample_listings/36_kelly_moncton/listing.txt --photos data/sample_listings/36_kelly_moncton/photos
 
 # Opt-in Market Scenarios overlay (deterministic what-if scenarios)
-python main.py --config data/sample/inputs.json --scenarios
+python main.py --config data/sample_listings/36_kelly_moncton/inputs.json --scenarios
 ```
 
 Expected console output:
@@ -273,7 +275,7 @@ Expected console output:
 ```text
 Running AI Real Estate Deal Analyzer (V2)...
 Report written to investment_analysis.md
-Thesis verdict: CONDITIONAL
+Thesis verdict: DECLINE
 ```
 
 This generates a Markdown report in the project root:

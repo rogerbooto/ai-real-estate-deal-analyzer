@@ -33,7 +33,7 @@ def test_strategist_pass_on_negative_cashflow_or_poor_metrics(
     baseline_forecast,
     market_assumptions_baseline,
 ):
-    # Force: CoC < 0 and DSCR < 1.0 (both required for PASS in form_thesis).
+    # Force: CoC < 0 and DSCR < 1.0 (both required for DECLINE in form_thesis).
     # We’ll hike the interest rate and bump taxes to push cash flow negative.
     base = baseline_financial_inputs()
     stressed = base.model_copy(
@@ -56,4 +56,4 @@ def test_strategist_pass_on_negative_cashflow_or_poor_metrics(
     mkt = market_assumptions_baseline()  # default guardrails are fine here
 
     thesis = form_thesis(ff=ff, mkt=mkt)
-    assert thesis.verdict == "PASS"
+    assert thesis.verdict == "DECLINE"

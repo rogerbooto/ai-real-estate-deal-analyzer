@@ -23,8 +23,8 @@ Supported JSON shapes
      "run": {
        "out": "investment_analysis.md",
        "horizon": 10,
-       "listing": "data/sample/listing.txt",
-       "photos": "data/sample/photos"
+       "listing": "data/sample_listings/36_kelly_moncton/listing.txt",
+       "photos": "data/sample_listings/36_kelly_moncton/photos"
      }
    }
 
@@ -117,7 +117,7 @@ class InputsLoader:
         - Apply environment overrides for run options
 
     Default search (when path=None):
-        1) ./data/sample/inputs.json
+        1) ./data/sample_listings/36_kelly_moncton/inputs.json
         2) ./config.json
     """
 
@@ -206,11 +206,12 @@ class InputsLoader:
             return p
 
         # Default search order
-        for candidate in (Path("data/sample/inputs.json"), Path("config.json")):
+        for candidate in (Path("data/sample_listings/36_kelly_moncton/inputs.json"), Path("config.json")):
             if candidate.exists():
                 return candidate
         raise FileNotFoundError(
-            "No inputs path provided and no default inputs found. Looked for ./data/sample/inputs.json and ./config.json."
+            "No inputs path provided and no default inputs found. Looked for "
+            "./data/sample_listings/36_kelly_moncton/inputs.json and ./config.json."
         )
 
     def _read_json_file(self, p: Path) -> dict[str, Any]:

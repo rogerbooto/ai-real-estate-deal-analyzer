@@ -11,7 +11,7 @@ def test_report_cli_minimal(tmp_path: Path):
     """End-to-end test: forecast + insights + thesis → report.md"""
     forecast = make_minimal_forecast()
     insights = ListingInsights(address="123 Test Ave", amenities=[], condition_tags=[], defects=[], notes=["note a"])
-    thesis = InvestmentThesis(verdict="PASS", rationale=["r1", "r2"], levers=[])
+    thesis = InvestmentThesis(verdict="DECLINE", rationale=["r1", "r2"], levers=[])
 
     f_path = tmp_path / "forecast.json"
     i_path = tmp_path / "insights.json"

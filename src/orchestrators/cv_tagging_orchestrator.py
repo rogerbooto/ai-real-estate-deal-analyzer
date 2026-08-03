@@ -16,6 +16,16 @@ _IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff"}
 _VISION_ENABLED = os.getenv("AIREAL_USE_VISION", "0").lower() in ("1", "true", "yes")
 
 
+def vision_enabled() -> bool:
+    """Whether the AI photo path is active for THIS process.
+
+    Reads the module-level constant captured at import, not the environment: setting
+    AIREAL_USE_VISION after import does not take effect, so re-reading it here would let a
+    report claim a mode the run never used.
+    """
+    return _VISION_ENABLED
+
+
 class CvTaggingOrchestrator:
     def analyze_paths(self, photo_paths: Sequence[str]) -> JSONDict:  # Sequence for variance safety
         normalized = _normalize_paths(photo_paths)

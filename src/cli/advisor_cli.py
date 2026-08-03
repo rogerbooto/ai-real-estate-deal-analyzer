@@ -45,7 +45,10 @@ def normalize_input(d: dict[str, Any]) -> dict[str, Any]:
     required = ("listing_path", "photos_dir", "finance_inputs_path")
     missing = [k for k in required if k not in out or not out[k]]
     if missing:
-        raise SystemExit(f"Input is missing required key(s): {', '.join(missing)}. " "See data/sample/inputs.json for an example.")
+        raise SystemExit(
+            f"Input is missing required key(s): {', '.join(missing)}. "
+            "See data/sample_listings/36_kelly_moncton/inputs.json for an example."
+        )
     return out
 
 

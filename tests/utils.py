@@ -76,7 +76,7 @@ DEFAULT_THESES: list[InvestmentThesis] = [
     InvestmentThesis(
         title="Cashflow First",
         body="Prioritize DSCR >= 1.2",
-        verdict="PASS",
+        verdict="DECLINE",
         rationale=[
             "Ensures the property comfortably covers debt service",
             "Builds resilience against minor shocks",

@@ -24,7 +24,7 @@
 
 * `InputsLoader` (frozen dataclass, `env_prefix="AIREAL_"`):
 
-  * `load(path=None) -> AppInputs` — reads JSON from `path`, or falls back to `./data/sample/inputs.json` then `./config.json`. Auto-detects legacy vs structured shape, validates with Pydantic, then applies env overrides.
+  * `load(path=None) -> AppInputs` — reads JSON from `path`, or falls back to `./data/sample_listings/36_kelly_moncton/inputs.json` then `./config.json`. Auto-detects legacy vs structured shape, validates with Pydantic, then applies env overrides.
   * `load_json(text) -> AppInputs` — same, from a JSON string.
   * `with_overrides(cfg, *, out=None, horizon=None, listing=None, photos=None, engine=None, scenarios=None) -> AppInputs` — CLI-flag overrides (used by `main.py`). `scenarios` uses `None` = "no CLI override" (so the `--scenarios` `store_true` flag, `False` when absent, defers to env/JSON); pass `True` to force it on.
 * `load_inputs(path=None) -> AppInputs` — convenience function wrapping `InputsLoader().load()`.

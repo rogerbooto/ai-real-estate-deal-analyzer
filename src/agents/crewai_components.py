@@ -443,7 +443,7 @@ class ChiefStrategistAgent:
             )
             self.task = Task(
                 description=(
-                    "Given FinancialForecast (+ optional ListingInsights), produce a BUY/CONDITIONAL/PASS thesis. "
+                    "Given FinancialForecast (+ optional ListingInsights), produce a BUY/CONDITIONAL/DECLINE thesis. "
                     "Respond with JSON ONLY matching InvestmentThesis."
                 ),
                 expected_output="JSON matching InvestmentThesis",
@@ -470,7 +470,7 @@ class ChiefStrategistAgent:
             "Respond with JSON ONLY that conforms to the InvestmentThesis schema. "
             "No prose, no markdown, no extra text.\n\n"
             "Schema:\n"
-            '{ "verdict": "BUY|CONDITIONAL|PASS",\n'
+            '{ "verdict": "BUY|CONDITIONAL|DECLINE",\n'
             '  "rationale": ["string", ...],\n'
             '  "key_metrics": { "dscr": float, "irr": float, "coc": float }\n'
             "}\n\n"

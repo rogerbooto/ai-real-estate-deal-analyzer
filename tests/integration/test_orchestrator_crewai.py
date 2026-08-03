@@ -89,7 +89,7 @@ def test_crewai_orchestrator_runs_offline(monkeypatch, tmp_path):
     # Structure checks
     assert result.insights is not None
     assert result.forecast is not None
-    assert result.thesis.verdict in {"BUY", "CONDITIONAL", "PASS"}
+    assert result.thesis.verdict in {"BUY", "CONDITIONAL", "DECLINE"}
 
     # A real report is produced and writes cleanly
     out_file = tmp_path / "investment_analysis.md"

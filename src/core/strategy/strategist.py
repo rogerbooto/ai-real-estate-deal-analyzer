@@ -29,7 +29,7 @@ def form_thesis(ff: FinancialForecast, mkt: MarketAssumptions) -> InvestmentThes
         ]
 
     if ff.purchase.coc < 0 and ff.purchase.dscr < 1.0:
-        verdict = "PASS"
+        verdict = "DECLINE"
 
     reasons += ff.warnings
     return InvestmentThesis(verdict=verdict, rationale=reasons, levers=levers)

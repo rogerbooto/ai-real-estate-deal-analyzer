@@ -9,7 +9,9 @@ from __future__ import annotations
 import re
 
 from src.core.normalize.address import parse_address
+from src.core.normalize.title import infer_title
 from src.schemas.labels import (
+    extract_listing_common,
     normalize_amenities_from_text,
     normalize_defects_from_text,
     to_photoinsights_amenities_surface,
@@ -35,6 +37,11 @@ _UNITS_HINT_RE = re.compile(
 _CONDITION_KEYWORDS = {
     "updated kitchen": [r"updated kitchen", r"renovated kitchen", r"new kitchen"],
     "fresh paint": [r"fresh paint", r"new paint", r"repainted"],
+    "updated bath": [r"updated bath", r"renovated bath", r"new bath(?:room)?\b"],
+    "renovated": [r"recently renovated", r"newly renovated", r"fully renovated", r"just renovated"],
+    "move-in ready": [r"move[\s-]?in ready", r"turn[\s-]?key"],
+    "new roof": [r"new roof", r"roof (?:was )?replaced", r"roof \(20\d{2}\)"],
+    "new windows": [r"new windows", r"windows (?:were )?replaced"],
 }
 
 
@@ -85,8 +92,22 @@ def parse_listing_string(text: str) -> ListingInsights:
     # Notes (simple, deterministic)
     notes = _compose_notes(norm)
 
+    # Title is a fallback identity for the report when no address parses (e.g. a listing whose
+    # street line carries no street type). Deterministic: text-only, soup=None.
+    title, _conf, _src, _cands = infer_title(text=norm, soup=None, addr=addr_res)
+
+    # Stated facts, via the same shared extractor the HTML/text normalizers use, so all three
+    # ingestion paths report identical numbers for identical copy.
+    beds, baths, sqft, price, year_built = extract_listing_common(norm, notes)
+
     return ListingInsights(
         address=addr_res.address_line if addr_res else None,
+        title=title,
+        price=price,
+        sqft=sqft,
+        bedrooms=beds,
+        bathrooms=baths,
+        year_built=year_built,
         amenities=amenities,
         condition_tags=condition,
         defects=defects,

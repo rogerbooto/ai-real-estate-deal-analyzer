@@ -25,8 +25,8 @@ Design
 Usage
 -----
     python main.py
-    python main.py --config data/sample/inputs.json --out out.md --horizon 10 \
-                   --listing data/sample/listing.txt --photos data/sample/photos
+    python main.py --config data/sample_listings/36_kelly_moncton/inputs.json --out out.md --horizon 10 \
+                   --listing data/sample_listings/36_kelly_moncton/listing.txt --photos data/sample_listings/36_kelly_moncton/photos
 """
 
 from __future__ import annotations
@@ -38,6 +38,7 @@ from pathlib import Path
 from src.core.reports.generator import write_report
 from src.inputs.inputs import AppInputs, InputsLoader
 from src.orchestrators import crew as deterministic_orchestrator
+from src.orchestrators.cv_tagging_orchestrator import vision_enabled
 from src.schemas.models import (
     FinancialInputs,
     FinancingTerms,
@@ -45,8 +46,13 @@ from src.schemas.models import (
     MarketAssumptions,
     OperatingExpenses,
     RefinancePlan,
+    RunProvenance,
     UnitIncome,
 )
+
+#: Committed demo bundle (listing + photos + inputs.json) used when no paths are supplied.
+DEFAULT_BUNDLE = Path("data/sample_listings/36_kelly_moncton")
+DEFAULT_INPUTS = DEFAULT_BUNDLE / "inputs.json"
 
 
 def build_sample_inputs() -> FinancialInputs:
@@ -128,27 +134,24 @@ def parse_args() -> argparse.Namespace:
 
 def ensure_sample_assets(listing_txt_path: str | None, photos_dir_path: str | None) -> tuple[str, str]:
     """
-    Ensure there are usable assets for a demo run.
-    If paths are not provided, create sample files under data/sample/.
+    Resolve demo assets, defaulting to the committed sample bundle.
+
+    Unfilled paths fall back to DEFAULT_BUNDLE. Nothing is fabricated: the bundle ships
+    with the repo, so a missing asset is a real problem worth surfacing rather than one
+    to paper over with placeholder stubs that produce a report about nothing.
     """
     if listing_txt_path and photos_dir_path:
         return listing_txt_path, photos_dir_path
 
-    sample_dir = Path("data/sample")
-    sample_dir.mkdir(parents=True, exist_ok=True)
+    listing_txt = Path(listing_txt_path) if listing_txt_path else DEFAULT_BUNDLE / "listing.txt"
+    photos_dir = Path(photos_dir_path) if photos_dir_path else DEFAULT_BUNDLE / "photos"
 
-    listing_txt = Path(listing_txt_path) if listing_txt_path else sample_dir / "listing.txt"
-    if not listing_txt.exists():
-        listing_txt.write_text("Charming triplex at 123 Main St. Parking and laundry.", encoding="utf-8")
-
-    photos_dir = Path(photos_dir_path) if photos_dir_path else sample_dir / "photos"
-    photos_dir.mkdir(exist_ok=True)
-
-    # Minimal photo seed: deterministic path will use filename heuristics,
-    # AI path will analyze pixels (mock/real provider). We include names that
-    # exercise common tags.
-    (photos_dir / "kitchen_island_stainless.jpg").write_bytes(b"")
-    (photos_dir / "bath_double_vanity.jpg").write_bytes(b"")
+    missing = [str(p) for p in (listing_txt, photos_dir) if not p.exists()]
+    if missing:
+        raise SystemExit(
+            f"Demo assets not found: {', '.join(missing)}. "
+            "Pass --listing/--photos explicitly, or restore the sample bundle under data/sample_listings/."
+        )
 
     return str(listing_txt), str(photos_dir)
 
@@ -160,12 +163,17 @@ def main() -> None:
 
     loader = InputsLoader()
 
-    if args.config:
+    # No --config still prefers the committed sample bundle, so the zero-argument demo
+    # underwrites one coherent deal (listing, photos, and financials all 36 Kelly) rather
+    # than reporting a real address against unrelated numbers.
+    config_path = args.config or (str(DEFAULT_INPUTS) if DEFAULT_INPUTS.exists() else None)
+
+    if config_path:
         # Load AppInputs (FinancialInputs + run options) and apply CLI overrides if provided.
         # Precedence for `scenarios`: explicit CLI flag > env (applied in load) > JSON > default False.
         # `--scenarios` is store_true (False when absent) → pass True only when set, None otherwise,
         # so an unset flag defers to env/JSON.
-        cfg: AppInputs = loader.load(args.config)
+        cfg: AppInputs = loader.load(config_path)
         cfg = loader.with_overrides(
             cfg,
             out=args.out,
@@ -185,7 +193,7 @@ def main() -> None:
         # The market-snapshot block is carried alongside the frozen FinancialInputs (see AppInputs.market).
         market_block = cfg.market
     else:
-        # No config file → use demo inputs and CLI flags (if any).
+        # Neither --config nor the sample bundle → fall back to hardcoded demo inputs.
         inputs = build_sample_inputs()
         out_path = args.out or "investment_analysis.md"
         horizon = args.horizon or 10
@@ -232,7 +240,25 @@ def main() -> None:
             snapshot = resolve_snapshot(inputs, market_block=market_block)
             scenarios_analysis = run_scenarios(inputs, snapshot)
 
-        write_report(out_path, result.insights, result.forecast, result.thesis, scenarios=scenarios_analysis)
+        # Record how this report was produced. Env knobs silently change the figures, and a
+        # gitignored .env means another machine can disagree with no evidence of why.
+        provenance = RunProvenance(
+            engine=engine,
+            scenarios_enabled=bool(run_scenarios_flag),
+            vision_enabled=vision_enabled(),
+            config_path=config_path,
+        )
+
+        write_report(
+            out_path,
+            result.insights,
+            result.forecast,
+            result.thesis,
+            media_insights=getattr(result, "media_insights", None),
+            media_report=getattr(result, "media_report", None),
+            provenance=provenance,
+            scenarios=scenarios_analysis,
+        )
 
         print(f"Report written to {out_path}")
         print(f"Thesis verdict: {result.thesis.verdict}")

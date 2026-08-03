@@ -76,6 +76,7 @@ def analyze_listing(
     # --- Photo tagging via orchestrator ---
     photo_condition: set[str] = set()
     photo_defects: set[str] = set()
+    photo_amenities: set[str] = set()
     try:
         if photos_folder:
             cv = CvTaggingOrchestrator()
@@ -83,18 +84,30 @@ def analyze_listing(
             rollup = cv_out.get("rollup", {}) if isinstance(cv_out, dict) else {}
             photo_condition = set(rollup.get("condition_tags", []) or [])
             photo_defects = set(rollup.get("defects", []) or [])
+            # The orchestrator computes and promotes amenity labels from image tags; reading
+            # only condition/defects threw that work away before it reached the report.
+            photo_amenities = set(rollup.get("amenities", []) or [])
     except Exception:
         # Defensive: never crash due to image folder issues.
         photo_condition = set()
         photo_defects = set()
+        photo_amenities = set()
 
     # --- Merge ---
-    # Address, amenities, notes come from text. Condition/defects from photos.
-    combined = ListingInsights(
-        address=text_insights.address,
-        amenities=sorted(set(text_insights.amenities)),
-        condition_tags=sorted(photo_condition),
-        defects=sorted(photo_defects),
-        notes=sorted(set(text_insights.notes)),
+    # Address, title, amenities, notes and facts come from text. Condition and defects are the
+    # UNION of both sources: photos see wear the copy omits, and the copy states renovations no
+    # image can prove. Sourcing condition from photos alone made the field structurally empty
+    # whenever the CV providers are deterministic stubs.
+    # model_copy(update=...) rather than rebuilding field by field: a field-by-field constructor
+    # silently drops anything added to ListingInsights later (that is how `title` and the stated
+    # facts went missing). Only the fields this agent actually merges are named here; everything
+    # else carries over from the text parse untouched.
+    combined = text_insights.model_copy(
+        update={
+            "amenities": sorted(set(text_insights.amenities) | photo_amenities),
+            "condition_tags": sorted(photo_condition | set(text_insights.condition_tags)),
+            "defects": sorted(photo_defects | set(text_insights.defects)),
+            "notes": sorted(set(text_insights.notes)),
+        }
     )
     return combined
