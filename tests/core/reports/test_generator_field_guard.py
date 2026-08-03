@@ -188,6 +188,24 @@ _DICT_KEYS_NOT_RENDERED: frozenset[tuple[str, str]] = frozenset(
 _KNOWN_MODEL_TYPES = (BaseModel,)
 
 
+# Bool model fields that the generic text matcher CANNOT check, each with the dedicated
+# behavioural assertion that covers it instead.
+#
+# A bool leaf gates a branch rather than printing a "True"/"False" token, so there is no
+# reliable textual candidate to search for — `_leaf_reaches_text` therefore treats bools as
+# vacuously reachable. That is a hole: a newly-added bool field dropped from the renderer
+# would pass silently, which is the exact defect class this guard exists to catch.
+#
+# So `_walk` requires every bool field to be listed HERE or in `_EXCLUDED`. An unlisted bool
+# fails loud, forcing a human to decide which it is. Relying on "whoever adds a bool will
+# remember to write a dedicated test" would reintroduce the hand-maintained-list failure mode
+# the rest of this guard was built to eliminate.
+_BOOL_FIELDS_WITH_DEDICATED_TESTS: dict[tuple[str, str], str] = {
+    ("RunProvenance", "scenarios_enabled"): "asserted as an on/off row by test_provenance_bools_render_as_on_off",
+    ("RunProvenance", "vision_enabled"): "asserted as an on/off row by test_provenance_bools_render_as_on_off",
+}
+
+
 def _float_candidates(value: float) -> set[str]:
     """
     Every plausible way generator.py's private _fmt_* helpers could render a float. We
@@ -271,6 +289,17 @@ def _walk(model: BaseModel, text: str, failures: list[str], *, path: str = "") -
         field_path = f"{path}{owner}.{name}"
 
         if (owner, name) in _EXCLUDED:
+            continue
+
+        # Bools cannot be checked textually (see _BOOL_FIELDS_WITH_DEDICATED_TESTS). Rather
+        # than let them pass vacuously, demand that each one has been consciously classified.
+        if isinstance(value, bool):
+            if (owner, name) not in _BOOL_FIELDS_WITH_DEDICATED_TESTS:
+                failures.append(
+                    f"{field_path} is a bool the generic matcher cannot verify. Add it to "
+                    f"_BOOL_FIELDS_WITH_DEDICATED_TESTS (with the behavioural test that covers it) "
+                    f"or to _EXCLUDED (with a reason) — do not leave it unclassified."
+                )
             continue
 
         if isinstance(value, list | tuple | set | dict) and not value:

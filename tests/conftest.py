@@ -37,6 +37,29 @@ def _seed_session():
     yield
 
 
+# -------- CV tag-cache isolation --------
+@pytest.fixture(autouse=True)
+def _isolate_cv_cache(tmp_path_factory, monkeypatch):
+    """
+    Point the CV tag cache at a per-test temp dir instead of the repo root.
+
+    `src/core/cv/runner.py` defaults `AIREDEAL_CACHE_DIR` to `./.cache/cv` and keys entries by
+    **content sha256 alone**, ignoring filename. Test fixtures across the suite generate
+    byte-identical images (`Image.new("RGB", (800, 600), "white")`), so they all collide on one
+    cache slot that persists on disk between runs — this checkout had entries dated October 2025.
+    Combined with `_augment_from_filename`'s augment-on-cache-hit behaviour, a detection earned by
+    one fixture's filename can be served to a later, differently-named fixture with the same
+    content. That is the most plausible mechanism for the one-off, non-reproducing parity-test
+    flake seen during Wave 1 (stale *local* state a fresh CI checkout would never carry).
+
+    Autouse rather than per-file `monkeypatch.setenv` calls: three files needed it and the next
+    media test would have to remember. Tests that deliberately exercise caching set
+    `AIREDEAL_CACHE_DIR` themselves inside the test body, which still wins over this.
+    """
+    monkeypatch.setenv("AIREDEAL_CACHE_DIR", str(tmp_path_factory.mktemp("cv_cache")))
+    yield
+
+
 # -------- Domain fixtures (snapshots & hypotheses) --------
 @pytest.fixture
 def sample_snapshot():
