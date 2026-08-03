@@ -164,7 +164,6 @@ def test_thesis_buy_mixed_pass_buckets():
 # stops emitting the warning or the strategist stops matching it.
 # ---------------------------------------------------------------------------
 
-RESPECTS_FLOOR = "Purchase cap rate respects the floor policy."
 BREACHES_FLOOR = "Purchase cap rate breaches the configured floor."
 
 
@@ -189,29 +188,36 @@ def test_cap_floor_breach_drives_breach_rationale_and_lever():
 
     assert "cap rate below floor" in forecast.warnings
     assert BREACHES_FLOOR in thesis.rationale
-    assert RESPECTS_FLOOR not in thesis.rationale
     # The breach is a live verdict input, so this deal can no longer be a BUY.
     assert thesis.verdict != "BUY"
     assert "Address: cap rate below floor" in thesis.levers
 
 
-def test_cap_floor_respected_keeps_the_positive_rationale():
-    """At or above the floor, the reassuring line is a true claim, not a default."""
+def test_cap_floor_respected_is_not_a_breach():
+    """A cap exactly at the floor clears it: no warning, no breach claim."""
     forecast = forecast_financials(_inputs_with_floor(cap_rate_purchase=0.05, cap_rate_floor=0.05))
     thesis = synthesize_thesis(forecast)
 
     assert not any("below floor" in w.lower() for w in forecast.warnings)
-    assert RESPECTS_FLOOR in thesis.rationale
     assert BREACHES_FLOOR not in thesis.rationale
+    # The numbered positive claim returns in Wave 3 with OPD-4, once the strategist can see
+    # the floor value and can name it ("... is 6.35% (>= the 5.00% floor you set).").
 
 
-def test_no_floor_policy_never_breaches():
-    """`cap_rate_floor=None` means no policy configured — never a breach."""
+def test_no_floor_policy_makes_no_floor_claim():
+    """
+    No floor configured means no claim to make, in either direction.
+
+    Asserts *silence about the floor*, not the absence of one particular string: the
+    strategist infers the breach from the absence of the engine warning, which cannot
+    distinguish "no policy" from "policy cleared". Claiming the floor is respected when
+    none was ever set is the exact false-report shape Mission 2 exists to remove.
+    """
     forecast = forecast_financials(_inputs_with_floor(cap_rate_purchase=0.01, cap_rate_floor=None))
     thesis = synthesize_thesis(forecast)
 
     assert not any("below floor" in w.lower() for w in forecast.warnings)
-    assert RESPECTS_FLOOR in thesis.rationale
+    assert not any("floor" in line.lower() for line in thesis.rationale)
 
 
 def test_cap_floor_breach_plus_weak_dscr_forces_decline():

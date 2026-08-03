@@ -139,7 +139,12 @@ def synthesize_thesis(forecast: FinancialForecast) -> InvestmentThesis:
         _flag(cf_all_ok, "Cash flow is non-negative across the hold period.", rationale)
         _flag(not cf_all_ok, "Cash flow turns negative in some years.", rationale)
 
-    _flag(no_cap_floor_breach, "Purchase cap rate respects the floor policy.", rationale)
+    # Only the breach is claimable. `no_cap_floor_breach` is inferred from the *absence* of the
+    # engine's warning, which is equally true when no floor was configured at all
+    # (`cap_rate_floor` defaults to None) -- so a positive line here would assert compliance with
+    # a policy that may not exist. Silence is the honest default until the strategist can see the
+    # floor value itself; Wave 3 / OPD-4 restores the positive claim in the house style, naming
+    # both numbers ("Purchase cap rate is 6.35% (>= the 5.00% floor you set).").
     _flag(not no_cap_floor_breach, "Purchase cap rate breaches the configured floor.", rationale)
 
     # Verdict logic (critical fail threshold)
