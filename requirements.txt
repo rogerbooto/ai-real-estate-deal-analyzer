@@ -7,7 +7,11 @@ python-dotenv>=1.0.1
 
 # Web & Data
 beautifulsoup4>=4.12.3
-lxml>=5.0.0    # Parser named explicitly by BeautifulSoup(..., "lxml") in core/fetch + core/normalize; was transitive only.
+# Parser named explicitly by BeautifulSoup(..., "lxml") in core/fetch + core/normalize; was transitive only.
+# Floor is 6.1.0, not the lowest workable version: <6.1.0 is vulnerable to CVE-2026-41066 (XXE to local
+# files via iterparse()/ETCompatXMLParser() defaulting to resolve_entities=True). Unreachable from this
+# codebase today -- neither API is called anywhere -- so this is defence in depth against a future caller.
+lxml>=6.1.0
 requests>=2.31.0
 usaddress>=0.5.10    # For high-accuracy US/CA address parsing
 
