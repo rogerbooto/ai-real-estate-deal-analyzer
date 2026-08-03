@@ -121,3 +121,9 @@ out/**
 
 # Claude Code local config
 .claude/
+
+# Private teaching curriculum (not part of the public repo)
+teaching/
+
+# graphify knowledge-graph output (local artifact, not part of the repo)
+graphify-out/
