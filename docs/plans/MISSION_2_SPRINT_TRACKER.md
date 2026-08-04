@@ -293,6 +293,38 @@ the actual documented commands before acting.)*
 
 ## Wave 3 — Disposition (WIRE-FIRST; OPDs resolved)
 
+### OPD-3 pre-work — reachability re-survey, orchestrator, 2026-08-04
+Re-derived by **AST import analysis** (not grep — a basename grep matches the word anywhere and
+inflates counts; my first pass did exactly that and I nearly recorded a wrong disposition, see the
+facade row).
+
+| Module | prod | test | Disposition |
+| --- | --- | --- | --- |
+| `orchestrators/orchestrator.py` | 0 | 0 | **0-byte → DELETE** (charter confirmed) |
+| `agents/listing_ingest.py` | 0 | 0 | **DELETE** — fully unreferenced; also the worst field-dropper found (see 1.2 record) |
+| `core/advisor/scenarios.py` | 0 | 0 | **WIRE** — `CHANGELOG:17` claims scenario what-ifs ship; wire to advisor what-ifs or the claim must go |
+| `core/utils/markdown.py` | 0 | 0 | **WIRE** — replace the inline reimplementation at `advisor_cli.py:391-411` |
+| `core/utils/serialize.py` | 0 | 0 | **WIRE** — use at the serialization sites |
+| `core/strategy/strategist.py` | 0 | 2 | **OPD-1 reconcile-then-delete** (sequence binding; see below) |
+| `core/intelligence/narrative_builder.py` | 0 | 1 | **WIRE** into the report |
+| `core/intelligence/report_builder.py` | 0 | 1 | **WIRE** into the report |
+| `agents/photo_tagger.py` | 0 | 2 | **WIRE** into ingest if a real consumer exists, else delete |
+| `market/regional_income.py` | 0 | 1 | **WIRE** as the public entry point `market/README` documents |
+| `core/advisor/__init__.py` | — | — | **Nuanced — see below.** |
+
+**Charter path corrections (third instance of drift this mission):** the charter names
+`utils/markdown.py` and `utils/serialize.py`; they are at **`src/core/utils/`**. Same class as
+F8's `src/core/ingest/html_fetcher.py` → `src/core/fetch/`. Anchors must be re-read, not trusted.
+
+**`core/advisor/__init__.py` — the charter is right, my first reading was wrong.** It looked LIVE
+(2 production importers) but that was my prefix-matching counting `src.core.advisor.portfolio` as a
+hit on `src.core.advisor`. Every real caller imports the **submodules** —
+`advisor_cli.py:14-15` (`.portfolio`, `.recommender`) and `deal_fusion.py:9` (`.risk`) — and
+**nothing calls the facade's three lazy wrappers**. So: the *file* must stay (it is the package
+marker; deleting it breaks every submodule import), but its wrappers are genuinely dead. Disposition
+is therefore *empty the wrappers* or *route callers through the facade* — **not** "delete the file",
+which the charter's phrasing could be read as inviting.
+
 ### OPD-1 pre-work — threshold audit, orchestrator, 2026-08-03 (step 1 of the binding sequence)
 `form_thesis` (`src/core/strategy/strategist.py`) confirmed dead: referenced **only** by
 `tests/unit/test_strategist.py`, zero production callers. But the audit turned up something that
