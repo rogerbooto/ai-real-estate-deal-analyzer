@@ -19,7 +19,7 @@
       PurchaseMetrics, RefiEvent, InvestmentThesis,
       # Listing & insights
       ListingInsights, ListingNormalized, AddressResult, PhotoInsights,
-      DetectedLabelModel, ParkingSummary,
+      DetectedLabelModel, ParkingSummary, ObservationProvenance,
       # Fetch & media
       FetchPolicy, HtmlSnapshot, MediaCandidate, MediaAsset,
       MediaFinderResult, MediaBundle, MediaInsights, IngestResult,
@@ -53,7 +53,8 @@
 
 | Model | Description |
 | --- | --- |
-| **ListingInsights** | Address, inferred `title`, stated facts (`price`, `sqft`, `bedrooms`, `bathrooms`, `year_built` — all optional, `None` = not stated/parsed), amenities, condition tags, defects, notes — the analyst output consumed by the finance engine and rendered as the report's "As listed" line. |
+| **ListingInsights** | Address, inferred `title`, stated facts (`price`, `sqft`, `bedrooms`, `bathrooms`, `year_built` — all optional, `None` = not stated/parsed), amenities, condition tags, defects, notes — the analyst output consumed by the finance engine and rendered as the report's "As listed" line. Also carries `observations: list[ObservationProvenance]` (see below). |
+| **ObservationProvenance** | Per-tag provenance for one `ListingInsights` amenity/condition/defect: `tag`, `kind`, `origin` (`listing_text` \| `photo_filename` \| `cv_provider` \| `llm` \| `unknown`), plus optional `detail` (the phrase/token/threshold that fired), `provider`, `provider_kind` (`heuristic_stub` \| `model`), `provider_version`, `source_image_sha`, and the CV pipeline's own `detection: DetectedLabelModel`. **Read `provider_kind` before claiming a tag was AI-observed** — every built-in CV provider today is a `heuristic_stub`. |
 | **ListingNormalized** | Structured listing extraction (beds/baths/sqft/units/address/amenities) from text or HTML. |
 | **AddressResult** | Parsed US/CA address (street, city, region, postal, country hint). |
 | **PhotoInsights** / **DetectedLabelModel** / **ParkingSummary** | Per-image CV records and closed-set detections with rollups (rooms, amenities, defects, parking). |
@@ -74,6 +75,14 @@
 ### Label Ontology (`labels.py`)
 
 Closed-set enums (`RoomType`, `MaterialTag`, `AmenityLabel`, `DefectLabel`, `ConditionTag`, `ParkingType`) plus deterministic normalizers from filenames/text and listing-field extractors (`extract_listing_common`, `detect_heating`, `detect_cooling`, amenity/defect text normalizers).
+
+`find_amenities_in_text(text) -> dict[AmenityLabel, str]` and `find_defects_in_text(text) -> dict[DefectLabel, str]` return each hit **with the literal substring that matched** — that phrase is the only evidence a keyword match has, and it is what `ObservationProvenance.detail` records for `origin="listing_text"`. `normalize_amenities_from_text` / `normalize_defects_from_text` are unchanged in behaviour and now delegate to them (`set(find_*)`).
+
+### Migration note — `ListingInsights.observations` (Mission 2, additive)
+
+`observations` is **additive and optional** (`default_factory=list`). No existing field was renamed, retyped, or removed, and `amenities` / `condition_tags` / `defects` remain the contract every current consumer reads. A `ListingInsights` constructed without `observations` is still valid, so no producer or persisted payload needs updating. Producers that have been taught to populate it: `core/ingest/listing_parser.py` (text), `orchestrators/cv_tagging_orchestrator.py` → `agents/listing_analyst.py` (photos), `core/insights/synthesis.py` (`ingest-listing`), and `agents/crewai_components.py`'s LLM path. Builders live in `core/insights/provenance.py`.
+
+Because `ObservationProvenance` is declared next to `DetectedLabelModel` (which it reuses) — i.e. *after* `ListingInsights` — `models.py` ends with an explicit `ListingInsights.model_rebuild()` to resolve that forward reference loudly at import.
 
 ## Usage Examples
 
@@ -155,4 +164,4 @@ print(hs.summary())
 
 ---
 
-_Last reconciled: 2026-08-04 against mission/2-wiring-gaps @ d18ee1a (Gate 2 VETO remediation, finding V4: `YearBreakdown.notes` was described as annotating IO years/refi year — false, and verified false by running a forecast with `financing.io_years` set and a realized refi (empty `notes` in all 10 years); corrected to describe what `engine.py:212-215` actually writes. Earlier note: 2026-08-03 @ 74c985c, `ListingInsights` row now lists the stated-facts fields; `YearBreakdown` row now lists notes/valuation fields previously omitted)._
+_Last reconciled: 2026-08-04 against mission/2-wiring-gaps @ a626e9d (added `ObservationProvenance` + `ListingInsights.observations` — per-tag provenance, additive-only, with a migration note; documented `labels.find_amenities_in_text` / `find_defects_in_text`). Earlier note: 2026-08-04 @ d18ee1a (Gate 2 VETO remediation, finding V4: `YearBreakdown.notes` was described as annotating IO years/refi year — false, and verified false by running a forecast with `financing.io_years` set and a realized refi (empty `notes` in all 10 years); corrected to describe what `engine.py:212-215` actually writes. Earlier note: 2026-08-03 @ 74c985c, `ListingInsights` row now lists the stated-facts fields; `YearBreakdown` row now lists notes/valuation fields previously omitted)._

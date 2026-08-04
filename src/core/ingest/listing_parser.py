@@ -7,16 +7,20 @@ Lightweight, deterministic parser for local listing text (V2, centralized labels
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 
+from src.core.insights.provenance import attach, text_observation
 from src.core.normalize.address import parse_address
 from src.core.normalize.title import infer_title
 from src.schemas.labels import (
+    PARKING_SPECIFIC_AMENITIES,
+    AmenityLabel,
     extract_listing_common,
-    normalize_amenities_from_text,
-    normalize_defects_from_text,
+    find_amenities_in_text,
+    find_defects_in_text,
     to_photoinsights_amenities_surface,
 )
-from src.schemas.models import ListingInsights
+from src.schemas.models import ListingInsights, ObservationProvenance
 
 # ----------------------------
 # Address & simple fields
@@ -65,9 +69,14 @@ def parse_listing_string(text: str) -> ListingInsights:
     # Address (best effort)
     addr_res = parse_address(norm)
 
+    # Per-tag provenance. Every tag below is a keyword hit on the listing copy, so each one is
+    # recorded with origin="listing_text" and the literal phrase that fired -- and with no
+    # confidence, because a regex match does not have one.
+    observations: list[ObservationProvenance] = []
+
     # --- Centralized amenities ---
-    amenity_labels = normalize_amenities_from_text(norm)
-    amenity_surface = to_photoinsights_amenities_surface(amenity_labels)
+    amenity_hits = find_amenities_in_text(norm)
+    amenity_surface = to_photoinsights_amenities_surface(set(amenity_hits))
 
     # Emit canonical keys where True
     amenities: list[str] = sorted([k for k, v in amenity_surface.items() if v])
@@ -77,16 +86,26 @@ def parse_listing_string(text: str) -> ListingInsights:
         amenities.append("laundry")
         amenities.sort()
 
+    for key in amenities:
+        for phrase in _amenity_match_phrases(key, amenity_hits):
+            observations.append(text_observation(key, kind="amenity", detail=phrase))
+
     # --- Centralized defects ---
-    defect_labels = normalize_defects_from_text(norm)
-    defects: list[str] = sorted([d.value for d in defect_labels])
+    defect_hits = find_defects_in_text(norm)
+    defects: list[str] = sorted([d.value for d in defect_hits])
+    for label, phrase in defect_hits.items():
+        observations.append(text_observation(label.value, kind="defect", detail=phrase))
 
     # --- Simple text-only condition tags ---
     lt = norm.lower()
     condition: list[str] = []
     for canon, patterns in _CONDITION_KEYWORDS.items():
-        if any(re.search(pat, lt, flags=re.IGNORECASE) for pat in patterns):
-            condition.append(canon)
+        for pat in patterns:
+            m = re.search(pat, lt, flags=re.IGNORECASE)
+            if m:
+                condition.append(canon)
+                observations.append(text_observation(canon, kind="condition", detail=m.group(0)))
+                break
     condition = sorted(set(condition))
 
     # Notes (simple, deterministic)
@@ -100,7 +119,7 @@ def parse_listing_string(text: str) -> ListingInsights:
     # ingestion paths report identical numbers for identical copy.
     beds, baths, sqft, price, year_built = extract_listing_common(norm, notes)
 
-    return ListingInsights(
+    insights = ListingInsights(
         address=addr_res.address_line if addr_res else None,
         title=title,
         price=price,
@@ -113,11 +132,33 @@ def parse_listing_string(text: str) -> ListingInsights:
         defects=defects,
         notes=notes,
     )
+    return attach(insights, observations)
 
 
 # ----------------------------
 # Internals
 # ----------------------------
+
+
+def _amenity_match_phrases(surface_key: str, hits: Mapping[AmenityLabel, str]) -> list[str]:
+    """The listing phrases that made ``surface_key`` true, in deterministic order.
+
+    ``to_photoinsights_amenities_surface`` collapses several specific labels onto one surface key
+    -- "parking" is true if any of garage/driveway/street matched -- so recovering *which* phrase
+    justified the emitted tag means walking the same mapping backwards. A key with two
+    contributing phrases yields two records, one per phrase: both are real, independent sightings.
+    """
+    if surface_key == AmenityLabel.parking.value:
+        contributors = [AmenityLabel.parking, *sorted(PARKING_SPECIFIC_AMENITIES, key=lambda a: a.value)]
+    elif surface_key == "laundry":
+        # Coarsened alias emitted above; the in-unit hit is what justifies it.
+        contributors = [AmenityLabel.in_unit_laundry]
+    else:
+        try:
+            contributors = [AmenityLabel(surface_key)]
+        except ValueError:
+            return []
+    return [hits[c] for c in contributors if c in hits]
 
 
 def _compose_notes(text: str) -> list[str]:

@@ -62,6 +62,7 @@ from src.agents.chief_strategist import synthesize_thesis
 # deterministic local functions
 from src.agents.financial_forecaster import forecast_financials
 from src.agents.listing_analyst import analyze_listing
+from src.core.insights.provenance import stamp_uniform_origin
 from src.schemas.models import (
     FinancialForecast,
     FinancialInputs,
@@ -383,10 +384,29 @@ class ListingAnalystAgent:
 
             # Pull result from task.output
             result_text = getattr(task, "output", None) or ""
-            return _parse_json_as(
-                ListingInsights,
-                str(result_text),
-                lambda: analyze_listing(listing_txt_path=listing_txt_path, photos_folder=photos_folder),
+
+            # The deterministic fallback already carries its own per-tag provenance (text/CV), so
+            # we must know whether the LLM actually authored this object before stamping it
+            # `origin="llm"`. A bare `_parse_json_as` return cannot tell those two apart.
+            fell_back = False
+
+            def _fallback() -> ListingInsights:
+                nonlocal fell_back
+                fell_back = True
+                return analyze_listing(listing_txt_path=listing_txt_path, photos_folder=photos_folder)
+
+            parsed = _parse_json_as(ListingInsights, str(result_text), _fallback)
+            if fell_back:
+                return parsed
+            # LLM-authored: it returns a JSON blob with no per-tag handles, so every tag gets the
+            # same origin. provider_kind="model" is the truth here (unlike the CV stubs) and is
+            # what lets a consumer say "AI observed X" without lying.
+            return stamp_uniform_origin(
+                parsed,
+                origin="llm",
+                provider=_get_model_name(),
+                provider_kind="model",
+                detail="authored by the listing-analyst LLM task",
             )
         except Exception as e:
             # cache & print, then fallback

@@ -34,8 +34,9 @@ Migration Notes
 from __future__ import annotations
 
 from src.core.ingest.listing_parser import parse_listing_string, parse_listing_text
+from src.core.insights.provenance import attach
 from src.orchestrators.cv_tagging_orchestrator import CvTaggingOrchestrator
-from src.schemas.models import ListingInsights
+from src.schemas.models import ListingInsights, ObservationProvenance
 
 
 def analyze_listing(
@@ -77,6 +78,7 @@ def analyze_listing(
     photo_condition: set[str] = set()
     photo_defects: set[str] = set()
     photo_amenities: set[str] = set()
+    photo_observations: list[ObservationProvenance] = []
     try:
         if photos_folder:
             cv = CvTaggingOrchestrator()
@@ -87,11 +89,15 @@ def analyze_listing(
             # The orchestrator computes and promotes amenity labels from image tags; reading
             # only condition/defects threw that work away before it reached the report.
             photo_amenities = set(rollup.get("amenities", []) or [])
+            # Per-tag provenance for those same photo tags (provider, kind, confidence, evidence).
+            raw_obs = cv_out.get("observations", []) if isinstance(cv_out, dict) else []
+            photo_observations = [o for o in (raw_obs or []) if isinstance(o, ObservationProvenance)]
     except Exception:
         # Defensive: never crash due to image folder issues.
         photo_condition = set()
         photo_defects = set()
         photo_amenities = set()
+        photo_observations = []
 
     # --- Merge ---
     # Address, title, amenities, notes and facts come from text. Condition and defects are the
@@ -110,4 +116,7 @@ def analyze_listing(
             "notes": sorted(set(text_insights.notes)),
         }
     )
-    return combined
+    # The tag lists are a union, so the ledger is too: a tag both sources saw keeps BOTH records,
+    # which is the only way a reader can tell "the copy claims it" from "a detector saw it" from
+    # "both agree". `attach` drops any record whose tag did not survive the merge.
+    return attach(combined, [*text_insights.observations, *photo_observations])

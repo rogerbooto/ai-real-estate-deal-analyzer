@@ -477,6 +477,10 @@ def _render_provenance(pipeline: RunProvenance | None) -> str:
                 ("Orchestration engine", pipeline.engine, "AIREAL_ENGINE / --engine"),
                 ("Market Scenarios", "on" if pipeline.scenarios_enabled else "off", "AIREAL_SCENARIOS / --scenarios"),
                 ("AI photo tagging", "on" if pipeline.vision_enabled else "off", "AIREAL_USE_VISION"),
+                # Without this row, an --engine crewai + AIREAL_LLM_MODE run where a model authored
+                # every observation showed "AI photo tagging: off" as its ONLY AI fact -- under a
+                # heading promising this table is enough to reproduce the run.
+                ("LLM-authored observations", "on" if pipeline.llm_mode_enabled else "off", "AIREAL_LLM_MODE"),
                 ("Inputs file", pipeline.config_path or "(hardcoded demo inputs)", "--config"),
             ]
         )

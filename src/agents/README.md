@@ -26,6 +26,8 @@
 * `analyze_listing(listing_txt_path: str | None = None, photos_folder: str | None = None, *, fallback_text: str | None = None) -> ListingInsights`
 
   * Parses listing text (file path or raw string fallback) and aggregates photo condition tags/defects.
+  * Merges the text and photo **provenance ledgers** into `ListingInsights.observations`: a tag both sources report keeps one record each, so a reader can tell
+    "the copy claims it" from "a detector saw it" from "both agree". Records whose tag did not survive the merge are dropped rather than left dangling.
   * Photo tagging routes through `CvTaggingOrchestrator` (the single door to deterministic/AI CV paths; AI enabled via `AIREAL_USE_VISION=1`).
   * Never raises for missing/broken assets — fields default to empty.
 
@@ -53,7 +55,7 @@
 
 ### CrewAI components
 
-* `ListingAnalystAgent` / `FinancialForecasterAgent` / `ChiefStrategistAgent` — Agent/Task shells used by `orchestrators/crewai_runner.py`. With `AIREAL_LLM_MODE` unset (the default), all three `run()` methods delegate to the same deterministic functions above for math parity — no `crew.kickoff()` is called. With `AIREAL_LLM_MODE` set **and** a provider key present (`OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `OPENROUTER_API_KEY`), **`ListingAnalystAgent.run()` calls a real `crew.kickoff()`** and an LLM authors the `ListingInsights` it returns (address, amenities, condition tags, defects, notes) — an *observation* layer, falling back to the deterministic `analyze_listing()` if the call or the JSON parse fails. `FinancialForecasterAgent` and `ChiefStrategistAgent` never call `kickoff()`, in any mode: the forecast math and the BUY/CONDITIONAL/DECLINE verdict are always deterministic. Honors `AIREAL_LLM_MODE` and `AIREAL_DEBUG`.
+* `ListingAnalystAgent` / `FinancialForecasterAgent` / `ChiefStrategistAgent` — Agent/Task shells used by `orchestrators/crewai_runner.py`. With `AIREAL_LLM_MODE` unset (the default), all three `run()` methods delegate to the same deterministic functions above for math parity — no `crew.kickoff()` is called. With `AIREAL_LLM_MODE` set **and** a provider key present (`OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `OPENROUTER_API_KEY`), **`ListingAnalystAgent.run()` calls a real `crew.kickoff()`** and an LLM authors the `ListingInsights` it returns (address, amenities, condition tags, defects, notes) — an *observation* layer, falling back to the deterministic `analyze_listing()` if the call or the JSON parse fails. Model-authored tags are stamped `ObservationProvenance(origin="llm", provider=<model name>, provider_kind="model")`; the deterministic fallback keeps its own text/CV provenance and is never relabelled as AI. `FinancialForecasterAgent` and `ChiefStrategistAgent` never call `kickoff()`, in any mode: the forecast math and the BUY/CONDITIONAL/DECLINE verdict are always deterministic. Honors `AIREAL_LLM_MODE` and `AIREAL_DEBUG`.
 
 ## Design Notes / Invariants
 
@@ -98,4 +100,4 @@
 
 ---
 
-_Last reconciled: 2026-08-04 against mission/2-wiring-gaps @ d18ee1a (Gate 2 VETO remediation: Chief Strategist and CrewAI-components entries corrected — `ListingAnalystAgent.run()` does call a real `crew.kickoff()` under `AIREAL_LLM_MODE`, but the verdict is never LLM-authored, in any mode; added the full-suite coverage-gate note)._
+_Last reconciled: 2026-08-04 against mission/2-wiring-gaps @ a626e9d (Listing Analyst merges text + photo provenance ledgers; the CrewAI listing path stamps model-authored tags `origin="llm"`). Earlier note: 2026-08-04 @ d18ee1a (Gate 2 VETO remediation: Chief Strategist and CrewAI-components entries corrected — `ListingAnalystAgent.run()` does call a real `crew.kickoff()` under `AIREAL_LLM_MODE`, but the verdict is never LLM-authored, in any mode; added the full-suite coverage-gate note)._

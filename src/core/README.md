@@ -57,6 +57,7 @@
 
   # Insights, Intelligence, Advisor, Strategy
   from src.core.insights.synthesis import synthesize_listing_insights
+  from src.core.insights.provenance import attach, text_observation, detection_observation
   from src.core.intelligence.deal_fusion import fuse_deal_intelligence, DealIntelligence
   from src.core.intelligence.scoring import compute_composite_score
   from src.core.advisor import rank_deals, portfolio_summary, compute_risk_flags
@@ -102,7 +103,13 @@
 ### Insights, Intelligence, Advisor, Strategy
 
 * `synthesize_listing_insights(listing: ListingNormalized, photos: PhotoInsights) -> ListingInsights`
-  Deterministically combines textual and visual cues (address resolution, amenities, condition tags, notes).
+  Deterministically combines textual and visual cues (address resolution, amenities, condition tags, notes), and
+  populates `ListingInsights.observations` with per-tag provenance.
+* `core.insights.provenance` — builders for that ledger: `text_observation` / `filename_observation` /
+  `detection_observation` / `derived_observation` / `unattributed_observation`, plus `attach`,
+  `dedupe_and_sort`, `retain_recorded_tags`, `stamp_uniform_origin`. Pure and deterministic; they never
+  *infer* an origin — a producer that cannot attribute a tag records `origin="unknown"` rather than guessing,
+  and a keyword match is never given a fabricated confidence.
 * `fuse_deal_intelligence(...) -> DealIntelligence`
   Fuses listing, finance summary, media, and photo insights into a scored deal object.
 * `compute_composite_score(...)` — weighted scoring components (see `intelligence/types.py`).
@@ -162,4 +169,4 @@
 
 ---
 
-_Last reconciled: 2026-08-04 against mission/2-wiring-gaps @ d18ee1a (Gate 2 VETO remediation: narrowed the OPEX-modifier honesty note — unreachable from the deterministic pipeline (text-path condition tags come from the free-string `_CONDITION_KEYWORDS` list, not only the closed enum) but reachable via `--engine crewai` with `AIREAL_LLM_MODE=1`; dropped the dangling "charter finding M10" citation. Earlier note: 2026-08-03 @ 74c985c, corrected the claim that insight-aware OPEX modifiers work on real data; clarified `strategist.py`/`form_thesis`, `narrative_builder.py`/`report_builder.py`, and `advisor/scenarios.py` are dead code with no production caller today, pending Mission 2 Wave 3 disposition)._
+_Last reconciled: 2026-08-04 against mission/2-wiring-gaps @ a626e9d (documented the new `core/insights/provenance` builders and `synthesize_listing_insights`' provenance output). Earlier note: 2026-08-04 @ d18ee1a (Gate 2 VETO remediation: narrowed the OPEX-modifier honesty note — unreachable from the deterministic pipeline (text-path condition tags come from the free-string `_CONDITION_KEYWORDS` list, not only the closed enum) but reachable via `--engine crewai` with `AIREAL_LLM_MODE=1`; dropped the dangling "charter finding M10" citation. Earlier note: 2026-08-03 @ 74c985c, corrected the claim that insight-aware OPEX modifiers work on real data; clarified `strategist.py`/`form_thesis`, `narrative_builder.py`/`report_builder.py`, and `advisor/scenarios.py` are dead code with no production caller today, pending Mission 2 Wave 3 disposition)._

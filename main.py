@@ -38,6 +38,7 @@ import argparse
 import os
 from pathlib import Path
 
+from src.agents.crewai_components import _llm_enabled as llm_mode_enabled
 from src.core.reports.generator import write_report
 from src.inputs.inputs import AppInputs, InputsLoader
 from src.orchestrators import crew as deterministic_orchestrator
@@ -303,6 +304,10 @@ def main() -> None:
             engine=engine,
             scenarios_enabled=bool(run_scenarios_flag),
             vision_enabled=vision_enabled(),
+            # Read at the edge, like vision_enabled above. An LLM run authors the observations
+            # that move OPEX/NOI/cap/DSCR, so a report that omits this cannot be reproduced from
+            # its own provenance table -- which that table explicitly promises.
+            llm_mode_enabled=llm_mode_enabled(),
             config_path=config_path,
         )
 

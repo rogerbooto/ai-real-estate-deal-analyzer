@@ -20,7 +20,7 @@ the transform's own named merge-set survives ``analyze_listing`` unchanged.
 from __future__ import annotations
 
 from src.agents import listing_analyst
-from src.schemas.models import ListingInsights
+from src.schemas.models import ListingInsights, ObservationProvenance
 from tests.utils import build_sentinel_model
 
 # The only fields analyze_listing's merge step (model_copy(update=...)) is documented to
@@ -28,6 +28,14 @@ from tests.utils import build_sentinel_model
 # ListingInsights, present or future, must pass through untouched; that is asserted below by
 # enumerating model_fields, not by hand-listing "the fields we expect to survive".
 _MERGED_FIELDS = frozenset({"amenities", "condition_tags", "defects", "notes"})
+
+# `observations` (the per-tag provenance ledger) is neither passed through nor unioned: the merge
+# REBUILDS it from the text ledger plus the photo ledger, then drops any record whose tag did not
+# survive the tag-list merge (src/core/insights/provenance.retain_recorded_tags). A dangling
+# provenance record — one attributing a tag the reader cannot find in any list — is worse than no
+# record, so "must pass through untouched" is the wrong contract for this field. Its actual
+# contract is asserted by test_analyze_listing_rebuilds_the_observation_ledger below.
+_REBUILT_FIELDS = frozenset({"observations"})
 
 
 def _sentinel_insights_with_distinct_items() -> ListingInsights:
@@ -49,7 +57,7 @@ def test_analyze_listing_preserves_every_non_merged_field(monkeypatch, tmp_path)
 
     out = listing_analyst.analyze_listing(listing_txt_path=None, photos_folder=None, fallback_text="irrelevant, patched away")
 
-    non_merged = [name for name in ListingInsights.model_fields if name not in _MERGED_FIELDS]
+    non_merged = [name for name in ListingInsights.model_fields if name not in _MERGED_FIELDS | _REBUILT_FIELDS]
     assert non_merged, "sanity: ListingInsights must have at least one non-merged field"
 
     failures = []
@@ -81,12 +89,31 @@ def test_analyze_listing_merged_fields_still_carry_text_signal_with_no_photos(mo
         ), f"analyze_listing dropped text-derived {name!r} sentinel item(s): {expected_items - actual_items}"
 
 
+def test_analyze_listing_rebuilds_the_observation_ledger(monkeypatch) -> None:
+    """
+    The contract for the field in ``_REBUILT_FIELDS``: a text-derived provenance record whose tag
+    survives the merge is carried into the output ledger; one whose tag is nowhere in the merged
+    tag lists is dropped rather than rendered as a dangling attribution.
+    """
+    sentinel = build_sentinel_model(ListingInsights)
+    kept = ObservationProvenance(tag=sentinel.amenities[0], kind="amenity", origin="listing_text", detail="phrase that fired")
+    dangling = ObservationProvenance(tag="tag-that-is-in-no-list", kind="amenity", origin="listing_text", detail="orphan")
+    sentinel = sentinel.model_copy(update={"observations": [kept, dangling]})
+
+    monkeypatch.setattr(listing_analyst, "parse_listing_string", lambda text: sentinel)
+    out = listing_analyst.analyze_listing(listing_txt_path=None, photos_folder=None, fallback_text="irrelevant, patched away")
+
+    tags = {o.tag for o in out.observations}
+    assert kept.tag in tags, "a provenance record whose tag survived the merge must survive with it"
+    assert dangling.tag not in tags, "a provenance record attributing a tag that shipped nowhere must be dropped"
+
+
 def test_guard_is_general_not_hand_tuned_to_known_merge_fields() -> None:
     """
     Proves the non-merged field set is computed dynamically: it must contain every stated
     fact field (title/price/sqft/bedrooms/bathrooms/year_built/address) as a subset, without
     this test hard-coding that as the exhaustive list.
     """
-    non_merged = {name for name in ListingInsights.model_fields if name not in _MERGED_FIELDS}
+    non_merged = {name for name in ListingInsights.model_fields if name not in _MERGED_FIELDS | _REBUILT_FIELDS}
     known_passthrough = {"address", "title", "price", "sqft", "bedrooms", "bathrooms", "year_built"}
     assert known_passthrough <= non_merged, f"expected known passthrough fields to be a subset of {non_merged}"

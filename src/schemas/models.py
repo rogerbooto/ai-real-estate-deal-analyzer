@@ -166,6 +166,19 @@ class ListingInsights(BaseModel):
     defects: list[str] = Field(default_factory=list, description="Potential issues (e.g., 'water stain', 'mold', 'foundation crack').")
     notes: list[str] = Field(default_factory=list, description="Free-form additional observations.")
 
+    # ADDITIVE (Mission 2): per-tag provenance. The three tag lists above remain the contract --
+    # every existing consumer keeps reading them unchanged and this field defaults to empty, so a
+    # producer that has not been taught to populate it is not a validation error. It is a parallel
+    # ledger, not a replacement: see ObservationProvenance for why it is a list and not a dict.
+    observations: list[ObservationProvenance] = Field(
+        default_factory=list,
+        description=(
+            "Per-observation provenance for the amenities/condition_tags/defects above. Zero or "
+            "more records per tag (a tag observed by both the listing copy and a photo yields one "
+            "record each). Advisory: may be empty even when the tag lists are not."
+        ),
+    )
+
 
 # =========================
 # Computed outputs
@@ -514,6 +527,70 @@ class DetectedLabelModel(BaseModel):
     confidence: float = Field(..., ge=0.0, le=1.0, description="Model confidence in [0,1].")
     evidence: list[str] | None = Field(default=None, description="Optional textual/visual evidence ids.")
     rationale: str | None = Field(default=None, description="Short model rationale (if available).")
+
+
+#: Which ``ListingInsights`` list an observation belongs to.
+ObservationKind = Literal["condition", "defect", "amenity"]
+
+#: What class of producer authored an observation. Deliberately about the *producer*, not the
+#: confidence: ``cv_provider`` says "a detector looked at the pixels", it does NOT say the
+#: detector was a model — read ``ObservationProvenance.provider_kind`` for that.
+#:
+#:   listing_text   — a keyword/regex match over the listing copy, or a normalized listing fact.
+#:   photo_filename — derived from an image's FILE NAME, not its pixels (e.g. "kitchen_island.jpg").
+#:   cv_provider    — a detector in ``core/cv`` ran over the image.
+#:   llm            — authored by a language model (``agents/crewai_components``' V2 path).
+#:   unknown        — the tag is present but this pipeline genuinely cannot attribute it. Recorded
+#:                    rather than guessed; a consumer must not upgrade it to any of the above.
+ObservationOrigin = Literal["listing_text", "photo_filename", "cv_provider", "llm", "unknown"]
+
+
+class ObservationProvenance(BaseModel):
+    """Where ONE observation on ``ListingInsights`` came from, and what evidence backs it.
+
+    Exists because ``condition_tags`` / ``defects`` / ``amenities`` are bare strings: nothing in
+    them distinguishes an LLM-authored tag from a regex keyword match from a CV detection, so a
+    report cannot honestly say "AI observed 'old roof'". This record carries the origin alongside
+    the tag.
+
+    Metadata is present only where it genuinely exists. A keyword match has no confidence, so
+    ``detection`` stays ``None`` for text origins -- a fabricated confidence would be worse than
+    no number at all.
+
+    ``detection`` reuses :class:`DetectedLabelModel` rather than restating confidence/evidence/
+    rationale, so the CV pipeline's own record travels intact. ``detection.name`` is the raw
+    ontology label; ``tag`` is the string as it appears in the ``ListingInsights`` list, which can
+    differ (surface mapping, e.g. ontology ``stainless_appliances`` -> surface ``stainless_kitchen``).
+    """
+
+    model_config = ConfigDict(frozen=True, extra="ignore")
+
+    tag: str = Field(..., description="The observation string exactly as it appears in the ListingInsights list named by `kind`.")
+    kind: ObservationKind = Field(..., description="Which ListingInsights list this tag lives in.")
+    origin: ObservationOrigin = Field(..., description="Producer class that authored the tag; see ObservationOrigin.")
+    detail: str | None = Field(
+        default=None,
+        description=(
+            "The single free-text 'what fired' slot: the matched listing phrase (listing_text), the "
+            "filename token (photo_filename), or the threshold that tripped (derived cv_provider tags). "
+            "None when the producer offers no such handle."
+        ),
+    )
+    provider: str | None = Field(default=None, description="Producer identity, e.g. 'vision' | 'local' | an LLM model name.")
+    provider_kind: Literal["heuristic_stub", "model"] | None = Field(
+        default=None,
+        description=(
+            "Whether `provider` is a real model or a hand-written heuristic standing in for one "
+            "(see core.cv.amenities_defects.provider_kind). This is the field a caller must read "
+            "before claiming a tag was AI-observed. None when no provider was involved."
+        ),
+    )
+    provider_version: str | None = Field(default=None, description="Version string of the producer, e.g. 'vision-stub-v1'.")
+    source_image_sha: str | None = Field(default=None, description="sha256 of the image this observation came from, when it came from one.")
+    detection: DetectedLabelModel | None = Field(
+        default=None,
+        description="The CV pipeline's own detection record (confidence/evidence/rationale). None for non-detector origins.",
+    )
 
 
 class ParkingSummary(BaseModel):
@@ -1072,6 +1149,17 @@ class RunProvenance(BaseModel):
         ...,
         description="Whether the AI photo-tagging path was active (AIREAL_USE_VISION). Changes which amenities appear.",
     )
+    llm_mode_enabled: bool = Field(
+        False,
+        description=(
+            "Whether AIREAL_LLM_MODE was active. When true AND engine='crewai', a language model "
+            "authored the listing observations (condition tags, defects, amenities) that feed the "
+            "deterministic insight modifiers, so it changes the reported figures. Distinct from "
+            "vision_enabled, which covers photo tagging only: on an LLM run with vision off, "
+            "vision_enabled=False alone would leave the report implying no model was involved. "
+            "The verdict is never LLM-authored in any mode (see chief_strategist.synthesize_thesis)."
+        ),
+    )
     config_path: str | None = Field(
         None,
         description="Inputs file used, exactly as supplied. None when the run fell back to hardcoded demo inputs.",
@@ -1104,3 +1192,16 @@ class ScenarioAnalysis(BaseModel):
     irr_10yr: ScenarioMetricBand | None = Field(None, description="Prior-weighted IRR band; None iff n_accepted == 0.")
     equity_multiple_10yr: ScenarioMetricBand | None = Field(None, description="Prior-weighted equity-multiple band; None if 0 accepted.")
     notes: str | None = Field(None, description="Rejector notes / 'no admissible scenarios'.")
+
+
+# =========================
+# Deferred forward references
+# =========================
+#
+# ListingInsights.observations is annotated `list[ObservationProvenance]`, but
+# ObservationProvenance is declared further down (next to DetectedLabelModel, which it reuses).
+# With `from __future__ import annotations` every annotation is a string, so ListingInsights is
+# left with an unresolved reference at class-creation time. Pydantic would resolve it lazily on
+# first use; rebuilding explicitly here makes the failure loud at import if the reference ever
+# breaks, instead of at whichever call site happens to validate first.
+ListingInsights.model_rebuild()

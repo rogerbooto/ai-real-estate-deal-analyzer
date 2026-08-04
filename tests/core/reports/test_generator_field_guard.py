@@ -64,6 +64,22 @@ _EXCLUDED: dict[tuple[str, str], str] = {
         "fixture sets a non-empty address, so title is correctly never shown here; the "
         "fallback path itself has its own coverage in tests/core/reports/test_report_header_identity.py."
     ),
+    ("ListingInsights", "observations"): (
+        "DELIBERATELY NOT RENDERED YET. `observations` is the per-tag provenance ledger added by "
+        "Mission 2 (schemas.models.ObservationProvenance): it records, for each amenity/condition/"
+        "defect tag, whether it came from the listing copy, a photo filename, a CV provider (and "
+        "whether that provider is a real model or a heuristic stub), or an LLM. It exists so the "
+        "report can eventually replace its blanket 'AI photo tagging is on' caveat with per-line "
+        "attribution -- literally 'AI observed \"old roof\" -> reserves +$300/yr'. That rendering "
+        "is a SEPARATE, already-scoped follow-up owned by the report designer "
+        "(src/core/reports/generator.py::_render_observation_impact); this task deliberately "
+        "shipped the data with ZERO report diff so the two changes stay independently reviewable "
+        "and `python main.py` stays byte-identical. REMOVE THIS ENTRY when _render_observation_impact "
+        "starts reading insights.observations -- if that follow-up is cancelled, the field should be "
+        "deleted, not left excluded."
+    ),
+    # (No per-field entries for ObservationProvenance itself: `_walk` skips the excluded parent
+    # before recursing into it, so child entries would be unreachable dead rows in this table.)
     # --- Known findings, already in the Mission 2 charter (T5 class) ---
     ("YearBreakdown", "cap_rate_applied"): (
         "T5 (charter): generator.py recomputes a drifting cap per row (_render_valuation_table_noi) "
@@ -201,8 +217,14 @@ _KNOWN_MODEL_TYPES = (BaseModel,)
 # remember to write a dedicated test" would reintroduce the hand-maintained-list failure mode
 # the rest of this guard was built to eliminate.
 _BOOL_FIELDS_WITH_DEDICATED_TESTS: dict[tuple[str, str], str] = {
-    ("RunProvenance", "scenarios_enabled"): "asserted as an on/off row by test_provenance_bools_render_as_on_off",
-    ("RunProvenance", "vision_enabled"): "asserted as an on/off row by test_provenance_bools_render_as_on_off",
+    # NB: these cite the test BY ITS REAL NAME. The first version of this table cited
+    # "test_provenance_bools_render_as_on_off", which never existed -- the test is
+    # test_run_provenance_bool_fields_render_their_on_off_row. Nobody could grep for the
+    # reason, which is the same dangling-pointer defect Gate 2 was vetoed over (C1). A
+    # citation in an audited table is a claim; it has to resolve.
+    ("RunProvenance", "scenarios_enabled"): "asserted as an on/off row by test_run_provenance_bool_fields_render_their_on_off_row",
+    ("RunProvenance", "vision_enabled"): "asserted as an on/off row by test_run_provenance_bool_fields_render_their_on_off_row",
+    ("RunProvenance", "llm_mode_enabled"): "asserted as an on/off row by test_run_provenance_bool_fields_render_their_on_off_row",
 }
 
 
@@ -358,15 +380,19 @@ def test_no_field_is_silently_dropped_from_the_rendered_report(sentinel_report) 
 
 def test_run_provenance_bool_fields_render_their_on_off_row(sentinel_report) -> None:
     """
-    RunProvenance.scenarios_enabled / vision_enabled are the two bool fields that matter in
-    this render path. Booleans are treated as vacuously reachable by the generic walker
-    (see _leaf_reaches_text's docstring), so they get a precise, dedicated assertion here
-    instead — this is the "belt" half of belt-and-suspenders, not a substitute for the
-    walker skipping them.
+    RunProvenance's bool fields are the ones that matter in this render path. Booleans are
+    treated as vacuously reachable by the generic walker (see _leaf_reaches_text's docstring),
+    so they get a precise, dedicated assertion here instead — this is the "belt" half of
+    belt-and-suspenders, not a substitute for the walker skipping them.
+
+    llm_mode_enabled is here because without its row the provenance appendix showed
+    "AI photo tagging: off" as its ONLY AI fact on a run where a language model authored every
+    listing observation — under a heading promising the table is enough to reproduce the run.
     """
     text, _ = sentinel_report
     assert "| Market Scenarios | on |" in text
     assert "| AI photo tagging | on |" in text
+    assert "| LLM-authored observations | on |" in text
 
 
 def test_io_years_gates_the_io_caveat_sentence(sentinel_report) -> None:

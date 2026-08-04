@@ -36,7 +36,10 @@
 
 * `CvTaggingOrchestrator` — the **single door** for photo tagging:
 
-  * `analyze_paths(photo_paths)` / `analyze_folder(folder, recursive=True)` → per-image records + rollups (amenities, condition tags, defects, warnings).
+  * `analyze_paths(photo_paths)` / `analyze_folder(folder, recursive=True)` → per-image records + rollups (amenities, condition tags, defects, warnings)
+    plus `observations: list[ObservationProvenance]` — the per-tag provenance behind those rollups (provider, `provider_kind`, version, source image sha, and the
+    detection's own confidence/evidence/rationale). Filename-promoted materials are recorded with `origin="photo_filename"`, **not** `"cv_provider"`: no detector
+    looked at those pixels. `rollup` keeps its bare-string shape; `observations` is a sibling, not a replacement.
   * Combines deterministic generic labels (`tag_images`) with closed-set detections (`tag_amenities_and_defects`), promoting filename-derived materials to amenity surfaces.
   * Reads `AIREAL_USE_VISION` at import time: `1` selects the `vision` provider path, else `local`. Providers are deterministic stubs unless an ONNX model is registered.
 
@@ -87,4 +90,4 @@
 
 ---
 
-_Last reconciled: 2026-08-04 against mission/2-wiring-gaps @ d18ee1a (Gate 2 VETO remediation: the CrewAI Orchestrator entry corrected — `crew.kickoff()` **is** called for the Listing Analyst under `AIREAL_LLM_MODE`; the forecast math and verdict stay deterministic in every mode; added the full-suite coverage-gate note)._
+_Last reconciled: 2026-08-04 against mission/2-wiring-gaps @ a626e9d (`CvTaggingOrchestrator.analyze_paths` now also returns `observations` (per-tag provenance)). Earlier note: 2026-08-04 @ d18ee1a (Gate 2 VETO remediation: the CrewAI Orchestrator entry corrected — `crew.kickoff()` **is** called for the Listing Analyst under `AIREAL_LLM_MODE`; the forecast math and verdict stay deterministic in every mode; added the full-suite coverage-gate note)._
