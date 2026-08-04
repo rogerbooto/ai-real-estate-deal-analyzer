@@ -2,11 +2,11 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any, cast
 
-from src.core.cv.amenities_defects import ProviderName, provider_kind
+from src.core.cv.amenities_defects import ProviderName, is_filename_derived, is_unconfirmed_hint, provider_kind
 from src.core.cv.photo_insights import DETERMINISTIC_VERSION, VISION_STUB_VERSION
 from src.core.cv.runner import tag_amenities_and_defects, tag_images
 from src.core.insights.provenance import dedupe_and_sort, detection_observation, filename_observation
@@ -35,7 +35,7 @@ class CvTaggingOrchestrator:
         if not normalized:
             return {
                 "images": [],
-                "rollup": {"amenities": [], "condition_tags": [], "defects": [], "warnings": []},
+                "rollup": {"amenities": [], "condition_tags": [], "defects": [], "warnings": [], "unconfirmed_hints": []},
                 "observations": [],
             }
 
@@ -59,35 +59,56 @@ class CvTaggingOrchestrator:
         # 3) Build rollups (detections)
         amenity_names: set[str] = set()
         defect_names: set[str] = set()
+        unconfirmed_names: set[str] = set()
         for sha, per_img in dets.items():
             for d in per_img:
                 name = str(d.get("name", "")).lower()
                 if not name:
                     continue
                 cat = str(d.get("category", ""))
+                if cat not in ("amenity", "defect"):
+                    continue
+
+                # A label nothing was ABLE to look for does not enter the tag lists. Those three
+                # lists are what `finance.engine._apply_insight_modifiers` reads to select OPEX and
+                # income rules, so putting an unmeasured claim in one lets a file name move a
+                # dollar. It is not dropped -- it ships in `rollup["unconfirmed_hints"]`, which the
+                # analyst surfaces to the reader as a note. Shown, never counted.
+                if is_unconfirmed_hint(d):
+                    unconfirmed_names.add(name)
+                    continue
+
                 if cat == "amenity":
                     amenity_names.add(name)
-                elif cat == "defect":
-                    defect_names.add(name)
                 else:
-                    continue
+                    defect_names.add(name)
                 obs_kind: ObservationKind = "amenity" if cat == "amenity" else "defect"
-                # `runner._augment_from_filename` splices filename-inferred labels into this same
-                # list, marked `source="filename"`. They must NOT be stamped as detections: a blank
-                # grey image called "mold_basement.jpg" would otherwise become a 0.90-confidence
-                # "mould suspected" finding attributed to a detector, evidence and rationale empty.
-                # That is the rule this module already applies to promoted materials below, and the
-                # rule ObservationProvenance's own docstring states.
-                if str(d.get("source", "pixels")) == "filename":
+
+                # `runner._augment_from_filename` splices filename-suggested labels into this same
+                # list. One a detector CONTRADICTED (`filename_contested`) is still the file name's
+                # claim, not the detector's, so it keeps `origin="photo_filename"` and carries no
+                # detection payload -- stamping it as a detection is how a blank grey image called
+                # "mold_basement.jpg" became a 0.90-confidence "mould suspected" *finding*. Its
+                # corroboration score and the disagreement itself go in `detail`, where a reader
+                # sees them for what they are.
+                #
+                # Written as "filename-derived AND not confirmed" rather than "== contested" so a
+                # source value added later defaults to the cautious branch: an unrecognised
+                # filename state must not be promoted to a detector's finding by omission.
+                if is_filename_derived(d) and str(d.get("source", "")) != "filename_confirmed":
                     observations.append(
                         filename_observation(
                             name,
                             kind=obs_kind,
-                            detail=next(iter(d.get("evidence") or ()), None),
+                            detail=_contested_detail(d),
                             source_image_sha=sha,
                         )
                     )
                     continue
+                # `pixels` and `filename_confirmed` alike: a detector looked at the image and
+                # emitted this label. `filename_confirmed` differs only in that a second,
+                # independent signal agreed and lifted the confidence -- the detection's own
+                # rationale records the arithmetic.
                 observations.append(
                     detection_observation(
                         d,
@@ -133,11 +154,15 @@ class CvTaggingOrchestrator:
         # Rollup is expected to be a dict; coerce if not
         raw_rollup: Any = out.get("rollup")
         if not isinstance(raw_rollup, dict):
-            raw_rollup = {"amenities": [], "condition_tags": [], "defects": [], "warnings": []}
+            raw_rollup = {"amenities": [], "condition_tags": [], "defects": [], "warnings": [], "unconfirmed_hints": []}
         rollup: dict[str, list[str]] = cast(dict[str, list[str]], raw_rollup)
 
         rollup["amenities"] = sorted(amenity_names)
         rollup["defects"] = sorted(defect_names)
+        # Sibling key, deliberately NOT merged into the three above: those are observations, this
+        # is a question nothing answered. Consumers that only know the original three keys keep
+        # working and simply never see an unmeasured claim, which is the safe default.
+        rollup["unconfirmed_hints"] = sorted(unconfirmed_names)
 
         out_dict: dict[str, Any] = cast(dict[str, Any], out)
         out_dict["rollup"] = rollup
@@ -169,6 +194,25 @@ class CvTaggingOrchestrator:
                 if p.suffix.lower() in _IMAGE_EXTS and p.is_file():
                     collected.append(str(p))
         return collected
+
+
+def _contested_detail(det: Mapping[str, Any]) -> str | None:
+    """The one free-text 'what fired' line for a filename-suggested tag a detector did not confirm.
+
+    ``ObservationProvenance`` gives filename origins exactly one slot and no confidence field (by
+    design -- a filename guess must not be able to look like a scored detection), so the
+    corroboration score goes here, in words, next to the fact that a detector disagreed. A bare
+    "file name contains 'mold'" would leave the reader unable to tell this apart from the case
+    where nothing looked at all.
+    """
+    evidence = next(iter(det.get("evidence") or ()), None)
+    conf = det.get("confidence")
+    if isinstance(conf, (int | float)):
+        return (
+            f"{evidence or 'file name match'}; a detector that covers this label "
+            f"did not report it (corroboration score {float(conf):.2f})"
+        )
+    return str(evidence) if evidence else None
 
 
 def _normalize_paths(paths: Iterable[str]) -> list[str]:

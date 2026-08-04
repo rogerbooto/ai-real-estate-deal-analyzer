@@ -44,11 +44,16 @@ def test_orchestrator_deterministic_paths(tmp_path, monkeypatch):
     # Unreadable text file exposes readable=False
     assert by_id[t.name]["readable"] is False
 
-    # Rollup contains consolidated defects (from filename heuristics / closed set)
+    # Rollup separates what a detector reported from what only a file name claims. "basement_mold"
+    # and "roof_leak" are file names; no built-in provider declares the ability to detect either
+    # label, so nothing measured them. They ship as unconfirmed hints -- visible to the reader,
+    # absent from `defects` (which finance.engine._apply_insight_modifiers reads to pick OPEX
+    # rules) and carrying no confidence.
     roll = out["rollup"]
     assert isinstance(roll.get("condition_tags", []), list)
-    assert "mold_suspected" in roll["defects"]
-    assert "water_leak_suspected" in roll["defects"]
+    assert roll["defects"] == [], f"a file name alone put a defect on the property: {roll['defects']}"
+    assert "mold_suspected" in roll["unconfirmed_hints"]
+    assert "water_leak_suspected" in roll["unconfirmed_hints"]
 
     # Amenity rollup may include natural_light_high (heuristic); keep flexible
     assert isinstance(roll.get("amenities", []), list)

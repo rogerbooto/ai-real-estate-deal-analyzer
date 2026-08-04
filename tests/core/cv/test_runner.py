@@ -43,10 +43,12 @@ def test_cache_directory_layout(tmp_path: Path, monkeypatch):
     # First run: should write a cache file
     res1 = cv_runner.tag_amenities_and_defects([img_path], provider="vision", use_cache=True)
     assert sha in res1
-    # Read the behaviour-version segment from the constant rather than hardcoding it: entries are
-    # keyed by (provider, sha256), which does not encode what the provider would say *today*, so
-    # the version is what stops a stale detection outliving the code that produced it.
-    cache_file = tmp_path / "cache" / "providers" / "vision" / cv_runner._CACHE_BEHAVIOUR_VERSION / f"{sha}.json"
+    # Read the behaviour segment from the helper rather than hardcoding it: entries are keyed by
+    # (provider, sha256), which does not encode what the provider would say *today*, so the segment
+    # is what stops a stale detection outliving the code that produced it. It now carries the
+    # provider's declared capabilities as well as the constant, because registering a different
+    # detector changes what the same image under the same file name means.
+    cache_file = tmp_path / "cache" / "providers" / "vision" / cv_runner._cache_behaviour_segment("vision") / f"{sha}.json"
     assert cache_file.exists(), "Expected provider cache file to be created"
 
     # Second run: should load from cache (behavioral: same output)

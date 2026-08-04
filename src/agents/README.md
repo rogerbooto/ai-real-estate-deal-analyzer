@@ -29,6 +29,9 @@
   * Merges the text and photo **provenance ledgers** into `ListingInsights.observations`: a tag both sources report keeps one record each, so a reader can tell
     "the copy claims it" from "a detector saw it" from "both agree". Records whose tag did not survive the merge are dropped rather than left dangling.
   * Photo tagging routes through `CvTaggingOrchestrator` (the single door to deterministic/AI CV paths; AI enabled via `AIREAL_USE_VISION=1`).
+  * Labels a **file name** suggested that no registered detector can look for arrive as `rollup["unconfirmed_hints"]` and are rendered into `notes`, never into
+    `amenities`/`condition_tags`/`defects`. Those three lists are what `finance/engine._apply_insight_modifiers` reads, so this is what stops a file name moving a
+    number; `notes` reaches the report and nothing in the finance core. See `src/core/README.md` § "Filename suggestions: SUGGEST vs CONFIRM".
   * Never raises for missing/broken assets — fields default to empty.
 
 ### Financial Forecaster

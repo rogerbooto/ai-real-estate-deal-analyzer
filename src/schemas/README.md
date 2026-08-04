@@ -84,6 +84,18 @@ Closed-set enums (`RoomType`, `MaterialTag`, `AmenityLabel`, `DefectLabel`, `Con
 
 Because `ObservationProvenance` is declared next to `DetectedLabelModel` (which it reuses) — i.e. *after* `ListingInsights` — `models.py` ends with an explicit `ListingInsights.model_rebuild()` to resolve that forward reference loudly at import.
 
+### Migration note — `PhotoInsights.unconfirmed_hint_counts` (Mission 2 / M17, additive)
+
+`unconfirmed_hint_counts` is **additive and optional** (`default_factory=dict`); nothing was renamed, retyped or removed, and a `PhotoInsights` built without it is still valid.
+
+It exists because `amenity_counts` and `defect_counts` had come to mean two different things at once. Both counted "images exhibiting this label", but the label could have been produced by a detector examining pixels **or** by `core/cv/runner._augment_from_filename` reading the file's NAME. Those counts flow into `ListingInsights.amenities` / `.defects`, and those three lists are what `core/finance/engine._apply_insight_modifiers` reads to select OPEX and income rules — so a claim nothing measured could select a rule and move a number. A blank grey image named `mold_basement.jpg` produced `defects: ['mold_suspected']`.
+
+A filename may **suggest**; only a detector that actually looked may **confirm** (see `core.cv.amenities_defects.DetectionSource`). A suggestion a provider corroborated or contradicted is scoreable and stays in `amenity_counts`/`defect_counts`. A suggestion **no registered provider declares it can detect** is not scoreable at all — nothing measured it — so it lands here instead, **without a confidence**, and is surfaced to the reader through `ListingInsights.notes` rather than through a tag list.
+
+That is why it is a third dict and not more entries in the first two: the difference between "a detector reported it" and "a file name said it and nothing checked" is exactly what the reader and the finance rules must not conflate. `DetectedLabelModel.confidence` stays required for the same reason — an entry with no confidence is not a detection and must not be able to masquerade as one, so unconfirmed hints never enter `image_detections`.
+
+A label counted here moves into `defect_counts`/`amenity_counts` automatically the day a provider declaring it is registered (`core.cv.amenities_defects.register_provider` / `register_onnx_provider`); no code change is required.
+
 ## Usage Examples
 
 ### Example 1 — Construct Financial Inputs (per-unit income)

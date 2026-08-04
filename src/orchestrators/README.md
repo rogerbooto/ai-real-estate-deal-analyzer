@@ -36,10 +36,14 @@
 
 * `CvTaggingOrchestrator` — the **single door** for photo tagging:
 
-  * `analyze_paths(photo_paths)` / `analyze_folder(folder, recursive=True)` → per-image records + rollups (amenities, condition tags, defects, warnings)
+  * `analyze_paths(photo_paths)` / `analyze_folder(folder, recursive=True)` → per-image records + rollups (amenities, condition tags, defects, warnings, **unconfirmed hints**)
     plus `observations: list[ObservationProvenance]` — the per-tag provenance behind those rollups (provider, `provider_kind`, version, source image sha, and the
     detection's own confidence/evidence/rationale). Filename-promoted materials are recorded with `origin="photo_filename"`, **not** `"cv_provider"`: no detector
     looked at those pixels. `rollup` keeps its bare-string shape; `observations` is a sibling, not a replacement.
+  * `rollup["unconfirmed_hints"]` holds labels a **file name** suggested that no registered provider declares it can detect — nothing measured them, so they carry no
+    confidence, produce no observation record, and are deliberately **absent from `amenities`/`condition_tags`/`defects`**, which is what keeps them out of
+    `finance/engine._apply_insight_modifiers`. `agents/listing_analyst.py` renders them into `ListingInsights.notes` so the reader still learns the hint exists.
+    See `src/core/README.md` § "Filename suggestions: SUGGEST vs CONFIRM".
   * Combines deterministic generic labels (`tag_images`) with closed-set detections (`tag_amenities_and_defects`), promoting filename-derived materials to amenity surfaces.
   * Reads `AIREAL_USE_VISION` at import time: `1` selects the `vision` provider path, else `local`. Providers are deterministic stubs unless an ONNX model is registered.
 

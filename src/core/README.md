@@ -87,7 +87,21 @@
 * `tag_images(paths, *, use_ai=None, return_schema=False) -> dict`
   Deterministic generic room/material tagging keyed by image sha256.
 * `tag_amenities_and_defects(assets, *, provider, use_cache=True) -> dict[str, list[DetectedLabel]]`
-  Closed-set amenities/defects detection with per-provider JSON cache (`.cache/cv/providers/<provider>/<sha>.json`). Providers: `local` (heuristics), `vision` / `llm` (deterministic stubs), `onnx` (user-registered local model via `register_onnx_provider`).
+  Closed-set amenities/defects detection with per-provider JSON cache (`.cache/cv/providers/<provider>/<behaviour>-<capability-digest>/<sha>.json`). Providers: `local` (heuristics), `vision` / `llm` (deterministic stubs), `onnx` (user-registered local model via `register_onnx_provider`). The cache path carries the provider's declared capabilities as well as `_CACHE_BEHAVIOUR_VERSION`, so registering a different detector cannot be served a pre-registration answer.
+* `register_provider(name, fn, *, detects)` / `provider_capabilities(name) -> frozenset[str]`
+  A provider **declares the label vocabulary it can emit**. `register_onnx_provider`'s `labels_path` is that declaration for a real model. Declarations are keyed by the function object, not the slot name, so a slot rebound at runtime reports the new function's vocabulary with no table to update — the same identity rule `provider_kind` uses. An undeclared provider covers **nothing** (silence is not evidence that something looked).
+
+#### Filename suggestions: SUGGEST vs CONFIRM
+
+A file name may **suggest** a label; only a detector that actually looked may **confirm** it. `runner._augment_from_filename` classifies each match against `provider_capabilities`, producing one of three `DetectedLabel.source` values (see `amenities_defects.DetectionSource`):
+
+| provider covers the label? | provider reported it? | `source` | confidence |
+| --- | --- | --- | --- |
+| yes | yes | `filename_confirmed` | `CV_CONFIRMATION_WEIGHT × cv + FILENAME_CORROBORATION_BONUS` (0.7 · cv + 0.3) |
+| yes | no — a genuine disagreement | `filename_contested` | `0.30` — deliberately below the 0.6 "strong" bar `_parking_summary` applies |
+| no — nothing could look | n/a | `filename_unconfirmed` | **none at all** |
+
+The two weights are a tunable split summing to 1.0 (`runner.CV_CONFIRMATION_WEIGHT` / `FILENAME_CORROBORATION_BONUS`); the 0.30 is a flat corroboration credit for a *binary* filename match, not "we are 30% sure". An **unconfirmed** hint is kept out of `ListingInsights.amenities/condition_tags/defects` — the three lists `finance/engine._apply_insight_modifiers` reads — and is surfaced to the reader through `ListingInsights.notes` and `PhotoInsights.unconfirmed_hint_counts` instead. Registering a provider that declares the label moves it from unconfirmed to contested with no code change.
 
 ### Media & Fetch
 

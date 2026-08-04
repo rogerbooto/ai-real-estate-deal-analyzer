@@ -9,7 +9,7 @@ from pathlib import Path
 from statistics import mean
 from typing import Any, cast
 
-from src.core.cv.amenities_defects import ProviderName, provider_kind
+from src.core.cv.amenities_defects import ProviderName, is_unconfirmed_hint, provider_kind
 from src.core.cv.runner import tag_amenities_and_defects, tag_images
 
 # Centralized labels/enums + helpers
@@ -73,6 +73,37 @@ _QUALITY_PREDICATES: dict[str, Callable[[dict[str, Any]], bool]] = {
     "renovated_score": _is_renovated,
     "curb_appeal_score": _is_exterior,
 }
+
+
+def _split_measured_and_hints(
+    dets_per_sha: Mapping[str, list[Mapping[str, Any]]],
+) -> tuple[dict[str, list[Mapping[str, Any]]], dict[str, int]]:
+    """Separate entries something measured from entries nothing was able to look for.
+
+    Everything downstream of this split -- roll-ups, quality scores, the parking summary, the
+    amenity booleans -- is a claim about the property, and several of them reach the deterministic
+    finance rules through ``ListingInsights``. A ``filename_unconfirmed`` entry has no confidence
+    (nothing produced one), so letting it through would either crash the count-based consumers or,
+    worse, silently score it 0.0 and drag an average down with a measurement that never happened.
+
+    Returns ``(measured_per_sha, hint_counts)``: the detections to keep processing, and one count
+    per hint label across images -- the same "images exhibiting this" convention as the roll-ups.
+    """
+    measured: dict[str, list[Mapping[str, Any]]] = {}
+    hint_counts: dict[str, int] = {}
+    for sha, dets in dets_per_sha.items():
+        kept: list[Mapping[str, Any]] = []
+        seen: set[str] = set()
+        for det in dets or []:
+            if not is_unconfirmed_hint(det):
+                kept.append(det)
+                continue
+            name = str(det.get("name", "")).lower()
+            if name and name not in seen:
+                seen.add(name)
+                hint_counts[name] = hint_counts.get(name, 0) + 1
+        measured[sha] = kept
+    return measured, hint_counts
 
 
 def _parking_summary(dets_per_sha: Mapping[str, list[Mapping[str, Any]]]) -> dict[str, Any]:
@@ -306,7 +337,11 @@ def build_photo_insights(photo_dir: Path, *, use_ai: bool = False) -> PhotoInsig
             image_index[sha] = p
 
     # 2) Closed-set detections (for rollups and quality)
-    dets = tag_amenities_and_defects(cast(Sequence[AssetLike], paths), provider=provider, use_cache=True)
+    raw_dets = tag_amenities_and_defects(cast(Sequence[AssetLike], paths), provider=provider, use_cache=True)
+    # Unconfirmed filename hints are pulled out here, once, before anything derives a number from
+    # them. `dets` from this point on is exactly "what a detector reported".
+    measured, unconfirmed_hint_counts = _split_measured_and_hints(cast(Mapping[str, list[Mapping[str, Any]]], raw_dets))
+    dets = {sha: cast(list[Any], entries) for sha, entries in measured.items()}
 
     # 3) Room counts — RoomType → PhotoInsights key via ROOM_COUNT_CANONICAL
     room_counts: dict[str, int] = {}
@@ -351,6 +386,7 @@ def build_photo_insights(photo_dir: Path, *, use_ai: bool = False) -> PhotoInsig
         image_detections=dets,
         amenity_counts=amenity_counts,
         defect_counts=defect_counts,
+        unconfirmed_hint_counts=unconfirmed_hint_counts,
         parking=parking,
         ontology_version="amenities_defects_v1",
         images_total=len(paths),

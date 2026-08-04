@@ -57,4 +57,10 @@ def test_listing_analyst_with_photos_uses_orchestrator(tmp_path, monkeypatch):
     assert any(c in out.condition_tags for c in ("renovated_kitchen", "updated_bath", "well_maintained", "new_flooring")) or isinstance(
         out.condition_tags, list
     )
-    assert "mold_suspected" in out.defects
+    # M17/R-6: "bath_mold.jpg" is a FILE NAME. No registered provider declares it can detect
+    # mold_suspected, so nothing measured it -- it must not become a defect on the property.
+    # `defects` is one of the three lists finance.engine._apply_insight_modifiers reads, so a
+    # tag here can select an OPEX rule and move a number. The claim still reaches the reader,
+    # as a note that says exactly what it is worth.
+    assert "mold_suspected" not in out.defects, "a file name alone put a defect on the property"
+    assert any("mold_suspected" in n and "Unconfirmed photo hint" in n for n in out.notes), f"the hint was dropped entirely: {out.notes}"

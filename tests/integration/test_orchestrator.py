@@ -76,5 +76,9 @@ def test_analyze_folder_recursive_and_direct_flag_fallback(tmp_path, monkeypatch
     names = [img["image_id"] for img in out["images"]]
     assert set(names) == {f1.name, f2.name}
 
-    # Mold should appear in defects via mock provider filename cue
-    assert "mold_suspected" in out["rollup"]["defects"]
+    # M17/R-6: "bath_mold.jpg" is a file NAME saying "mold". No built-in provider declares it can
+    # detect mold_suspected, so nothing measured it -- it is an unconfirmed hint, not a defect.
+    # It must be surfaced (the reader still learns the file name says this) but must not enter
+    # `defects`, which is one of the three lists finance.engine._apply_insight_modifiers reads.
+    assert "mold_suspected" not in out["rollup"]["defects"], "a file name alone asserted a property defect"
+    assert "mold_suspected" in out["rollup"]["unconfirmed_hints"], "the hint was dropped instead of surfaced"

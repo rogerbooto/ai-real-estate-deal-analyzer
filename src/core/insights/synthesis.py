@@ -22,6 +22,7 @@ from __future__ import annotations
 
 from urllib.parse import urlparse
 
+from src.core.cv.amenities_defects import unconfirmed_hint_note
 from src.core.insights.provenance import (
     attach,
     derived_observation,
@@ -309,6 +310,13 @@ def _notes_from(listing: ListingNormalized, photos: PhotoInsights) -> list[str]:
     # mention provider/version used for image analysis for traceability
     if photos.provider and photos.version:
         notes.append(f"vision:{photos.provider}@{photos.version}")
+
+    # Labels a file name suggested that no registered provider is able to look for. They are
+    # deliberately absent from `amenities`/`condition_tags`/`defects` -- those three lists are what
+    # `finance.engine._apply_insight_modifiers` reads, and an unmeasured claim must not be able to
+    # select an OPEX or income rule. `notes` is read by the report and by nothing in the finance
+    # core, so the reader still learns the hint exists without it touching a number.
+    notes.extend(unconfirmed_hint_note(label) for label in sorted(photos.unconfirmed_hint_counts or {}))
 
     return notes
 

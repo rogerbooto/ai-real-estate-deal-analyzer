@@ -33,10 +33,24 @@ Migration Notes
 
 from __future__ import annotations
 
+from src.core.cv.amenities_defects import unconfirmed_hint_note
 from src.core.ingest.listing_parser import parse_listing_string, parse_listing_text
 from src.core.insights.provenance import attach
 from src.orchestrators.cv_tagging_orchestrator import CvTaggingOrchestrator
 from src.schemas.models import ListingInsights, ObservationProvenance
+
+
+def _hint_notes(hints: set[str]) -> list[str]:
+    """Turn unconfirmed filename hints into reader-facing notes.
+
+    ``notes`` is the carrier on purpose. The three tag lists (``amenities``/``condition_tags``/
+    ``defects``) are read by ``finance.engine._apply_insight_modifiers`` to select OPEX and income
+    rules, so a claim nothing measured cannot be put there without giving a file name the power to
+    move money. ``notes`` is read by the report and by nothing in the finance core, which is
+    exactly the "shown to the reader, invisible to the arithmetic" property this needs. Keeping
+    the hint out of the money path required no change inside ``src/core/finance/`` at all.
+    """
+    return [unconfirmed_hint_note(label) for label in sorted(hints)]
 
 
 def analyze_listing(
@@ -78,6 +92,7 @@ def analyze_listing(
     photo_condition: set[str] = set()
     photo_defects: set[str] = set()
     photo_amenities: set[str] = set()
+    photo_hints: set[str] = set()
     photo_observations: list[ObservationProvenance] = []
     try:
         if photos_folder:
@@ -89,6 +104,9 @@ def analyze_listing(
             # The orchestrator computes and promotes amenity labels from image tags; reading
             # only condition/defects threw that work away before it reached the report.
             photo_amenities = set(rollup.get("amenities", []) or [])
+            # Labels a file name suggested that NOTHING was able to look for. Deliberately read
+            # into `notes` and not into the tag lists — see `_hint_notes`.
+            photo_hints = set(rollup.get("unconfirmed_hints", []) or [])
             # Per-tag provenance for those same photo tags (provider, kind, confidence, evidence).
             raw_obs = cv_out.get("observations", []) if isinstance(cv_out, dict) else []
             photo_observations = [o for o in (raw_obs or []) if isinstance(o, ObservationProvenance)]
@@ -97,6 +115,7 @@ def analyze_listing(
         photo_condition = set()
         photo_defects = set()
         photo_amenities = set()
+        photo_hints = set()
         photo_observations = []
 
     # --- Merge ---
@@ -113,7 +132,7 @@ def analyze_listing(
             "amenities": sorted(set(text_insights.amenities) | photo_amenities),
             "condition_tags": sorted(photo_condition | set(text_insights.condition_tags)),
             "defects": sorted(photo_defects | set(text_insights.defects)),
-            "notes": sorted(set(text_insights.notes)),
+            "notes": sorted(set(text_insights.notes) | set(_hint_notes(photo_hints))),
         }
     )
     # The tag lists are a union, so the ledger is too: a tag both sources saw keeps BOTH records,

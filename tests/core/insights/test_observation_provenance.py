@@ -23,6 +23,7 @@ import pytest
 from PIL import Image
 
 from src.agents.listing_analyst import analyze_listing
+from src.core.cv import amenities_defects as ad
 from src.core.ingest.listing_parser import parse_listing_string
 from src.core.insights.provenance import dedupe_and_sort
 from src.core.insights.synthesis import synthesize_listing_insights
@@ -128,6 +129,28 @@ def cv_photos(tmp_path: Path, make_gradient_img) -> Path:
     return pdir
 
 
+@pytest.fixture
+def detector_that_covers_dishwashers(tmp_path: Path, monkeypatch) -> object:
+    """Bind a provider that CAN detect ``dishwasher`` and, on these images, reports none.
+
+    Needed because the built-in providers declare a two-label vocabulary (light and grey), so
+    ``dishwasher`` is normally a label NOTHING can look for -- and a filename claim nothing can
+    check is not an observation at all, so it produces no provenance record to assert on (that
+    case is covered in tests/core/cv/test_filename_corroboration.py). The tests below are about
+    the OTHER case: something looked, disagreed, and the file name's claim survives as the file
+    name's claim -- never as the detector's.
+    """
+
+    def _covers_dishwasher_reports_none(_img: object) -> list[object]:
+        return []
+
+    monkeypatch.setenv("AIREDEAL_CACHE_DIR", str(tmp_path / "cache"))
+    original = ad._PROVIDERS["local"]
+    ad.register_provider("local", _covers_dishwasher_reports_none, detects=["dishwasher"])
+    yield _covers_dishwasher_reports_none
+    ad._PROVIDERS["local"] = original
+
+
 def test_cv_detection_records_the_provider_its_kind_and_its_confidence(cv_photos: Path) -> None:
     """A genuinely PIXEL-derived detection carries the provider, its kind, and its confidence.
 
@@ -150,10 +173,10 @@ def test_cv_detection_records_the_provider_its_kind_and_its_confidence(cv_photos
     assert obs.detection.evidence, "a real detection carries the measurements it was based on; a fabricated one has none"
 
 
-def test_filename_derived_tag_is_never_a_detection(cv_photos: Path) -> None:
+def test_filename_derived_tag_is_never_a_detection(cv_photos: Path, detector_that_covers_dishwashers: object) -> None:
     """M17: a label inferred from a FILE NAME must never be stamped as a detector's finding.
 
-    ``runner._augment_from_filename`` splices filename-inferred labels into the provider's own
+    ``runner._augment_from_filename`` splices filename-suggested labels into the provider's own
     detection list. Before this was fixed, everything in that list was stamped
     ``origin="cv_provider"``, so a blank grey image named ``mold_basement.jpg`` produced a
     0.90-confidence "mould suspected" finding attributed to a detector -- with ``evidence=None``
@@ -162,6 +185,11 @@ def test_filename_derived_tag_is_never_a_detection(cv_photos: Path) -> None:
     Per-tag provenance made that worse rather than better: before it, the filename guess was a bare
     string, dishonest only by omission. After it, it became an affirmative, structured, machine-
     readable claim with a confidence score attached.
+
+    Here a detector that CAN see dishwashers looked and reported none, so the file name's claim is
+    scoreable -- and it is scored weakly (0.30) -- but it is still the file name's claim. It keeps
+    ``photo_filename`` and carries no ``DetectedLabelModel``: the detector's record must say what
+    the detector said, and the detector said no.
     """
     insights = analyze_listing(listing_txt_path=None, photos_folder=str(cv_photos), fallback_text="A home.")
 
@@ -172,6 +200,9 @@ def test_filename_derived_tag_is_never_a_detection(cv_photos: Path) -> None:
     ], f"a tag inferred from the file name is recorded as a detector's finding: {dishwasher}"
     assert all(o.detection is None for o in dishwasher), "a filename guess must carry no detection payload, and therefore no confidence"
     assert all(o.provider is None for o in dishwasher), "naming a provider implies that provider looked at the pixels"
+    # The disagreement itself is on the record: a reader must be able to tell "a detector looked
+    # and said no" from "a file name said so and nothing checked".
+    assert any("did not report it" in (o.detail or "") for o in dishwasher), f"the detector's disagreement was dropped: {dishwasher}"
 
 
 def test_filename_derived_tag_is_not_reported_as_a_detector_seeing_it(cv_photos: Path) -> None:
@@ -185,7 +216,7 @@ def test_filename_derived_tag_is_not_reported_as_a_detector_seeing_it(cv_photos:
     assert island[0].detail == "kitchen_island"
 
 
-def test_same_tag_from_text_and_from_photos_keeps_both_records(cv_photos: Path) -> None:
+def test_same_tag_from_text_and_from_photos_keeps_both_records(cv_photos: Path, detector_that_covers_dishwashers: object) -> None:
     """The repeated-tag case ACROSS sources -- the shape decision this field was designed around.
 
     The copy claims a dishwasher and a photo is tagged with one. Those are two independent

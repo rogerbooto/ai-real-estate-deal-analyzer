@@ -624,6 +624,23 @@ class PhotoInsights(BaseModel):
     )
     amenity_counts: dict[str, int] = Field(default_factory=dict, description="How many distinct images exhibited each amenity label.")
     defect_counts: dict[str, int] = Field(default_factory=dict, description="How many distinct images exhibited each defect label.")
+
+    # ADDITIVE (Mission 2, M17/R-6). Deliberately a THIRD roll-up rather than more entries in the
+    # two above: those count things a detector reported, and this counts things a file name
+    # suggested that NO registered provider is able to look for (see
+    # core.cv.amenities_defects.DetectionSource). The distinction is load-bearing -- amenity_counts
+    # and defect_counts flow into ListingInsights and from there into the deterministic OPEX/income
+    # rules, so an unmeasured claim mixed into them lets a file name move a number. These carry no
+    # confidence for the same reason: nothing measured them, and any number would be invented.
+    # A label listed here moves into defect_counts/amenity_counts automatically, with no code
+    # change, the day a provider declaring it is registered.
+    unconfirmed_hint_counts: dict[str, int] = Field(
+        default_factory=dict,
+        description=(
+            "How many images had a FILE NAME suggesting each label that no registered provider "
+            "declares it can detect. Advisory only: unscored, and never an input to any number."
+        ),
+    )
     parking: ParkingSummary | None = Field(default=None, description="Derived listing-level parking summary.")
     ontology_version: str | None = Field(default=None, description="Ontology version string used for closed-set labels.")
 

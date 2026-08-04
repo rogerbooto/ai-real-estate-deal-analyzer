@@ -30,12 +30,12 @@ def test_tag_amenities_cache_layout(tmp_path: Path, monkeypatch):
     res = cv_runner.tag_amenities_and_defects([p], provider="local", use_cache=True)
     assert sha in res
 
-    # The behaviour-version segment is deliberate, not incidental. Entries are keyed by
-    # (provider, image sha256), which records what was looked at but not what the looker would
-    # say today -- so without it a provider behaviour fix never reaches anyone holding a warm
-    # cache. Read the constant rather than hardcoding it, so a future bump does not break this.
+    # The behaviour segment is deliberate, not incidental. Entries are keyed by (provider, image
+    # sha256), which records what was looked at but not what the looker would say today -- so
+    # without it a provider behaviour fix never reaches anyone holding a warm cache. Read the
+    # helper rather than hardcoding it, so a future bump does not break this.
     provider_dir = tmp_path / "cache" / "providers" / "local"
-    cache_file = provider_dir / cv_runner._CACHE_BEHAVIOUR_VERSION / f"{sha}.json"
+    cache_file = provider_dir / cv_runner._cache_behaviour_segment("local") / f"{sha}.json"
     assert (
         cache_file.exists()
     ), f"expected a version-scoped cache entry; tree was {sorted(pth.relative_to(provider_dir) for pth in provider_dir.rglob('*'))}"
