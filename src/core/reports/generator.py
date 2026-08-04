@@ -759,6 +759,20 @@ _AI_OBSERVATION_SOURCE_LINE = (
 )
 
 
+def _model_was_involved(provenance: RunProvenance | None) -> bool:
+    """Whether ANY model produced observations on this run -- vision OR language.
+
+    Gating AI attribution on `vision_enabled` alone hid the one path where a model authored
+    everything: with `--engine crewai` and `AIREAL_LLM_MODE` set but vision off, an LLM wrote every
+    condition tag, defect and amenity, moved GOI/NOI/cash flow/cap rate -- and the report rendered
+    the neutral "With observations" header, suppressed the model-error caveat, and told the reader
+    the tags came from "the listing copy and the photo set". Two accurate flags, one false picture.
+    """
+    if provenance is None:
+        return False
+    return bool(provenance.vision_enabled or provenance.llm_mode_enabled)
+
+
 def _render_observation_impact(
     forecast: FinancialForecast,
     baseline: BaselineOutlook,
@@ -786,7 +800,7 @@ def _render_observation_impact(
     base_p = baseline.forecast.purchase
     obs_p = forecast.purchase
 
-    observed_header = "With observations (AI-assisted)" if (provenance and provenance.vision_enabled) else "With observations"
+    observed_header = "With observations (AI-assisted)" if _model_was_involved(provenance) else "With observations"
 
     lines: list[str] = [
         "**Year 1 impact** _(Change = with observations − baseline.)_",
@@ -879,7 +893,7 @@ def _render_year_adjustments(
         ABOUT_OBSERVATIONS_BLOCK,
         "",
     ]
-    if provenance is not None and provenance.vision_enabled:
+    if _model_was_involved(provenance):
         lines.append(_AI_OBSERVATION_SOURCE_LINE)
         lines.append("")
 

@@ -36,6 +36,7 @@ class DetectedLabel(TypedDict, total=False):
       - confidence: float in [0,1]      (optional for early scaffolding)
       - evidence: list[str] | None
       - rationale: str | None
+      - source: "pixels" | "filename" (optional; absent means pixels)
     """
 
     name: str
@@ -43,6 +44,15 @@ class DetectedLabel(TypedDict, total=False):
     confidence: float
     evidence: list[str] | None
     rationale: str | None
+    # "pixels" (a provider looked at the image) or "filename" (the label was inferred from the
+    # file's NAME alone -- see runner._augment_from_filename). Absent means "pixels", so old
+    # cache entries and third-party providers read as detections, which is what they are.
+    #
+    # This exists because the two are otherwise indistinguishable once spliced into one list, and
+    # downstream provenance stamps every entry origin="cv_provider". That turned a blank grey
+    # image named "mold_basement.jpg" into a 0.90-confidence "mould suspected" finding attributed
+    # to a detector, with no evidence and no rationale.
+    source: Literal["pixels", "filename"]
 
 
 # =========================

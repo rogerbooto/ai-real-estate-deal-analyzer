@@ -72,6 +72,22 @@ class CvTaggingOrchestrator:
                 else:
                     continue
                 obs_kind: ObservationKind = "amenity" if cat == "amenity" else "defect"
+                # `runner._augment_from_filename` splices filename-inferred labels into this same
+                # list, marked `source="filename"`. They must NOT be stamped as detections: a blank
+                # grey image called "mold_basement.jpg" would otherwise become a 0.90-confidence
+                # "mould suspected" finding attributed to a detector, evidence and rationale empty.
+                # That is the rule this module already applies to promoted materials below, and the
+                # rule ObservationProvenance's own docstring states.
+                if str(d.get("source", "pixels")) == "filename":
+                    observations.append(
+                        filename_observation(
+                            name,
+                            kind=obs_kind,
+                            detail=next(iter(d.get("evidence") or ()), None),
+                            source_image_sha=sha,
+                        )
+                    )
+                    continue
                 observations.append(
                     detection_observation(
                         d,

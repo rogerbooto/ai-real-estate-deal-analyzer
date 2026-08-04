@@ -39,7 +39,7 @@ AssetLike = str | Path | MediaAsset
 # "street parking, 1 spot" from an image merely being wide and bright. 8 cached entries in this
 # checkout still carried that fabricated detection after the code was corrected, and would have
 # kept serving it. A cached answer must not outlive the reason it was true.
-_CACHE_BEHAVIOUR_VERSION = "v2"
+_CACHE_BEHAVIOUR_VERSION = "v3"
 
 
 def _cache_root() -> Path:
@@ -256,22 +256,76 @@ def tag_amenities_and_defects(
             dish_label = AmenityLabel.dishwasher.value
 
             if "mold" in lname and not any(d.get("name") == mold_label for d in dets):
-                dets.append({"name": mold_label, "category": "defect", "confidence": 0.90})
+                dets.append(
+                    {
+                        "name": mold_label,
+                        "category": "defect",
+                        "confidence": 0.90,
+                        "source": "filename",
+                        "evidence": ["file name contains 'mold'"],
+                        "rationale": "Inferred from the file name; no detector examined the pixels.",
+                    }
+                )
                 changed = True
             if "leak" in lname and not any(d.get("name") == leak_label for d in dets):
-                dets.append({"name": leak_label, "category": "defect", "confidence": 0.85})
+                dets.append(
+                    {
+                        "name": leak_label,
+                        "category": "defect",
+                        "confidence": 0.85,
+                        "source": "filename",
+                        "evidence": ["file name contains 'leak'"],
+                        "rationale": "Inferred from the file name; no detector examined the pixels.",
+                    }
+                )
                 changed = True
             if "ev" in lname and "charger" in lname and not any(d.get("name") == ev_label for d in dets):
-                dets.append({"name": ev_label, "category": "amenity", "confidence": 0.75})
+                dets.append(
+                    {
+                        "name": ev_label,
+                        "category": "amenity",
+                        "confidence": 0.75,
+                        "source": "filename",
+                        "evidence": ["file name contains 'ev charger'"],
+                        "rationale": "Inferred from the file name; no detector examined the pixels.",
+                    }
+                )
                 changed = True
             if "garage" in lname and not any(d.get("name") == garage_label for d in dets):
-                dets.append({"name": garage_label, "category": "amenity", "confidence": 0.70})
+                dets.append(
+                    {
+                        "name": garage_label,
+                        "category": "amenity",
+                        "confidence": 0.70,
+                        "source": "filename",
+                        "evidence": ["file name contains 'garage'"],
+                        "rationale": "Inferred from the file name; no detector examined the pixels.",
+                    }
+                )
                 changed = True
             if "driveway" in lname and not any(d.get("name") == driveway_label for d in dets):
-                dets.append({"name": driveway_label, "category": "amenity", "confidence": 0.70})
+                dets.append(
+                    {
+                        "name": driveway_label,
+                        "category": "amenity",
+                        "confidence": 0.70,
+                        "source": "filename",
+                        "evidence": ["file name contains 'driveway'"],
+                        "rationale": "Inferred from the file name; no detector examined the pixels.",
+                    }
+                )
                 changed = True
             if "dishwasher" in lname and not any(d.get("name") == dish_label for d in dets):
-                dets.append({"name": dish_label, "category": "amenity", "confidence": 0.66})
+                dets.append(
+                    {
+                        "name": dish_label,
+                        "category": "amenity",
+                        "confidence": 0.66,
+                        "source": "filename",
+                        "evidence": ["file name contains 'dishwasher'"],
+                        "rationale": "Inferred from the file name; no detector examined the pixels.",
+                    }
+                )
                 changed = True
 
             return changed

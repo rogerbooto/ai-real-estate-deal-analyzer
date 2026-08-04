@@ -38,8 +38,8 @@ import argparse
 import os
 from pathlib import Path
 
-from src.agents.crewai_components import _llm_enabled as llm_mode_enabled
 from src.core.reports.generator import write_report
+from src.core.runtime_flags import llm_mode_enabled
 from src.inputs.inputs import AppInputs, InputsLoader
 from src.orchestrators import crew as deterministic_orchestrator
 from src.orchestrators.cv_tagging_orchestrator import vision_enabled

@@ -63,6 +63,7 @@ from src.agents.chief_strategist import synthesize_thesis
 from src.agents.financial_forecaster import forecast_financials
 from src.agents.listing_analyst import analyze_listing
 from src.core.insights.provenance import stamp_uniform_origin
+from src.core.runtime_flags import llm_mode_enabled
 from src.schemas.models import (
     FinancialForecast,
     FinancialInputs,
@@ -166,9 +167,14 @@ T = TypeVar("T", bound=BaseModel)
 
 
 def _llm_enabled() -> bool:
-    """Check if LLM reasoning is enabled."""
-    v = os.getenv("AIREAL_LLM_MODE", "").strip()
-    return v in {"1", "true", "yes", "on"}
+    """Whether LLM reasoning is enabled. Delegates to ``core.runtime_flags``.
+
+    The implementation lives in a dependency-free module because ``main.py`` needs this same
+    answer to record provenance on every run, and importing it from here would drag the
+    crewai/litellm SDK tree into a deterministic run that never uses it. Kept as a thin alias so
+    the many call sites in this module read naturally and there is still one implementation.
+    """
+    return llm_mode_enabled()
 
 
 def _get_model_name() -> str:

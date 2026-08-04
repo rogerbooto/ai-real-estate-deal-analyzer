@@ -20,6 +20,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from PIL import Image
 
 from src.agents.listing_analyst import analyze_listing
 from src.core.ingest.listing_parser import parse_listing_string
@@ -109,31 +110,68 @@ def test_every_recorded_tag_actually_shipped_in_its_list() -> None:
 
 @pytest.fixture
 def cv_photos(tmp_path: Path, make_gradient_img) -> Path:
-    """Photos whose FILENAMES drive deterministic, provider-independent tags.
+    """Photos covering BOTH provenance origins, so the two cannot be conflated.
 
-    - ``kitchen_dishwasher.png`` -> a closed-set ``dishwasher`` amenity detection.
-    - ``kitchen_island_1.png``   -> a filename *material* promoted to the ``kitchen_island``
-      amenity surface, i.e. an assertion made from the file name, never from the pixels.
+    - ``flat_grey.png``        -> genuinely PIXEL-derived: the local provider reads low channel
+      spread at mid brightness and emits ``stainless_appliances`` with real evidence. Its
+      filename says nothing, so nothing can be attributed to the name.
+    - ``kitchen_dishwasher.png`` -> FILENAME-derived: "dishwasher" in the name alone. No detector
+      saw a dishwasher in these pixels.
+    - ``kitchen_island_1.png`` -> a filename *material* promoted to the ``kitchen_island`` amenity
+      surface, i.e. an assertion made from the file name, never from the pixels.
     """
     pdir = tmp_path / "cv_photos"
     pdir.mkdir(parents=True, exist_ok=True)
+    Image.new("RGB", (64, 64), (128, 128, 128)).save(pdir / "flat_grey.png")
     make_gradient_img(pdir / "kitchen_dishwasher.png", (64, 64), delta=7)
     make_gradient_img(pdir / "kitchen_island_1.png", (64, 64), delta=4242)
     return pdir
 
 
 def test_cv_detection_records_the_provider_its_kind_and_its_confidence(cv_photos: Path) -> None:
+    """A genuinely PIXEL-derived detection carries the provider, its kind, and its confidence.
+
+    Deliberately asserted on ``stainless_appliances`` (read off the pixels) rather than
+    ``dishwasher``: an earlier version of this test used the dishwasher, whose tag comes from the
+    *file name*, and so pinned a filename guess as a detector's finding -- certifying the exact
+    fabrication the sibling test below forbids. See test_filename_derived_tag_is_never_a_detection.
+    """
     insights = analyze_listing(listing_txt_path=None, photos_folder=str(cv_photos), fallback_text="A home.")
 
-    dishwasher = [o for o in _by_tag(insights, "dishwasher") if o.origin == "cv_provider"]
-    assert dishwasher, f"no cv_provider record for a detected amenity; got {insights.observations}"
+    detected = [o for o in _by_tag(insights, "stainless_appliances") if o.origin == "cv_provider"]
+    assert detected, f"no cv_provider record for a pixel-derived amenity; got {insights.observations}"
 
-    obs = dishwasher[0]
+    obs = detected[0]
     assert obs.provider == "local", "the CV provider that produced the tag was not recorded"
     assert obs.provider_kind == "heuristic_stub", "the built-in providers are stubs; recording anything else would let the report claim AI"
     assert obs.provider_version, "the provider version was dropped"
     assert obs.source_image_sha, "the source image was dropped"
     assert obs.detection is not None and obs.detection.confidence > 0.0, "the detection's confidence was discarded"
+    assert obs.detection.evidence, "a real detection carries the measurements it was based on; a fabricated one has none"
+
+
+def test_filename_derived_tag_is_never_a_detection(cv_photos: Path) -> None:
+    """M17: a label inferred from a FILE NAME must never be stamped as a detector's finding.
+
+    ``runner._augment_from_filename`` splices filename-inferred labels into the provider's own
+    detection list. Before this was fixed, everything in that list was stamped
+    ``origin="cv_provider"``, so a blank grey image named ``mold_basement.jpg`` produced a
+    0.90-confidence "mould suspected" finding attributed to a detector -- with ``evidence=None``
+    and ``rationale=None``, and the highest confidence in the ledger.
+
+    Per-tag provenance made that worse rather than better: before it, the filename guess was a bare
+    string, dishonest only by omission. After it, it became an affirmative, structured, machine-
+    readable claim with a confidence score attached.
+    """
+    insights = analyze_listing(listing_txt_path=None, photos_folder=str(cv_photos), fallback_text="A home.")
+
+    dishwasher = _by_tag(insights, "dishwasher")
+    assert dishwasher, "the filename-derived amenity shipped with no provenance at all"
+    assert [o.origin for o in dishwasher] == [
+        "photo_filename"
+    ], f"a tag inferred from the file name is recorded as a detector's finding: {dishwasher}"
+    assert all(o.detection is None for o in dishwasher), "a filename guess must carry no detection payload, and therefore no confidence"
+    assert all(o.provider is None for o in dishwasher), "naming a provider implies that provider looked at the pixels"
 
 
 def test_filename_derived_tag_is_not_reported_as_a_detector_seeing_it(cv_photos: Path) -> None:
@@ -163,7 +201,12 @@ def test_same_tag_from_text_and_from_photos_keeps_both_records(cv_photos: Path) 
     dishwasher = _by_tag(insights, "dishwasher")
     origins = sorted(o.origin for o in dishwasher)
     assert "listing_text" in origins, f"the copy's own claim was dropped: {dishwasher}"
-    assert "cv_provider" in origins, f"the photo detection was dropped: {dishwasher}"
+    # The photo side is `photo_filename`, not `cv_provider`: this tag comes from the file being
+    # named "kitchen_dishwasher.png", and no detector saw a dishwasher in those pixels. The point
+    # of this test is that two independent sightings survive as two records -- a reader can tell
+    # "the copy says so AND a photo agrees" from "only the copy says so". That invariant is
+    # unchanged; what changed is that the photo-side record no longer overstates how it was made.
+    assert "photo_filename" in origins, f"the photo-side sighting was dropped: {dishwasher}"
     assert len(dishwasher) >= 2, "the two sources were collapsed into one record"
 
 
