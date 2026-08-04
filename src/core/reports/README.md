@@ -18,7 +18,7 @@
 
 ### Report Generator
 
-* `generate_report(insights: ListingInsights | None, forecast: FinancialForecast, thesis: InvestmentThesis | None = None, title_override: str | None = None, *, media_insights: MediaInsights | None = None, media_report: MediaReport | None = None, provenance: RunProvenance | None = None, scenarios: ScenarioAnalysis | None = None) -> str`
+* `generate_report(insights: ListingInsights | None, forecast: FinancialForecast, thesis: InvestmentThesis | None = None, title_override: str | None = None, *, media_insights: MediaInsights | None = None, media_report: MediaReport | None = None, provenance: RunProvenance | None = None, scenarios: ScenarioAnalysis | None = None, baseline: BaselineOutlook | None = None) -> str`
 
   Builds a Markdown investment report with sections:
 
@@ -36,8 +36,18 @@
   8. **Valuation tables** — Baseline, Stress-Test, and NOI-Based.
   9. **OPEX Detail (Year 1)**.
   10. **Adjustments Applied** — renders `YearBreakdown.notes` for any year that carries them (in
-      practice only Year 1, since insight modifiers apply once at the top of the model). **⚠
-      Unreachable from the deterministic pipeline** — the engine's OPEX-bump triggers
+      practice only Year 1, since insight modifiers apply once at the top of the model).
+      **This section IS reachable on the plain deterministic engine.** The engine's *income*
+      modifiers fire whenever `FinancialInputs.income_is_estimated` is `True` (a documented,
+      user-settable field, `src/schemas/models.py:135`) and the listing yields the amenity
+      `parking` or `in-unit laundry` — no AI, no `--engine crewai`, no `AIREAL_LLM_MODE`.
+      Reproduced: a text-path listing saying "Parking" with `income_is_estimated=True` produces
+      `Y1 notes: ['amenity uplift: parking (+$50/mo/unit other income)']`, and
+      `tests/orchestrators/test_orchestration_result_field_guard.py:48-55` relies on exactly that
+      path. The demo bundle simply does not set `income_is_estimated`, which is why *its* report
+      is unaffected.
+      **⚠ The narrower claim, which is true: the two OPEX-bump triggers are unreachable
+      deterministically** — the engine's OPEX triggers
       (`src/core/finance/engine.py:64,68`) check for the literal strings `"old roof"` in
       `condition_tags` and `"water stain"` in `defects`, but no path that assembles a
       `ListingInsights` deterministically can produce either string: on the text-ingestion path,
@@ -61,7 +71,7 @@
   13. **Appendix — Run Provenance** (always emitted; see below).
   14. **Appendix — Definitions** (always emitted, last; see below).
 
-* `write_report(path: str | Path, insights: ListingInsights | None, forecast: FinancialForecast, thesis: InvestmentThesis | None = None, *, media_insights: MediaInsights | None = None, media_report: MediaReport | None = None, provenance: RunProvenance | None = None, scenarios: ScenarioAnalysis | None = None) -> None`
+* `write_report(path: str | Path, insights: ListingInsights | None, forecast: FinancialForecast, thesis: InvestmentThesis | None = None, *, media_insights: MediaInsights | None = None, media_report: MediaReport | None = None, provenance: RunProvenance | None = None, scenarios: ScenarioAnalysis | None = None, baseline: BaselineOutlook | None = None) -> None`
   Convenience wrapper; creates parent directories and writes the Markdown file. All keyword-only
   arguments are forwarded to `generate_report` unchanged.
 

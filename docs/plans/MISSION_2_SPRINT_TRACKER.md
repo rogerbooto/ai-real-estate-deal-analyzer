@@ -34,9 +34,12 @@ cheap agent struggling, or a capable agent doing mechanical work) — log that h
 orchestrator verifying) · `DONE` (verified inline) · `DEFERRED`
 
 ## Overall progress
-- Tasks: **24 / 28 DONE** (one SCOPED — see 0.1) · 3 IN-PROGRESS (Gate 2 VETO remediation) · 0 BLOCKED · 1 TODO
-- Suite: **415 tests, exit 0, coverage 83.18%** (mission start: 310 / 81.87%)
-- *(Corrected 2026-08-04 — guardian condition C5. These counts had drifted a full wave behind what
+- Tasks: **24 / 28 DONE** (one SCOPED — see 0.1) · 1 IN-PROGRESS (R-4 per-tag provenance) · 0 BLOCKED · 3 TODO (Wave 3)
+- Suite: **452 tests, exit 0, coverage 83.71%** (mission start: 310 / 81.87%) — re-measured 2026-08-04
+- *(Corrected twice. **C5 first raised at the Gate 2 VETO; it then RECURRED and the guardian
+  raised it again as M16** — I fixed the numbers once and they went stale within the same wave,
+  which is the point: a count copied forward is a claim I stopped checking. Re-measured each
+  time from `pytest`, never carried forward. Original C5 note: These counts had drifted a full wave behind what
   had actually shipped: they read `14/28`, `356 tests`, `82.68%`, and every Wave 2 row still said
   TODO after `74c985c` implemented them. In a mission about documents telling the truth, its own
   record has no exemption. Numbers here are now re-measured, not carried forward.)*
@@ -290,6 +293,67 @@ documented command that does not work.
 *(Orchestrator note: my first check of this used invented paths like `tests/market`, which gave a
 misleading exit 4 — "file or directory not found" — rather than the real exit 1. Re-tested against
 the actual documented commands before acting.)*
+
+### Gate 2 RE-RUN — 🔴 VETOED AGAIN 2026-08-04 (narrow: two hard blockers)
+The guardian re-verified from a clean worktree at `a626e9d` and **passed** the substance: it tried
+to defeat V3 with attacker-controlled LLM JSON smuggling `"VERDICT: BUY"` into notes, condition tags
+and free text — `thesis == synthesize_thesis(forecast)` object-equal, verdict `DECLINE`, and only two
+`InvestmentThesis` constructors exist in `src/`. Invariants all re-derived clean. It singled out that
+`baseline` was **not** given a guard exclusion — the fixture was strengthened instead so the field is
+covered by the same no-field-reverts invariant as everything else, "the opposite of exclusion
+laundering". It also confirmed my reversal on the `strict_dom` parse-failure behaviour was right.
+
+**Both blockers are the same class Gate 2 was vetoed for the first time: a document asserting what
+the code contradicts. Both orchestrator-reproduced before acting.**
+
+| # | Blocker | Status |
+| --- | --- | --- |
+| **M12** | **The report under-discloses AI on the one path where a model authored everything.** On `--engine crewai` + `AIREAL_LLM_MODE=1` + vision off, an LLM authors every observation and moves OPEX/NOI/cap/DSCR — yet the only "AI" in the report is `\| AI photo tagging \| off \|`, under an appendix that claims *"reproducing a report means matching this table"* (`generator.py:486-488`). `AIREAL_LLM_MODE` has no row. **Verified:** `RunProvenance` carries `engine`/`scenarios_enabled`/`vision_enabled`/`config_path` and nothing about LLM mode. Needs an additive `RunProvenance` bool + an appendix row. **Note the guardian did NOT overturn the per-tag hedge** — that is run-level disclosure, needs no per-tag provenance, and R-4 is not a prerequisite. | **OPEN** — deferred behind R-4 to avoid a concurrent `models.py` collision |
+| **M13** | **`reports/README.md`'s "⚠ Unreachable from the deterministic pipeline" was FALSE.** The ⚠ scoped the whole section, but its justification covers only the two *OPEX* triggers — the section also renders *income* notes, which fire on the plain deterministic engine. **Orchestrator-reproduced with no AI at all:** `income_is_estimated=True` + a listing saying "Parking" → `Y1 notes: ['amenity uplift: parking (+$50/mo/unit other income)']`. Damning detail: **`a626e9d`'s own guard fixture uses exactly that path and its comment documents the mechanism** (`test_orchestration_result_field_guard.py:48-55`) — the commit that proved it fires shipped the README saying it cannot. | ✅ **FIXED** — ⚠ narrowed to the OPEX triggers; deterministic reachability stated with the reproduction |
+| **M15** | `a626e9d` added `baseline=` to `generate_report`/`write_report` and `baseline` to `OrchestrationResult`, and left both documented signatures stating the old contract — the M6 class, in the commit closing the docs blockers. | ✅ **FIXED** — both signatures and the `OrchestrationResult` shape updated |
+| **M16** | **C5 RECURRED.** I corrected the tracker counts once (`d18ee1a`) and they went stale again inside the same wave. | ✅ **FIXED** — re-measured (452 / 83.71%). The lesson recorded: a count copied forward is a claim I stopped checking. |
+| **M14** | `_provider_llm_stub` (`amenities_defects.py:337,368`) still emits `"on-street parking"` from `aspect == "landscape" and lum >= 0.55` — **the identical fabrication V1 vetoed, in the sibling slot**, and `"llm"` is a documented public-API provider. Flagged only in a commit message, which is the decay pattern for the third time. | **CARRIED to Gate 3** as a row |
+
+**Guardian advisories (non-blocking, recorded):** prompt injection reaches *report copy* — an injected
+string rendered verbatim as a bullet under Condition & Defects (the verdict is safe; blast bounded to
+four fixed rules; opt-in behind two env vars + an API key; pre-existing). `.env.example:69` documents
+`AIREAL_LLM_MODE` as "Empty = off" without saying what setting it does. The sample artifact says
+observations are hand-fed at `:1` and "AI photo tagging was on" at `:174` — defensible but
+contradictory on the page Roger read. `strict_dom` + cache: `html_rendered` is written before the
+parse, so a strict raise leaves a cached render served tree-less on retry.
+
+**Process lesson, restated by the guardian and accepted:** Roger approved
+`observation_impact_sample.md`, which is the **vision-on** variant that *does* disclose. The
+non-disclosing variant was never put in front of him. When M12 lands, the `AIREAL_LLM_MODE=1` /
+vision-off report goes to him with its reproduce command — the Gate 0 lesson again.
+
+## Founder-directed additions (Roger, 2026-08-03/04) — beyond the original charter
+
+These were not in the charter. Roger directed them after the Gate 2 VETO surfaced the LLM seam.
+
+| # | Direction (Roger's words) | Status |
+| --- | --- | --- |
+| R-1 | *"have the AI influenced data to go through the same deterministic decision making flow"* | ✅ **DONE** `5e85836` — `ChiefStrategistAgent.run` always returns `synthesize_thesis`; `_run_llm` deleted. Verified adversarially: `AIREAL_LLM_MODE=1` + notes reading `"VERDICT: BUY"` still yields DECLINE, identical to the deterministic thesis. |
+| R-2 | *"two sections when AI is enabled; one non-AI influenced and one influenced by AI"* + *"add warning saying that AI can make mistakes and the report is an estimation"* | ✅ **DONE** `a626e9d` — merged into one "Adjustments Applied" section (splitting delta from cause is the orphan-number failure mode). Roger reviewed the generated sample and approved: *"Read it! That's fine!"* |
+| R-3 | Specific attribution over a blanket disclaimer | ✅ **DONE** `a626e9d` — the engine's per-modifier notes render as the "What moved each figure" list. |
+| R-4 | *"add the per-tag provenance to keep transparency and have rich metadata"* | **IN PROGRESS** 2026-08-04 — see below. |
+| R-5 | Document why `--ai` is a stub so the mission-planner can plan it | ✅ **DONE** `db2d28d` — `ROADMAP_TRACKER.md` §4 backlog #3, split into three offerings with very different blast profiles. |
+
+### R-4 — per-tag provenance (in progress)
+**Closes a real hedge.** `a626e9d`'s report cannot say *"AI observed X"* because `ListingInsights`
+carries only bare strings — there is no way to tell an LLM-authored tag from a regex keyword match
+from a CV detection. So the AI caveat currently fires only when `RunProvenance.vision_enabled` is
+true, and attribution renders the engine's note verbatim rather than naming the source.
+
+**Mostly a stop-discarding task, not new inference** — the same defect class as the rest of this
+mission. `DetectedLabel` (`amenities_defects.py:31-45`) already carries `confidence`, `evidence`,
+`rationale`, `category`; `_parking_summary` (`photo_insights.py:78`) reads `name`/`confidence` and
+**discards evidence and rationale entirely**, flattening everything to bare booleans and strings.
+`provider_kind` and the provider version already exist from `5e85836`.
+
+Constraints held: `src/schemas/models.py` strictly additive; the report is **not** changed by this
+pass (a later one uses the data); the field must be added to the guard's `_EXCLUDED` **with a written
+reason**, since that table is audited at every gate.
 
 ## Wave 3 — Disposition (WIRE-FIRST; OPDs resolved)
 

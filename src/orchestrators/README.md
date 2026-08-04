@@ -26,7 +26,7 @@
   2. `agents.financial_forecaster.forecast_financials()` → `FinancialForecast`.
   3. `agents.chief_strategist.synthesize_thesis()` → `InvestmentThesis`.
 
-  Returns `OrchestrationResult(insights, forecast, thesis, media_insights, media_report)`. The two media
+  Returns `OrchestrationResult(insights, forecast, thesis, media_insights, media_report, baseline)`. `baseline` is a `BaselineOutlook | None` (`src/core/reports/baseline.py`) carrying the same deal re-run with no observation-derived modifiers, so the report can show both pictures side by side; it is `None` unless an observation actually fired. The two media
   fields are populated only when `photos_folder` is supplied and readable — `media_insights` from
   `core.media.local.collect_local_assets` → `core.media.insights.analyze_media` (file stats), and
   `media_report` from `core.cv.photo_insights.build_photo_insights` → `core.reports.photo_report.build_media_report`
