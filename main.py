@@ -304,10 +304,14 @@ def main() -> None:
             engine=engine,
             scenarios_enabled=bool(run_scenarios_flag),
             vision_enabled=vision_enabled(),
-            # Read at the edge, like vision_enabled above. An LLM run authors the observations
-            # that move OPEX/NOI/cap/DSCR, so a report that omits this cannot be reproduced from
-            # its own provenance table -- which that table explicitly promises.
-            llm_mode_enabled=llm_mode_enabled(),
+            # Report what ACTUALLY happened, not merely what the env asked for. AIREAL_LLM_MODE
+            # is only consulted by the crewai engine, and even there the LLM call can fail and
+            # fall back to the deterministic path -- so the env var alone would claim
+            # "LLM-authored observations: on" for runs where nothing was LLM-authored. That is
+            # the same over-claim as M12 in the opposite direction. The per-tag provenance ledger
+            # (R-4) is the ground truth: an observation carries origin="llm" only if a model
+            # really wrote it.
+            llm_mode_enabled=llm_mode_enabled() and any(o.origin == "llm" for o in (getattr(result.insights, "observations", None) or [])),
             config_path=config_path,
         )
 
