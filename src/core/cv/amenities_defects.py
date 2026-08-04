@@ -164,7 +164,13 @@ def register_onnx_provider(
     **kwargs: Any,
 ) -> None:
     """
-    Runtime registration for provider='onnx'. Call once during app/CLI init.
+    Runtime registration for provider='onnx'.
+
+    Python-API opt-in hook only: nothing in the shipped CLIs (`ingest-listing`,
+    `deal-report`, `deal-advisor`) or `main.py` calls this. A caller that wants
+    an ONNX-backed detector must invoke it explicitly before requesting
+    provider='onnx' (e.g. from a notebook, script, or a future user-supplied
+    model integration -- see roadmap backlog).
     """
     _PROVIDERS["onnx"] = make_onnx_provider(model_path, labels_path, **kwargs)
 

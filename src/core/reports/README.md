@@ -36,18 +36,26 @@
   8. **Valuation tables** — Baseline, Stress-Test, and NOI-Based.
   9. **OPEX Detail (Year 1)**.
   10. **Adjustments Applied** — renders `YearBreakdown.notes` for any year that carries them (in
-      practice only Year 1, since insight modifiers apply once at the top of the model). **⚠ Cannot
-      appear on any real pipeline run today.** The engine's OPEX-bump triggers
+      practice only Year 1, since insight modifiers apply once at the top of the model). **⚠
+      Unreachable from the deterministic pipeline** — the engine's OPEX-bump triggers
       (`src/core/finance/engine.py:64,68`) check for the literal strings `"old roof"` in
-      `condition_tags` and `"water stain"` in `defects` — but `"old roof"` matches nothing in the
-      closed `ConditionTag` enum (`src/schemas/labels.py`), and `"water stain"` is normalized to
-      `DefectLabel.water_leak_suspected` by `labels.py:241` *before* the engine's literal check
-      ever sees it. Both triggers are therefore dead against any `ListingInsights` produced by the
-      real ingestion/synthesis path; the demo report is byte-identical with and without this
-      section. It only renders if a caller hand-constructs a `ListingInsights` with those exact
-      unnormalized strings (e.g. directly in a unit test). See Mission 2 charter finding M10
-      (`docs/plans/MISSION_2_wiring_gaps.md`) — this is a documentation-honesty note, not a claim
-      that the section is a working feature.
+      `condition_tags` and `"water stain"` in `defects`, but no path that assembles a
+      `ListingInsights` deterministically can produce either string: on the text-ingestion path,
+      condition tags come from `_CONDITION_KEYWORDS`'s free-string list
+      (`src/core/ingest/listing_parser.py:37-45`, which has `"new roof"`, not `"old roof"`), and
+      defects come from the closed `ConditionTag`/`DefectLabel` enums (`src/schemas/labels.py`),
+      where `"water stain"` is normalized to `DefectLabel.water_leak_suspected` before the
+      engine's literal check ever sees it (`labels.py:241`). The demo report is byte-identical
+      with and without this section on that path. **It is reachable via `--engine crewai` with
+      `AIREAL_LLM_MODE=1`**, however: `ListingAnalystAgent`'s LLM-authored `ListingInsights`
+      (`src/agents/crewai_components.py`) are parsed straight from model JSON into the schema with
+      no normalization pass, so an LLM that writes the literal strings `"old roof"` or
+      `"water stain"` reaches the engine unnormalized and fires this section for real. It also
+      renders if a caller hand-constructs a `ListingInsights` with those exact strings directly
+      (e.g. a unit test). This is a documentation-honesty note about the deterministic path, not a
+      claim that the section can never fire — see
+      `docs/plans/MISSION_2_SPRINT_TRACKER.md` (Gate 2 record, findings V2/C2) for how the original,
+      broader "cannot appear on any real pipeline run" claim was found to over-claim.
   11. **Refinance Event**, **Returns Summary**, **Warnings**.
   12. **Market Scenarios** — opt-in what-if overlay, appended **last** and rendered **only** when a `ScenarioAnalysis` is supplied (keyword-only `scenarios`). With `scenarios=None` the output is byte-for-byte identical to today's. Includes the fixed verbatim "About these scenarios" honesty block (`ABOUT_SCENARIOS_BLOCK`), a top-5-by-prior grid, prior-weighted bands (`downside (p25)` / `median (p50)` / `mean (expected)` / `min` / `max`), caveats, and an honest empty-set state when no scenarios are admitted.
   13. **Appendix — Run Provenance** (always emitted; see below).
@@ -87,6 +95,10 @@
   pytest -q --no-cov tests/core/reports tests/integration/test_report_cli_minimal.py
   ```
 
+  `--no-cov` disables coverage for this subset run only; the project's ≥80% coverage gate
+  (`pytest.ini`, `--cov-fail-under=80`) is enforced against the **full** `pytest` suite, not any
+  one subset command.
+
 ## Cross-links
 
 * Back to [Main README](../../../README.md)
@@ -98,7 +110,7 @@
 
 ---
 
-_Last reconciled: 2026-08-03 against mission/2-wiring-gaps @ 74c985c (Mission 2 Wave 2 T6: `generate_report`/`write_report` signatures corrected to include `media_report`/`provenance`; added the "Adjustments Applied" section to the numbered list with an M10 honesty note that it cannot fire on real pipeline data today)._
+_Last reconciled: 2026-08-04 against mission/2-wiring-gaps @ d18ee1a (Gate 2 VETO remediation: narrowed the "Adjustments Applied" honesty note — it is unreachable from the deterministic pipeline (text-path condition tags come from the free-string `_CONDITION_KEYWORDS` list, not only the closed enum) but reachable via `--engine crewai` with `AIREAL_LLM_MODE=1`, where LLM-authored observations bypass normalization; dropped the dangling "charter finding M10" citation (no such charter text exists) in favour of the tracker's actual Gate 2 record. Earlier note: 2026-08-03 @ 74c985c, `generate_report`/`write_report` signatures corrected to include `media_report`/`provenance`)._
 
 ### Appendix — Definitions
 

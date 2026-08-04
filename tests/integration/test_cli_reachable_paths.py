@@ -296,6 +296,19 @@ def test_no_stale_exceptions_remain() -> None:
 _DOC_FLAG_RE = re.compile(r"`(--[A-Za-z][A-Za-z0-9-]*)`")
 
 
+# Flags that legitimately appear in src/cli/README.md but belong to OTHER tools, so they will
+# never be found on this project's parsers. Each needs a reason; an unexplained entry here would
+# let a genuinely missing project flag hide behind it.
+#
+# This table exists because the doc-mirror check found `--no-cov` after the Wave 2 docs pass added
+# it to the documented `pytest` subset commands (those commands exit non-zero without it, since
+# pytest.ini applies --cov-fail-under=80 to every invocation). That was the guard working
+# correctly on an ambiguity, not a false alarm to be suppressed -- so it is recorded, not skipped.
+_THIRD_PARTY_DOC_FLAGS: dict[str, str] = {
+    "--no-cov": "pytest-cov, used in this file's documented subset-test commands; not a project CLI flag",
+}
+
+
 def test_documented_flags_still_exist_in_the_parsers() -> None:
     """
     Mirror image of the main guard: every ``--flag`` token backtick-documented in
@@ -323,7 +336,7 @@ def test_documented_flags_still_exist_in_the_parsers() -> None:
         for _dest, option_strings in flags:
             actual.update(option_strings)
 
-    missing = documented - actual
+    missing = documented - actual - set(_THIRD_PARTY_DOC_FLAGS)
     assert not missing, (
         f"{CLI_README} documents {sorted(missing)} as CLI flag(s), but none of "
         "ingest_cli/report_cli/advisor_cli's actual argparse parsers declare them anymore. "

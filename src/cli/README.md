@@ -114,6 +114,10 @@ Run:
 pytest -q --no-cov tests/integration
 ```
 
+`--no-cov` disables coverage for this subset run only; the project's ≥80% coverage gate
+(`pytest.ini`, `--cov-fail-under=80`) is enforced against the **full** `pytest` suite, not any one
+subset command.
+
 ## Cross-links
 
 * Back to [Main README](../../README.md)
@@ -123,4 +127,4 @@ pytest -q --no-cov tests/integration
 
 ---
 
-_Last reconciled: 2026-07-23 against main @ e4716df._
+_Last reconciled: 2026-08-04 against mission/2-wiring-gaps @ d18ee1a (Gate 2 VETO remediation, condition C4: stamp was stale from before this file's Wave 2 rewrite (`5e85836`) — content re-verified against current code with no further drift found; added the full-suite coverage-gate note. The `--ai` row and `report_cli` section were already corrected in `5e85836` and are unchanged here)._

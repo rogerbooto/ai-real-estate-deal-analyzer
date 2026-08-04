@@ -52,7 +52,7 @@ from src.core.media.insights import analyze_media
 from src.core.media.local import collect_local_assets
 from src.core.reports.photo_report import build_media_report
 from src.core.reports.report_models import MediaReport
-from src.orchestrators.crew import OrchestrationResult
+from src.orchestrators.crew import OrchestrationResult, build_baseline_outlook
 from src.schemas.models import FinancialInputs, MediaInsights
 
 
@@ -108,6 +108,12 @@ def run_orchestration(
     strategist = ChiefStrategistAgent()
     thesis = strategist.run(forecast=forecast, insights=insights)
 
+    # The observation-free counterpart of the run above, when an observation actually moved a
+    # number. This matters most on this engine: with an LLM mode configured the analyst's
+    # observations are model-authored, and this is what lets a reader see exactly which figures
+    # depend on them. Shared with the deterministic orchestrator so the two cannot diverge.
+    baseline = build_baseline_outlook(inputs, forecast, horizon_years=horizon_years)
+
     # Note: there is deliberately no single Crew spanning all three agents. Only the analyst
     # may reason, and it owns its own one-agent Crew inside `ListingAnalystAgent._run_llm`.
     # Building a shared sequential Crew over all three Agent shells here would put the
@@ -140,4 +146,5 @@ def run_orchestration(
         thesis=thesis,
         media_insights=media_insights,
         media_report=media_report,
+        baseline=baseline,
     )

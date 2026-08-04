@@ -103,7 +103,7 @@ The system's unique value is its **opinionated financial model**, which implemen
 
 ## High-Level Architecture
 
-At a glance, the system is a multi-agent pipeline with a **deterministic orchestrator by default** and a **CrewAI seam** for optional LLM-backed runs (`--engine crewai`; currently a parity shell that validates the environment and delegates to the same deterministic math). Each agent specializes in one domain, and the Chief Strategist synthesizes all findings into a final investment thesis.
+At a glance, the system is a multi-agent pipeline with a **deterministic orchestrator by default** and a **CrewAI seam** for optional LLM-backed runs (`--engine crewai`). With `AIREAL_LLM_MODE` unset (the default), the seam is a parity shell that validates the environment and delegates to the same deterministic math. With `AIREAL_LLM_MODE` set **and** a provider key present, the Listing Analyst's `crew.kickoff()` does run — an LLM authors *observations* (condition tags, defects, amenities) that flow into the forecast through the deterministic insight modifiers. **The verdict never goes through a model, in any mode:** the Chief Strategist always synthesizes the final BUY/CONDITIONAL/DECLINE thesis from the same deterministic rule engine (`chief_strategist.synthesize_thesis`), so an AI-influenced deal still gets its judgment from the identical rules every other deal goes through.
 
 ```mermaid
 flowchart LR
@@ -142,13 +142,13 @@ flowchart LR
 
 ## Technical Architecture
 
-The system is built as a **multi-agent pipeline** with clear separation of concerns, where each agent is an expert in its domain. Orchestration is deterministic by default; a CrewAI-based engine is available as a seam for future LLM reasoning.
+The system is built as a **multi-agent pipeline** with clear separation of concerns, where each agent is an expert in its domain. Orchestration is deterministic by default; a CrewAI-based engine is available as a seam for opt-in LLM-authored *observations* (`AIREAL_LLM_MODE`, Listing Analyst only) — the verdict stays rule-based in every mode.
 
 The primary agents are:
 
 * **Listing Analyst:** Analyzes property photos (deterministic CV tagging, with provider seams for AI vision) and listing text to extract key features and data points.
 * **Financial Forecaster:** A financial modeling expert that implements the core investment spreadsheet logic, calculating NOI, cash flow, and return metrics.
-* **Chief Strategist:** The final decision-maker that synthesizes all data into a clear, human-readable investment thesis (rule-based today).
+* **Chief Strategist:** The final decision-maker that synthesizes all data into a clear, human-readable investment thesis (rule-based always — `ChiefStrategistAgent.run` never routes the verdict through an LLM, in any mode).
 
 *(Note: live market research is out of scope; financial inputs are provided locally. Listing ingestion supports local files and — behind an explicit opt-in fetch policy with robots.txt respect — remote URLs.)*
 
@@ -439,11 +439,11 @@ testpaths = tests
 
 * **V4 (Planned / Not yet implemented)**
 
-  * Real LLM/vision provider integration behind the existing seams (CrewAI kickoff, AI photo tagging beyond deterministic stubs)
+  * A real vision-model provider behind the `--ai` seam — today `--ai` selects a labelled heuristic (`version="vision-stub-v1"`, `provenance["provider_kind"]="heuristic_stub"`), not a model. Note the *other* half of "V4" already shipped: `ListingAnalystAgent` runs a real `crew.kickoff()` today, opt-in via `AIREAL_LLM_MODE` + a provider key (see High-Level Architecture, above) — but only for text/photo *observations*; the verdict is never LLM-authored, in any version.
   * Live market data ingestion (regional income, cap-rate drift, comps) — scenarios currently run on user-supplied snapshot only
   * Streamlit or web UI for interactive scenario exploration and parameter sensitivity
   * Expanded scenario reporting and stress-test visualizations
 
 ---
 
-_Last reconciled: 2026-08-03 against mission/2-wiring-gaps @ 74c985c (Mission 2 Wave 2 T6 doc reconciliation: ingest CLI example corrected to reflect F10/F11 media-flag reachability)._
+_Last reconciled: 2026-08-04 against mission/2-wiring-gaps @ d18ee1a (Gate 2 VETO remediation: corrected the High-Level Architecture / Technical Architecture / V4-roadmap claims that `crew.kickoff()` is not yet called — it is, opt-in, for the Listing Analyst's observations only; the verdict is always deterministic, in every mode. Earlier note: 2026-08-03 @ 74c985c, ingest CLI example corrected to reflect F10/F11 media-flag reachability)._

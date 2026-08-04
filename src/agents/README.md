@@ -41,7 +41,7 @@
 * `synthesize_thesis(forecast: FinancialForecast) -> InvestmentThesis`
 
   * Rule-based verdict (DSCR, cash-flow, spread guardrails) with rationale and improvement levers.
-  * LLM reasoning remains a seam (see `crewai_components.py`), not active in the default path.
+  * **Never LLM-authored, in any mode.** `ChiefStrategistAgent.run` (see `crewai_components.py`) always calls this function on the forecast — `AIREAL_LLM_MODE` does not change that; `_run_llm` was deleted from that class specifically so the verdict cannot bypass it.
 
 ### Photo Tagger
 
@@ -53,7 +53,7 @@
 
 ### CrewAI components
 
-* `ListingAnalystAgent` / `FinancialForecasterAgent` / `ChiefStrategistAgent` — Agent/Task shells used by `orchestrators/crewai_runner.py`. Their `run()` methods currently delegate to the same deterministic functions above for math parity; real `crew.kickoff()` execution is a future seam. Honors `AIREAL_LLM_MODE` and `AIREAL_DEBUG`.
+* `ListingAnalystAgent` / `FinancialForecasterAgent` / `ChiefStrategistAgent` — Agent/Task shells used by `orchestrators/crewai_runner.py`. With `AIREAL_LLM_MODE` unset (the default), all three `run()` methods delegate to the same deterministic functions above for math parity — no `crew.kickoff()` is called. With `AIREAL_LLM_MODE` set **and** a provider key present (`OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `OPENROUTER_API_KEY`), **`ListingAnalystAgent.run()` calls a real `crew.kickoff()`** and an LLM authors the `ListingInsights` it returns (address, amenities, condition tags, defects, notes) — an *observation* layer, falling back to the deterministic `analyze_listing()` if the call or the JSON parse fails. `FinancialForecasterAgent` and `ChiefStrategistAgent` never call `kickoff()`, in any mode: the forecast math and the BUY/CONDITIONAL/DECLINE verdict are always deterministic. Honors `AIREAL_LLM_MODE` and `AIREAL_DEBUG`.
 
 ## Design Notes / Invariants
 
@@ -82,6 +82,10 @@
   pytest -q --no-cov tests/integration tests/unit/test_financial_forecaster.py
   ```
 
+  `--no-cov` disables coverage for this subset run only; the project's ≥80% coverage gate
+  (`pytest.ini`, `--cov-fail-under=80`) is enforced against the **full** `pytest` suite, not any
+  one subset command.
+
 ## Cross-links
 
 * Back to [Main README](../../README.md)
@@ -94,4 +98,4 @@
 
 ---
 
-_Last reconciled: 2026-07-23 against main @ e4716df._
+_Last reconciled: 2026-08-04 against mission/2-wiring-gaps @ d18ee1a (Gate 2 VETO remediation: Chief Strategist and CrewAI-components entries corrected — `ListingAnalystAgent.run()` does call a real `crew.kickoff()` under `AIREAL_LLM_MODE`, but the verdict is never LLM-authored, in any mode; added the full-suite coverage-gate note)._

@@ -148,6 +148,10 @@ print(tbl.summary())  # includes P25/Median/P75 and turnover; STR multiplier if 
   pytest -q --no-cov tests/unit/test_market_*.py tests/unit/test_rejector.py
   ```
 
+  `--no-cov` disables coverage for this subset run only; the project's ≥80% coverage gate
+  (`pytest.ini`, `--cov-fail-under=80`) is enforced against the **full** `pytest` suite, not any
+  one subset command.
+
 ## Cross-links
 
 * Back to [Main README](../README.md)
@@ -165,4 +169,4 @@ print(tbl.summary())  # includes P25/Median/P75 and turnover; STR multiplier if 
 
 ---
 
-_Last reconciled: 2026-08-03 against mission/2-wiring-gaps @ 74c985c (Mission 2 Wave 2 T6: clarified `build_regional_income` is reachable only from tests today; Wave 3/OPD-3 will decide whether to wire it — this note does not pre-empt that decision)._
+_Last reconciled: 2026-08-04 against mission/2-wiring-gaps @ d18ee1a (Gate 2 VETO remediation: added the full-suite coverage-gate note; no other content change — the guardian confirmed this file's OPD-3 framing accurate at Gate 2. Earlier note: 2026-08-03 @ 74c985c, clarified `build_regional_income` is reachable only from tests today; Wave 3/OPD-3 will decide whether to wire it)._

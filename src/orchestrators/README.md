@@ -46,11 +46,12 @@
 
   * Selected via `main.py --engine crewai` (or `AIREAL_ENGINE=crewai` through the inputs loader).
   * **Fail-fast validation**: requires a provider key (`OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `OPENROUTER_API_KEY`) and an importable `crewai` package.
-  * **Parity shell today**: constructs Agent/Task shells but delegates the actual work to the same deterministic functions — `crew.kickoff()` is intentionally not called yet. Output is byte-identical to the deterministic engine.
+  * **Parity shell by default**: with `AIREAL_LLM_MODE` unset, Agent/Task shells are constructed but the actual work delegates to the same deterministic functions the `crew` orchestrator uses — `crew.kickoff()` is not called, and output is byte-identical to the deterministic engine.
+  * **With `AIREAL_LLM_MODE` set and a provider key present, exactly one step changes**: `ListingAnalystAgent` runs a real `crew.kickoff()` and an LLM authors the `ListingInsights` observations (condition tags, defects, amenities) — falling back to the deterministic analyzer if the call or the JSON parse fails. Those observations reach the forecast through the deterministic insight modifiers, so an LLM run can move the numbers. `FinancialForecasterAgent` and `ChiefStrategistAgent` never call `crew.kickoff()`, in any mode: the arithmetic and the BUY/CONDITIONAL/DECLINE verdict are always produced by the same deterministic engine and rule set (`chief_strategist.synthesize_thesis`). See `src/orchestrators/crewai_runner.py`'s module docstring for the full account.
 
 ## Design Notes / Invariants
 
-* **Deterministic path is the default** and the only path that produces results today; the CrewAI engine is a validated seam with math parity.
+* **Deterministic path is the default** and requires no external services. The CrewAI engine is a validated seam that is byte-identical to it unless `AIREAL_LLM_MODE` is set with a provider key, in which case only the Listing Analyst's observations can differ — the forecast math and the verdict logic are identical in every mode.
 * **Environment flags (functional):**
 
   * `AIREAL_USE_VISION` — CV provider selection (read in `cv_tagging_orchestrator.py`).
@@ -70,6 +71,10 @@
   pytest -q --no-cov tests/integration tests/orchestrators
   ```
 
+  `--no-cov` disables coverage for this subset run only; the project's ≥80% coverage gate
+  (`pytest.ini`, `--cov-fail-under=80`) is enforced against the **full** `pytest` suite, not any
+  one subset command.
+
 ## Cross-links
 
 * Back to [Main README](../../README.md)
@@ -82,4 +87,4 @@
 
 ---
 
-_Last reconciled: 2026-07-23 against main @ e4716df._
+_Last reconciled: 2026-08-04 against mission/2-wiring-gaps @ d18ee1a (Gate 2 VETO remediation: the CrewAI Orchestrator entry corrected — `crew.kickoff()` **is** called for the Listing Analyst under `AIREAL_LLM_MODE`; the forecast math and verdict stay deterministic in every mode; added the full-suite coverage-gate note)._

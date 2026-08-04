@@ -47,6 +47,11 @@ def _sample_assets_with_real_photos(tmp_path: Path) -> tuple[str, str]:
     transform under test actually wires them through.
     """
     listing_txt = tmp_path / "listing.txt"
+    # "Parking" is deliberate: the parser normalizes it to the amenity ``parking``, which is one of
+    # the literal tags the engine's insight modifiers match. Paired with ``income_is_estimated=True``
+    # in the caller it makes an observation actually fire, so ``OrchestrationResult.baseline`` has
+    # genuine content to carry and is covered by the same "no field reverts to default" invariant as
+    # every other optional field, rather than needing an exemption.
     listing_txt.write_text("Charming triplex at 123 Main St. Parking and laundry.", encoding="utf-8")
     photos_dir = tmp_path / "photos"
     photos_dir.mkdir()
@@ -75,7 +80,9 @@ def _assert_no_field_reverted_to_default(result: OrchestrationResult, *, engine_
 def test_orchestration_result_drops_no_field_with_photos_supplied(monkeypatch, tmp_path, run_orchestration) -> None:
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")  # only read by the crewai engine's env guard
 
-    inputs = make_financial_inputs()
+    # income_is_estimated=True turns on the engine's amenity-uplift modifiers, so the listing's
+    # "Parking" produces a Year-1 note and therefore a real ``baseline`` outlook (see the fixture).
+    inputs = make_financial_inputs().model_copy(update={"income_is_estimated": True})
     listing_txt, photos_dir = _sample_assets_with_real_photos(tmp_path)
 
     result = run_orchestration(

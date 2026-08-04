@@ -19,6 +19,7 @@ from src.schemas.models import (
     YearBreakdown,
 )
 
+from .baseline import BaselineOutlook
 from .report_models import MediaReport
 
 
@@ -57,6 +58,51 @@ def _fmt_delta_pct(x: float) -> str:
         0.0  -> 0.00%
     """
     return f"{'+' if x > 0 else ''}{x * 100:.2f}%"
+
+
+def _fmt_delta_currency(x: float) -> str:
+    """
+    Format a currency delta with an explicit sign, at the report's 2dp dollar precision.
+
+    A delta that rounds to zero at that precision renders unsigned ("$0.00"), so a float
+    artifact never shows up as a misleading "-$0.00".
+
+    Example:
+        500.0 -> +$500.00
+        -500.0 -> -$500.00
+        -0.0001 -> $0.00
+    """
+    body = f"${abs(x):,.2f}"
+    if round(x, 2) == 0:
+        return body
+    return f"{'+' if x > 0 else '-'}{body}"
+
+
+def _fmt_delta_ratio(x: float) -> str:
+    """
+    Format a bare-ratio delta (DSCR, equity multiple) with an explicit sign at 2dp.
+
+    Same zero rule as :func:`_fmt_delta_currency`.
+
+    Example:
+        -0.02 -> -0.02
+        0.0   -> 0.00
+    """
+    body = f"{abs(x):.2f}"
+    if round(x, 2) == 0:
+        return body
+    return f"{'+' if x > 0 else '-'}{body}"
+
+
+def _fmt_delta_rate(x: float) -> str:
+    """
+    Format a rate delta (cap rate, CoC) as a signed percentage at 2dp.
+
+    Wraps :func:`_fmt_delta_pct` with the same round-to-zero rule as the other delta
+    formatters: a delta smaller than half of the last displayed digit is snapped to exact
+    zero first, so it renders "0.00%" rather than "-0.00%".
+    """
+    return _fmt_delta_pct(0.0 if round(x * 100, 2) == 0 else x)
 
 
 def _section(title: str) -> str:
@@ -684,7 +730,97 @@ def _render_opex_details(year1: YearBreakdown) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _render_year_adjustments(years: list[YearBreakdown]) -> str:
+# FIXED VERBATIM honesty block for the observation comparison. Rendered byte-for-byte with no
+# per-run interpolation, for the same reason as ABOUT_SCENARIOS_BLOCK: fixed text cannot drift
+# out of step with the numbers, and it only appears when observations actually moved something.
+#
+# Descriptive, never prescriptive — it states what an observation *is* and what it is not. It
+# does not tell the reader what to do about it.
+ABOUT_OBSERVATIONS_BLOCK = (
+    "> **About these observations.** Condition tags, defects and amenities are *observations* — what\n"
+    "> the pipeline read in the listing copy and the photo set. Nothing was inspected or measured, and\n"
+    "> an observation can be wrong: a feature can be missed, or a label attached to something it does\n"
+    "> not describe. Each adjustment below is a fixed engine rule applied to an observation — a\n"
+    "> modeling allowance, not a quote or a measured cost. The baseline column is the same deal with\n"
+    "> none of them applied, so the observation-dependent part of this analysis can be read apart from\n"
+    "> the part that does not depend on any observation."
+)
+
+# Emitted only when provenance records that the AI photo path was actually active. With it off we
+# say nothing about models: the report cannot tell an LLM-authored tag from a keyword match, so a
+# blanket "no AI was involved" would be a claim it has no standing to make.
+_AI_OBSERVATION_SOURCE_LINE = (
+    "_AI photo tagging was on for this run (`AIREAL_USE_VISION`): the photo-derived observations are "
+    "model output, so they carry a model's error rate on top of everything noted above._"
+)
+
+
+def _render_observation_impact(
+    forecast: FinancialForecast,
+    baseline: BaselineOutlook,
+    thesis: InvestmentThesis | None,
+    provenance: RunProvenance | None,
+) -> list[str]:
+    """
+    Render the baseline-vs-observed comparison table for Year 1.
+
+    One table, metrics as rows, so the "Change" column reads as a single vertical strip — the
+    answer to "did anything I act on actually move?" in one scan. Metrics-as-columns would need
+    seven columns of three different units and overflow in PDF export.
+
+    Row order is decision-first then causal: the verdict (does this change the answer?), then the
+    path the adjustment actually travels — GOI, OPEX, NOI, cash flow — then the ratios computed
+    from them. GOI is carried even though no OPEX rule touches it because an amenity uplift moves
+    income, not expense: without that row a reader sees OPEX rise and NOI rise with nothing on the
+    page to explain it. With it, ``NOI = GOI − OPEX`` closes on both sides of the table.
+
+    ``Change`` is always *observed minus baseline*, stated in the lead-in so the sign is never
+    ambiguous. The verdict row compares strings, so its change cell reads unchanged/**changed**.
+    """
+    base_y1 = baseline.forecast.years[0]
+    obs_y1 = forecast.years[0]
+    base_p = baseline.forecast.purchase
+    obs_p = forecast.purchase
+
+    observed_header = "With observations (AI-assisted)" if (provenance and provenance.vision_enabled) else "With observations"
+
+    lines: list[str] = [
+        "**Year 1 impact** _(Change = with observations − baseline.)_",
+        "",
+        f"| Metric | Baseline | {observed_header} | Change |",
+        "| :--- | ---: | ---: | ---: |",
+    ]
+
+    # Verdict first: the only row that can change the decision rather than a figure behind it.
+    # Omitted rather than guessed when the caller supplied no baseline verdict to compare against.
+    if baseline.thesis is not None and thesis is not None:
+        moved = "**changed**" if baseline.thesis.verdict != thesis.verdict else "unchanged"
+        lines.append(f"| Verdict | {baseline.thesis.verdict} | {thesis.verdict} | {moved} |")
+
+    lines.extend(
+        [
+            f"| GOI | {_fmt_currency(base_y1.goi)} | {_fmt_currency(obs_y1.goi)} | {_fmt_delta_currency(obs_y1.goi - base_y1.goi)} |",
+            f"| Total OPEX | {_fmt_currency(base_y1.total_opex)} | {_fmt_currency(obs_y1.total_opex)} "
+            f"| {_fmt_delta_currency(obs_y1.total_opex - base_y1.total_opex)} |",
+            f"| NOI | {_fmt_currency(base_y1.noi)} | {_fmt_currency(obs_y1.noi)} | {_fmt_delta_currency(obs_y1.noi - base_y1.noi)} |",
+            f"| Cash flow | {_fmt_currency(base_y1.cash_flow)} | {_fmt_currency(obs_y1.cash_flow)} "
+            f"| {_fmt_delta_currency(obs_y1.cash_flow - base_y1.cash_flow)} |",
+            f"| Cap rate | {_fmt_pct(base_p.cap_rate)} | {_fmt_pct(obs_p.cap_rate)} "
+            f"| {_fmt_delta_rate(obs_p.cap_rate - base_p.cap_rate)} |",
+            f"| DSCR | {base_p.dscr:.2f} | {obs_p.dscr:.2f} | {_fmt_delta_ratio(obs_p.dscr - base_p.dscr)} |",
+            f"| Cash-on-cash | {_fmt_pct(base_p.coc)} | {_fmt_pct(obs_p.coc)} | {_fmt_delta_rate(obs_p.coc - base_p.coc)} |",
+        ]
+    )
+    return lines
+
+
+def _render_year_adjustments(
+    forecast: FinancialForecast,
+    *,
+    thesis: InvestmentThesis | None = None,
+    baseline: BaselineOutlook | None = None,
+    provenance: RunProvenance | None = None,
+) -> str:
     """
     Render the engine's per-year adjustment notes (``YearBreakdown.notes``) — the traceability
     trail for why the OPEX/income figures above differ from the raw listing inputs (e.g. a
@@ -694,20 +830,59 @@ def _render_year_adjustments(years: list[YearBreakdown]) -> str:
     correct if that ever changes.
 
     Notes render verbatim — they are machine-generated traceability strings, not prose to be
-    softened or rewritten. Degrades to "" when no year has notes, so a run with no listing
-    insights (or insights that trip no modifier) adds no empty heading to the report.
+    softened or rewritten. Each one already *is* the per-line attribution ("condition: old roof →
+    reserves +$300/yr"): the observation that fired, and the rule it fired. Reformatting them here
+    would mean parsing engine-authored strings in the renderer, which breaks the first time the
+    engine words one differently.
+
+    Three designed states:
+
+    * **No notes** — returns "". A run with no listing insights (or insights that trip no
+      modifier) adds no empty heading. This is the default path, and it is what keeps
+      ``python main.py`` byte-identical.
+    * **Notes, no baseline** — the notes list exactly as before. Callers that hold a forecast but
+      not the inputs behind it (``report_cli``) cannot re-run the engine, so they get the
+      traceability trail without a comparison rather than a fabricated one.
+    * **Notes and a baseline** — the full two-picture section: the honesty block, the Year-1
+      comparison table, and the notes as the per-line attribution beneath it.
     """
-    by_year = [(y.year, y.notes) for y in years if y.notes]
+    by_year = [(y.year, y.notes) for y in forecast.years if y.notes]
     if not by_year:
         return ""
 
+    show_comparison = baseline is not None and bool(baseline.forecast.years) and bool(forecast.years)
+
+    if not show_comparison:
+        lines = [
+            _section("Adjustments Applied"),
+            "Notes below explain why a year's OPEX or income differs from the raw inputs — each line "
+            "names the condition tag, defect, or amenity that triggered it. These are already reflected "
+            "in the figures above; nothing here changes a number, it only explains one.",
+            "",
+        ]
+        for year, notes in by_year:
+            for note in notes:
+                lines.append(f"- Year {year}: {note}")
+        return "\n".join(lines) + "\n"
+
+    assert baseline is not None  # narrowed by show_comparison
     lines = [
         _section("Adjustments Applied"),
-        "Notes below explain why a year's OPEX or income differs from the raw inputs — each line "
-        "names the condition tag, defect, or amenity that triggered it. These are already reflected "
-        "in the figures above; nothing here changes a number, it only explains one.",
+        "Observations from the listing copy and photos moved some of the figures above. This section "
+        "shows both pictures — the same deal with those observations and without them — and names the "
+        "observation behind every change.",
+        "",
+        ABOUT_OBSERVATIONS_BLOCK,
         "",
     ]
+    if provenance is not None and provenance.vision_enabled:
+        lines.append(_AI_OBSERVATION_SOURCE_LINE)
+        lines.append("")
+
+    lines.extend(_render_observation_impact(forecast, baseline, thesis, provenance))
+    lines.append("")
+    lines.append("**What moved each figure**")
+    lines.append("")
     for year, notes in by_year:
         for note in notes:
             lines.append(f"- Year {year}: {note}")
@@ -953,6 +1128,7 @@ def generate_report(
     media_report: MediaReport | None = None,
     provenance: RunProvenance | None = None,
     scenarios: ScenarioAnalysis | None = None,
+    baseline: BaselineOutlook | None = None,
 ) -> str:
     """
     Generate a professional Markdown report that summarizes the investment analysis.
@@ -968,7 +1144,10 @@ def generate_report(
       - Valuation – Stress-Test table
       - Valuation – NOI-Based table
       - OPEX Detail (Year 1)
-      - Adjustments Applied (if any year carries YearBreakdown.notes — usually Year 1 only)
+      - Adjustments Applied (if any year carries YearBreakdown.notes — usually Year 1 only).
+        When ``baseline`` is also supplied this becomes the two-picture section: the honesty
+        block, a Year-1 baseline-vs-observed comparison table (verdict included), and the notes
+        as per-line attribution.
       - Refinance Event (if present)
       - Returns Summary
       - Warnings
@@ -996,7 +1175,7 @@ def generate_report(
         _render_valuation_table_stress(forecast.years, forecast),
         _render_valuation_table_noi(forecast.years, forecast.purchase),
         _render_opex_details(forecast.years[0]),
-        _render_year_adjustments(forecast.years),
+        _render_year_adjustments(forecast, thesis=thesis, baseline=baseline, provenance=provenance),
         _render_refi(forecast.refi),
         _render_returns(forecast),
         _render_warnings(forecast.warnings),
@@ -1021,6 +1200,7 @@ def write_report(
     media_report: MediaReport | None = None,
     provenance: RunProvenance | None = None,
     scenarios: ScenarioAnalysis | None = None,
+    baseline: BaselineOutlook | None = None,
 ) -> None:
     """
     Convenience helper to write the generated report to disk.
@@ -1034,6 +1214,7 @@ def write_report(
         media_report=media_report,
         provenance=provenance,
         scenarios=scenarios,
+        baseline=baseline,
     )
 
     p = Path(path)

@@ -66,7 +66,7 @@
 ### Finance
 
 * `run_financial_model(fi: FinancialInputs, *, horizon_years: int = 10, insights: ListingInsights | None = None) -> FinancialForecast`
-  Main underwriting entrypoint; returns forecast with `YearBreakdown[]`, `PurchaseMetrics`, optional `RefiEvent`, and warnings. Insight-aware **income** modifiers only fire when `income_is_estimated` is set (read at `engine.py:98`). Insight-aware **OPEX** modifiers (`"old roof"` → +$300/yr reserves, `"water stain"` → +$200/yr repairs & maintenance, `_apply_insight_modifiers` in `engine.py:64-70`) are unconditional in code but **currently unreachable from any real pipeline run**: `"old roof"` matches nothing in the closed `ConditionTag` enum (`src/schemas/labels.py`), and `"water stain"` is normalized to `DefectLabel.water_leak_suspected` by `labels.py:241` before the engine's literal string check ever sees it. They only fire if a caller hand-constructs a `ListingInsights` with those exact unnormalized strings (e.g. a unit test), never from the real ingestion/synthesis path. See Mission 2 charter finding M10 (`docs/plans/MISSION_2_wiring_gaps.md`) and `core/reports/README.md`'s "Adjustments Applied" section, which the same defect makes unreachable in the rendered report.
+  Main underwriting entrypoint; returns forecast with `YearBreakdown[]`, `PurchaseMetrics`, optional `RefiEvent`, and warnings. Insight-aware **income** modifiers only fire when `income_is_estimated` is set (read at `engine.py:98`). Insight-aware **OPEX** modifiers (`"old roof"` → +$300/yr reserves, `"water stain"` → +$200/yr repairs & maintenance, `_apply_insight_modifiers` in `engine.py:64-70`) are unconditional in code but **unreachable from the deterministic pipeline**: on the text-ingestion path, condition tags come from `_CONDITION_KEYWORDS`'s free-string list (`src/core/ingest/listing_parser.py:37-45`, which has `"new roof"`, not `"old roof"`), and defects come from the closed `ConditionTag`/`DefectLabel` enums (`src/schemas/labels.py`), where `"water stain"` is normalized to `DefectLabel.water_leak_suspected` before the engine's literal string check ever sees it (`labels.py:241`). **They are reachable via `--engine crewai` with `AIREAL_LLM_MODE=1`**: `ListingAnalystAgent`'s LLM-authored `ListingInsights` (`src/agents/crewai_components.py`) are parsed straight from model JSON with no normalization pass, so an LLM that writes the literal strings reaches the engine unnormalized. They also fire if a caller hand-constructs a `ListingInsights` with those exact strings directly (e.g. a unit test). See `docs/plans/MISSION_2_SPRINT_TRACKER.md` (Gate 2 record, findings V2/C2) and `core/reports/README.md`'s "Adjustments Applied" section, which the same mechanism affects.
 * `amortization_schedule(principal, rate, amort_years, *, io_years=0, horizon_years) -> list[YearDebt]`
   Deterministic annual schedule; interest-only years precede amortization; padded to horizon.
 * `irr(cash_flows, *, max_iter=100, tol=1e-6) -> float | None`
@@ -146,6 +146,10 @@
   pytest -q --no-cov tests/core
   ```
 
+  `--no-cov` disables coverage for this subset run only; the project's ≥80% coverage gate
+  (`pytest.ini`, `--cov-fail-under=80`) is enforced against the **full** `pytest` suite, not any
+  one subset command.
+
 ## Cross-links
 
 * Back to [Main README](../../README.md)
@@ -158,4 +162,4 @@
 
 ---
 
-_Last reconciled: 2026-08-03 against mission/2-wiring-gaps @ 74c985c (Mission 2 Wave 2 T6: corrected the claim that insight-aware OPEX modifiers work on real data — see M10; clarified `strategist.py`/`form_thesis`, `narrative_builder.py`/`report_builder.py`, and `advisor/scenarios.py` are dead code with no production caller today, pending Mission 2 Wave 3 disposition)._
+_Last reconciled: 2026-08-04 against mission/2-wiring-gaps @ d18ee1a (Gate 2 VETO remediation: narrowed the OPEX-modifier honesty note — unreachable from the deterministic pipeline (text-path condition tags come from the free-string `_CONDITION_KEYWORDS` list, not only the closed enum) but reachable via `--engine crewai` with `AIREAL_LLM_MODE=1`; dropped the dangling "charter finding M10" citation. Earlier note: 2026-08-03 @ 74c985c, corrected the claim that insight-aware OPEX modifiers work on real data; clarified `strategist.py`/`form_thesis`, `narrative_builder.py`/`report_builder.py`, and `advisor/scenarios.py` are dead code with no production caller today, pending Mission 2 Wave 3 disposition)._

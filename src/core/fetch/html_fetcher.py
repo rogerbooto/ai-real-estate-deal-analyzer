@@ -50,7 +50,7 @@ def _fetch_for_robots(url: str, ua: str, timeout: float) -> tuple[int, str]:
         return code, ""
 
 
-def _warn_render_fallback(url: str, exc: Exception) -> None:
+def _warn_render_fallback(url: str, exc: Exception, *, stage: Literal["render", "parse"] = "render") -> None:
     """
     Surface a non-fatal `--render` failure to the caller.
 
@@ -60,12 +60,27 @@ def _warn_render_fallback(url: str, exc: Exception) -> None:
     swallowing that failure leaves the caller believing they got a rendered
     snapshot when they didn't, so we emit a visible `RuntimeWarning` naming
     what failed and what we're doing instead.
+
+    `stage` names the true cause AND the true consequence, since two independent
+    things can go wrong and they do NOT lead to the same outcome:
+      - "render": Playwright itself failed to produce a page (launch,
+        navigation, timeout, missing browser binaries, ...). There is no
+        rendered content, so the fetch really does fall back to raw HTML.
+      - "parse": Playwright rendered the page successfully; only the DOM
+        parse / pretty-tree debug artifact failed. The rendered content is
+        intact and is still returned -- so this must NOT claim a fallback that
+        did not happen. Saying "falling back to raw" here would be the same
+        shape of false statement this warning exists to prevent.
     """
-    warnings.warn(
-        f"--render requested but JS rendering failed for {url} " f"({type(exc).__name__}: {exc}); falling back to unrendered (raw) HTML.",
-        RuntimeWarning,
-        stacklevel=2,
-    )
+    if stage == "render":
+        detail = f"JS rendering failed for {url} ({type(exc).__name__}: {exc}); falling back to unrendered (raw) HTML."
+    else:
+        detail = (
+            f"the rendered page's HTML could not be parsed into a DOM for {url} "
+            f"({type(exc).__name__}: {exc}); the rendered content is still being used, "
+            "but its pretty-printed debug tree was not written."
+        )
+    warnings.warn(f"--render requested but {detail}", RuntimeWarning, stacklevel=2)
 
 
 def _render_page_with_playwright(
@@ -109,6 +124,65 @@ def _render_page_with_playwright(
         ctx.close()
         browser.close()
     return str(html)
+
+
+def _render_and_parse(
+    url: str,
+    pol: FetchPolicy,
+    paths: dict[str, Path],
+) -> tuple[bytes | None, str | None]:
+    """
+    Attempt a Playwright render, then parse/pretty-print the resulting DOM.
+
+    Two independent failure domains, handled distinctly:
+      - The JS render itself fails (Playwright launch/navigation/timeout/
+        missing binaries). There is no rendered DOM to be strict about, so
+        this ALWAYS degrades gracefully -- returns (None, None) and warns --
+        regardless of `pol.strict_dom`.
+      - The render succeeds but the DOM parse / pretty-tree write fails. With
+        `strict_dom=True` it raises `InvalidHtmlError`, matching the RAW-path
+        contract (`fetch_html`'s RAW parse below). With `strict_dom=False`
+        (default) it warns but KEEPS the rendered HTML, because the render
+        itself succeeded and that content is exactly what `--render` was asked
+        for. This block guards a `BeautifulSoup` parse and the write of a
+        pretty-printed *debug artifact*; discarding a good render because a
+        cosmetic side-file could not be written (bad HTML, or simply a full
+        disk) would throw away all the JS-rendered content and silently serve
+        the raw page instead -- a worse outcome than the silence this fix set
+        out to remove. Warn loudly, keep the data.
+
+    Callers must NOT wrap this call in a `try/except Exception` that would
+    catch `InvalidHtmlError` -- that would silently turn the strict failure
+    back into the graceful-degradation warning it is meant to preempt.
+    """
+    try:
+        rendered_html = _render_page_with_playwright(
+            url,
+            pol.user_agent,
+            pol.render_wait_until,
+            pol.render_wait_s,
+            pol.render_selector,
+            paths["screenshot"] if pol.save_screenshot else None,
+        )
+    except Exception as e:
+        _warn_render_fallback(url, e, stage="render")
+        return None, None
+
+    rendered_bytes = rendered_html.encode("utf-8", errors="ignore")
+    paths["html_rendered"].write_bytes(rendered_bytes)
+
+    try:
+        soup_r = BeautifulSoup(rendered_html, "lxml")
+        paths["tree_rendered"].write_text(soup_r.prettify(), encoding="utf-8")
+    except Exception as e:
+        if pol.strict_dom:
+            raise InvalidHtmlError(f"Failed to parse/pretty RENDERED HTML for {url}: {type(e).__name__}") from e
+        # Not a fallback: the render succeeded and `rendered_bytes` is already on disk. Only the
+        # pretty-tree debug artifact is missing. Say so, and hand back the content the caller asked
+        # for. See the docstring for why discarding it here would be the worse failure.
+        _warn_render_fallback(url, e, stage="parse")
+
+    return rendered_bytes, rendered_html
 
 
 # -------------------------
@@ -248,27 +322,7 @@ def fetch_html(url: str, *, policy: FetchPolicy | None = None) -> HtmlSnapshot:
 
             # Try JS render before deciding (if enabled)
             if pol.render_js:
-                try:
-                    rendered_html = _render_page_with_playwright(
-                        url,
-                        pol.user_agent,
-                        pol.render_wait_until,
-                        pol.render_wait_s,
-                        pol.render_selector,
-                        paths["screenshot"] if pol.save_screenshot else None,
-                    )
-                    rendered_bytes = rendered_html.encode("utf-8", errors="ignore")
-                    paths["html_rendered"].write_bytes(rendered_bytes)
-                    try:
-                        soup_r = BeautifulSoup(rendered_html, "lxml")
-                        paths["tree_rendered"].write_text(soup_r.prettify(), encoding="utf-8")
-                    except Exception as e:
-                        if pol.strict_dom:
-                            raise InvalidHtmlError(f"Failed to parse/pretty RENDERED HTML for {url}: {type(e).__name__}") from e
-                except Exception as e:
-                    rendered_bytes = None
-                    rendered_html = None
-                    _warn_render_fallback(url, e)
+                rendered_bytes, rendered_html = _render_and_parse(url, pol, paths)
 
                 # Post-render WAF check (Incapsula iframe etc.)
                 if rendered_html and _looks_like_waf_iframe(rendered_html):
@@ -336,27 +390,7 @@ def fetch_html(url: str, *, policy: FetchPolicy | None = None) -> HtmlSnapshot:
 
         # Optional JS render (normal path, when not already done above)
         if pol.render_js:
-            try:
-                rendered_html = _render_page_with_playwright(
-                    url,
-                    pol.user_agent,
-                    pol.render_wait_until,
-                    pol.render_wait_s,
-                    pol.render_selector,
-                    paths["screenshot"] if pol.save_screenshot else None,
-                )
-                rendered_bytes = rendered_html.encode("utf-8", errors="ignore")
-                paths["html_rendered"].write_bytes(rendered_bytes)
-                try:
-                    soup_r = BeautifulSoup(rendered_html, "lxml")
-                    paths["tree_rendered"].write_text(soup_r.prettify(), encoding="utf-8")
-                except Exception as e:
-                    if pol.strict_dom:
-                        raise InvalidHtmlError(f"Failed to parse/pretty RENDERED HTML for {url}: {type(e).__name__}") from e
-            except Exception as e:
-                rendered_bytes = None
-                rendered_html = None
-                _warn_render_fallback(url, e)
+            rendered_bytes, rendered_html = _render_and_parse(url, pol, paths)
 
             # Post-render WAF check in normal path
             if rendered_bytes is not None and rendered_html is not None:

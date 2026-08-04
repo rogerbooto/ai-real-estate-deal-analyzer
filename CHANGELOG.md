@@ -20,6 +20,20 @@ into a live path or delete it as un-wireable; this note will be updated once tha
 that bullet (deal fusion, composite scoring, multi-deal ranking, portfolio summary, risk flags,
 CSV/Markdown exports) is unaffected — those are live and reachable from the `deal-advisor` CLI._
 
+_Status note (2026-08-04, Mission 2 Gate 2 VETO remediation — does not rewrite the entry below):
+the "CrewAI engine seam" bullet's "`crew.kickoff()` not yet called" is now false as a blanket
+statement, as of `5e85836`. With `AIREAL_LLM_MODE` unset (the default), the claim still holds — the
+seam is a parity shell delegating to deterministic math. With `AIREAL_LLM_MODE` set **and** a
+provider key present, `ListingAnalystAgent` now calls a real `crew.kickoff()` (`src/agents/crewai_components.py:382`)
+and an LLM authors the `ListingInsights` observations (condition tags, defects, amenities), which
+reach the forecast through the deterministic insight modifiers — so an LLM run can move the money
+numbers that flow from those observations. **The verdict cannot be LLM-authored in any mode**:
+`ChiefStrategistAgent.run` always calls `chief_strategist.synthesize_thesis` on the forecast
+(`_run_llm` was deleted from that class); `FinancialForecasterAgent` never calls `kickoff()` either,
+so the arithmetic stays exact and reproducible. See `src/orchestrators/crewai_runner.py`'s module
+docstring and `src/agents/crewai_components.py`'s module docstring for the full account, and
+`docs/plans/MISSION_2_SPRINT_TRACKER.md` (Gate 2 record, finding V3) for how this was found._
+
 ### Added
 - **Market Scenarios overlay** (Mission 1, Wave 2): opt-in `--scenarios` / `AIREAL_SCENARIOS` / `run.scenarios` flag wires `src/market` (snapshot → hypotheses → rejector) through the frozen finance engine; produces prior-weighted scenario outcomes (DSCR, CoC, cash flow, IRR). New modules: `src/market/adapter.py` (delta → FinancialInputs perturbation), `src/market/scenario_runner.py` (composition + deterministic weighted-percentile aggregation). New Pydantic models: `ScenarioAnalysis`, `ScenarioOutcome`, `ScenarioMetricBand`. Report section appended last with fixed verbatim honesty block, top-N-by-prior grid, prior-weighted bands (p25/p50/mean/min/max), caveats (priors-heuristic, cap-sensitivity, rate-shock, IO-period), and narrative-flag rendering. Default OFF → byte-identical to V2. Scenarios are deterministic what-ifs, not predictions/live data.
 - **Listing ingestion pipeline** (`src/core/ingest`, `ingest-listing` CLI): file/URL ingestion with `FetchPolicy` (network opt-in, robots.txt respect, caching, optional JS rendering).

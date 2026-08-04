@@ -315,6 +315,10 @@ def main() -> None:
             media_report=getattr(result, "media_report", None),
             provenance=provenance,
             scenarios=scenarios_analysis,
+            # None unless a listing observation actually moved a number, in which case the
+            # report shows the same deal with and without those observations. getattr keeps
+            # third-party/older OrchestrationResult shapes working, as the media fields do.
+            baseline=getattr(result, "baseline", None),
         )
 
         print(f"Report written to {out_path}")
