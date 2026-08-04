@@ -93,6 +93,19 @@ a future mission should probably not treat them as one item:
 3. **A fine-tuned real-estate ViT shipped by the project.** Largest effort: training data, licensing,
    model distribution size, and an accuracy claim the project would then have to stand behind.
 
+**Second constraint, and the thing that makes a real provider immediately valuable** (Roger, 2026-08-04,
+Mission 2 R-6): a filename may **suggest** a label; only a detector that actually examined the pixels
+may **confirm** it. Confirmed labels score **70% detector confidence + 30% filename corroboration**;
+labels no provider is capable of detecting stay unscored hints and never move a dollar.
+
+Providers therefore declare the vocabulary they can detect — which `register_onnx_provider`'s
+`labels_path` already is. That declaration is what flips a label from "nothing can see this" to
+"something looked", so **a real classifier upgrades the six filename-inferred labels
+(`mold_suspected`, `water_leak_suspected`, `ev_charger`, `parking_garage`, `parking_driveway`,
+`dishwasher`) with no code change**. Today the ontology can express all six and no built-in provider
+emits any of them, so all six are unscored hints. Whichever offering above ships first should be
+judged partly on how much of that vocabulary it covers.
+
 **Constraint any of these must respect** (established by Mission 2, Roger's ruling): the AI layer
 produces **observations only**. All arithmetic stays in `src/core/finance/`, and the
 BUY/CONDITIONAL/DECLINE verdict must come from the deterministic `synthesize_thesis` — an AI must

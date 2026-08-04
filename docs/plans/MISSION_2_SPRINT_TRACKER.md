@@ -338,6 +338,44 @@ These were not in the charter. Roger directed them after the Gate 2 VETO surface
 | R-3 | Specific attribution over a blanket disclaimer | ✅ **DONE** `a626e9d` — the engine's per-modifier notes render as the "What moved each figure" list. |
 | R-4 | *"add the per-tag provenance to keep transparency and have rich metadata"* | **IN PROGRESS** 2026-08-04 — see below. |
 | R-5 | Document why `--ai` is a stub so the mission-planner can plan it | ✅ **DONE** `db2d28d` — `ROADMAP_TRACKER.md` §4 backlog #3, split into three offerings with very different blast profiles. |
+| R-6 | **A filename may SUGGEST; only a detector that looked may CONFIRM.** Weighted confidence: **70% CV + 30% filename**, with a guard for the case where nothing can look. | **IN PROGRESS** 2026-08-04 — see below. |
+
+### R-6 — CV-confirmed filename signals (Roger's Option D + guard)
+**The decision, in his words:** *"we can keep it as described for option A, but we will have to
+confirm it with a real computer vision based algorithm to confirm the filename. And to do so, we can
+use a 70:30 split weight where the 70% is from the computer vision confidence level and 30% from the
+filename."*
+
+**Why a guard was needed.** Orchestrator-verified: the ontology **can express** all six
+filename-inferred labels, but **no built-in provider emits any of them from pixels** — the stubs only
+ever produce `natural_light_high` and `stainless_appliances`. So `0.70 × cv_confidence` is **zero for
+all six today**, and the naive formula would score every filename claim at exactly `0.30`. A flat
+0.30 for "is there mould?" when nothing is capable of looking is still an invented number, just a
+smaller one.
+
+Two cases the formula must not conflate:
+| Case | Meaning | Treatment |
+| --- | --- | --- |
+| A provider **covers** the label and did not fire | genuine disagreement — something looked and saw nothing | score `0.70 × cv + 0.30` (= 0.30). Honest, and usefully weak: below the 0.6 "strong" threshold `_parking_summary` already applies |
+| **No provider covers** the label | nothing measured it | **unscored hint** — surfaced to the reader, carries no confidence, and **must not feed `_apply_insight_modifiers`** |
+
+**This is the verdict rule one layer down:** the AI observes, it does not decide. A filename gets to
+suggest; only something that actually examined the pixels gets to confirm.
+
+**Auto-upgrade is the point.** Providers declare their detectable vocabulary (`register_onnx_provider`
+already takes a `labels_path`, which *is* that declaration for real models). The day a classifier
+covering `mold_suspected` is registered, that label moves from case 2 to case 1 with **no code
+change** — which makes this the piece that renders a real ViT immediately useful, and ties directly
+to `ROADMAP_TRACKER.md` backlog #3.
+
+**Constraints carried:** 70/30 are tunable named constants (the `MIN_DSCR_Y1` pattern), not literals —
+Roger will move them once a real classifier's calibration is known. The 30% is a flat corroboration
+bonus for a **binary** filename match, and must be named so nobody later reads it as "we are 30%
+sure". Zero finance-core diff: unconfirmed hints are kept out of the money path from the ingest side.
+
+**Status of M17.** The earlier pass fixed only the *labelling* (`origin="photo_filename"`,
+`detection=None`). R-6 fixes the *behaviour* — until it lands, a blank grey image named
+`mold_basement.jpg` still puts `mold_suspected` into `defects`, where a defect can move OPEX.
 
 ### R-4 — per-tag provenance (in progress)
 **Closes a real hedge.** `a626e9d`'s report cannot say *"AI observed X"* because `ListingInsights`
