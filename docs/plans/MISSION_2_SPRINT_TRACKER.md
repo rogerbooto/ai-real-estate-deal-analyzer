@@ -34,14 +34,18 @@ cheap agent struggling, or a capable agent doing mechanical work) — log that h
 orchestrator verifying) · `DONE` (verified inline) · `DEFERRED`
 
 ## Overall progress
-- Tasks: 14 / 28 DONE (one SCOPED — see 0.1) · 0 IN-PROGRESS · 0 BLOCKED · 14 TODO
-- Suite: **356 tests, exit 0, coverage 82.68%** (mission start: 310 / 81.87%)
+- Tasks: **24 / 28 DONE** (one SCOPED — see 0.1) · 3 IN-PROGRESS (Gate 2 VETO remediation) · 0 BLOCKED · 1 TODO
+- Suite: **415 tests, exit 0, coverage 83.18%** (mission start: 310 / 81.87%)
+- *(Corrected 2026-08-04 — guardian condition C5. These counts had drifted a full wave behind what
+  had actually shipped: they read `14/28`, `356 tests`, `82.68%`, and every Wave 2 row still said
+  TODO after `74c985c` implemented them. In a mission about documents telling the truth, its own
+  record has no exemption. Numbers here are now re-measured, not carried forward.)*
 - Gates cleared: **1 / 5 — ✅ Gate 0 PASSED 2026-08-03** (code-reviewer APPROVE · finance-interp PASS ·
   guardian NO VETO, M1+M2 satisfied · **Roger signed off after reproducing the diff himself**)
 - **Open questions for Roger at Gate 0:** (1) lxml floor — **RESOLVED 2026-08-03: Roger said raise it
   and ensure it is secure.** Floor now `>=6.1.0`, env upgraded to 6.1.1, CVE **verified closed by
   test** (both vectors pointed at a local canary file; neither read it). Commit `b2f34f2`.
-  (2) **STILL OPEN** — confirm the demo report deliberately loses `investment_analysis.md:89`
+  (2) **RESOLVED 2026-08-03** — Roger reproduced the one-line diff himself (`89d88`) and approved.
 - Open product decisions outstanding: **0** — all four CLOSED by Roger 2026-08-03 (see ledger below)
 
 ## Wave summary
@@ -52,7 +56,7 @@ orchestrator verifying) · `DONE` (verified inline) · `DEFERRED`
 | Branch | Wave Branch | 1 | 1 | **DONE** 2026-08-03 | — |
 | 0 | Truth (Tier 0 + deps) | 5 | 5 | **DONE** 2026-08-03 — all five committed (`705149c`, `2dd36bc`, `5a061aa`, `6fce278`). 0.1 closure scoped to CLI flags (guardian M1). | **Gate 0: Roger only** |
 | 1 | Wiring + anti-regression guard | 5 | 5 | **DONE** 2026-08-03 — `db366de`, `6f0642a`, `821cdac`, `369a1f0`, `252e517` | **Gate 1: ready** |
-| 2 | CLI honesty + docs | 10 | 0 | TODO | Gate 2 |
+| 2 | CLI honesty + docs | 10 | 10 | **DONE** 2026-08-03 (`74c985c`, `0b5c0b0`, `bb8f54b`) — **Gate 2 VETOED**; remediation in flight (`5e85836` + 3 agents) | Gate 2 🔴 |
 | 3 | Disposition (wire-first) | 3 | 0 | TODO | Gate 3 |
 | Val | Validation | 1 | 0 | TODO | — |
 | Int | Wave Integrate | 1 | 0 | TODO | Mission gate (Roger) |
@@ -244,15 +248,15 @@ covering trigger/label reconciliation, since the same shape may affect the ameni
 ## Wave 2 — CLI honesty + docs
 | ID | Task | Finding | Agent → tier | Status |
 | --- | --- | --- | --- | --- |
-| 2.1 | `ingest_cli` surfaces `result.insights`/`result.photos` (or documents why not) | F10 | python-eng → std | TODO |
-| 2.2 | Wire `collect_local_assets` into `--file` mode so media flags do something (or reject them with a clear message) | F11 | python-eng → std | TODO |
+| 2.1 | `ingest_cli` surfaces `result.insights`/`result.photos` (or documents why not) | F10 | python-eng → std (sonnet) | **DONE** `74c985c` — both summarised always; full JSON under `--pretty 1`. |
+| 2.2 | Wire `collect_local_assets` into `--file` mode so media flags do something (or reject them with a clear message) | F11 | python-eng → std (sonnet) | **DONE (SCOPED)** `74c985c` — **the charter's framing was wrong.** The flags ARE plumbed into `ingest_listing`; the inertness is downstream (`collect_media` needs a URL/snapshot; `collect_local_assets` is never called from `ingest_listing`). The CLI now explains the limitation instead of silently producing an empty bundle. **Wiring `collect_local_assets` is a `src/core/ingest/` change → moved to Wave 3 / OPD-3**, not smuggled in here. |
 | 2.3 | Remove/implement `advisor_cli --debug`; implement or delete | F12 | python-eng → std (sonnet) | **DONE** 2026-08-03 — **implemented, not removed.** The help text already promised "Print ranked/portfolio to stdout"; that promise was simply never honoured. Honouring an existing user-facing contract beats inventing a new knob or silently retracting one. |
 | 2.4 | `advisor_cli --markdown` must not clobber the JSON when `--out` ends `.md` | F13 | python-eng → std (sonnet) | **DONE** 2026-08-03 — orchestrator-verified end-to-end: `--out clob.md --markdown` now writes markdown to `clob_report.md`, prints a loud note naming both paths, and the JSON at `--out` still parses. Silent data loss closed. |
 | 2.5 | `report_cli --insights` rejects JSON with no recognized fields | F14 | python-eng → std (sonnet) | **DONE** 2026-08-03 — boundary is **"shares ≥1 field name with the model"**, not "complete": `{"totally":"unrelated"}` rejected with a message listing the valid fields; `{"address":"12 Real St"}` still works, because absent facts are legitimate and this project never fabricates listing data. Scoped to `--insights` only — every other `_maybe_load` model has ≥1 *required* field, so unrelated JSON already fails there via pydantic; adding the gate would swap one clear error for another. |
-| 2.6 | `ingest_cli --ai` help text (+ honest description) | F15 | python-eng → cheap | TODO |
-| 2.7 | `ingest_cli --pretty` documented / split dual purpose | F16 | python-eng → cheap | TODO |
+| 2.6 | `ingest_cli --ai` help text (+ honest description) | F15 | python-eng → cheap | **DONE** `74c985c`, then **CORRECTED** `5e85836` — the Wave 2 wording claimed output was unchanged, which was FALSE (Gate 2 blocker V1). Now states the real effect. |
+| 2.7 | `ingest_cli --pretty` documented / split dual purpose | F16 | python-eng → cheap | **DONE** `74c985c` — **split**, not merely documented: new `--save-screenshot` (default 1). Turning down console noise must not silently stop persisting an artifact. |
 | 2.8 | `advisor_cli --files` error points at a real valid example (add one if none exists) | F17 | python-eng → std (sonnet) | **DONE** 2026-08-03 — new `data/examples/advisor_deal_config.json` with the real `listing_path`/`photos_dir`/`finance_inputs_path` keys. **Orchestrator ran the cited command verbatim → exit 0.** Deliberate check, given Gate 1's M6 blocker was exactly this class (a documented example that crashed). |
-| 2.9 | `--media-kinds` invalid → argparse usage error, not a raw traceback; `report_cli` missing-file → clean error; fix `address_struct`→`address_structure` in the CLI print | F18, F19, F20 | python-eng → std | TODO |
+| 2.9 | `--media-kinds` invalid → argparse usage error, not a raw traceback; `report_cli` missing-file → clean error; fix `address_struct`→`address_structure` in the CLI print | F18, F19, F20 | python-eng → std | **DONE** `74c985c` — all three. `address_structure` fixed in the CLI **and** in the `listing_text.py`/`listing_html.py` fallback dicts, where `extra=\"ignore\"` was silently discarding it. |
 | 2.10 | T6 living-doc reconcile + CHANGELOG:17 **dated note** (not rewrite); **feature→reachable-path test** | T6, root causes 1&4 | docs-maintainer → std (sonnet) + qa → std (sonnet) | **DOCS DONE** 2026-08-03; reachability test in progress. See record below. |
 
 ### 2.10 docs — orchestrator verification record, 2026-08-03
