@@ -98,7 +98,7 @@ A file name may **suggest** a label; only a detector that actually looked may **
 | provider covers the label? | provider reported it? | `source` | confidence |
 | --- | --- | --- | --- |
 | yes | yes | `filename_confirmed` | `CV_CONFIRMATION_WEIGHT × cv + FILENAME_CORROBORATION_BONUS` (0.7 · cv + 0.3) |
-| yes | no — a genuine disagreement | `filename_contested` | `0.30` — deliberately below the 0.6 "strong" bar `_parking_summary` applies |
+| yes | no — a genuine disagreement | `filename_contested` | `0.30`. **⚠ Not yet a guarantee:** it is below the 0.6 bar `_parking_summary` applies, but that bar does not gate every route — `amenity_counts` → `synthesis` → the literal tag `"parking"` → `engine.py:83` reads membership, not confidence, so a contested claim can still select an income rule (**G2-N1**, Gate 3 exit criterion). |
 | no — nothing could look | n/a | `filename_unconfirmed` | **none at all** |
 
 The two weights are a tunable split summing to 1.0 (`runner.CV_CONFIRMATION_WEIGHT` / `FILENAME_CORROBORATION_BONUS`); the 0.30 is a flat corroboration credit for a *binary* filename match, not "we are 30% sure". An **unconfirmed** hint is kept out of `ListingInsights.amenities/condition_tags/defects` — the three lists `finance/engine._apply_insight_modifiers` reads — and is surfaced to the reader through `ListingInsights.notes` and `PhotoInsights.unconfirmed_hint_counts` instead. Registering a provider that declares the label moves it from unconfirmed to contested with no code change.

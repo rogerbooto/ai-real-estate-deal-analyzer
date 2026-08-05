@@ -159,7 +159,15 @@ CV_CONFIRMATION_WEIGHT = 0.70
 #: match is BINARY — the token is in the name or it is not — so it can only ever contribute a
 #: fixed amount, and 0.30 is the size of that credit, never "we are 30% sure". A label scored at
 #: exactly 0.30 means "a detector that can see this looked and did not see it; only the file name
-#: says otherwise", which is deliberately below the 0.6 "strong" bar `_parking_summary` applies.
+#: says otherwise".
+#:
+#: ⚠ 0.30 is NOT a safety guarantee, and an earlier version of this comment implied it was. It is
+#: below the 0.6 "strong" bar `_parking_summary` applies — but that bar does not gate every route
+#: to the money. `amenity_counts` -> `synthesis._amenities_from` -> the literal tag `"parking"` ->
+#: `engine.py:83` reads MEMBERSHIP, not confidence, so a contested 0.30 claim still selects an
+#: income rule. Verified: a blank grey `garage.jpg`, with a detector that covers `parking_garage`
+#: and reported nothing, still moved Y1 cash flow by $1,105.80. Tracked as G2-N1; the fix is a
+#: Gate 3 exit criterion. Do not cite this constant as the reason a contested claim is harmless.
 FILENAME_CORROBORATION_BONUS = 0.30
 
 
