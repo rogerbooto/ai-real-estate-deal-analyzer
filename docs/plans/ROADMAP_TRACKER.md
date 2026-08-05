@@ -62,6 +62,58 @@ Base (this run): `main @ 6147839`, synced 2026-08-03. **`origin/main` has never 
 | 4 | Streamlit UI for interactive scenario exploration | High (portfolio wow) | Med (new surface, new deps) | Reads existing JSON artifacts | Distribution | Packaging, Portfolio | #1 (scenarios give the UI something to explore), #2 |
 | 5 | Live market data ingestion (comps, cap-rate drift) | Med | High (network, data licensing, freshness) | fetch/ policy | Market realism | Market | #1; compliance review |
 
+### Backlog #6 — "What would have to change?" (Roger's design, 2026-08-05)
+
+_Captured verbatim from a design conversation during Mission 2. **Not built** — Mission 2 is a
+wiring-gap mission and this is a new feature; smuggling it in is exactly what the charter forbids.
+Recorded here while the design is fresh so the next planner inherits the decisions, not just the idea._
+
+**The problem it solves.** Verdicts are pass/fail against hard lines, so a deal that misses debt
+coverage by 0.01 gets the same stamp as one that misses by 0.5. Worse, the report states the gap in
+*our* units — "DSCR is weak at 1.19 (< 1.20)" — which no investor negotiates in. Roger's objection,
+verbatim: *"the unit of measurement does not talk to an investor. Can we find a way to make the
+distance talk to an investor, like translating that distance to something tangible?"*
+
+**The feature.** Keep the BUY / CONDITIONAL / DECLINE label, but attach to it *how far from the line
+the deal sits* and *what would close the gap*, expressed in things an investor can actually move:
+
+    CONDITIONAL — debt coverage falls just short.
+    Any ONE of these closes it:
+      - $38 more rent per unit per month (a 3.1% increase)   ⚑ flagged: already top-of-market
+      - $9,800 off the purchase price (2.4% below asking)
+      - 0.18% off your interest rate
+      - $460 less in annual operating costs
+
+One gap, several currencies; the investor picks the lever they have leverage on. The translation is
+**exact arithmetic, not statistics** — invert the guardrail formula. No distribution is needed to
+answer "how far from flipping", which is a deterministic question.
+
+**Roger's design decisions (these are the specification, not suggestions):**
+1. **Flag implausible levers, never remove them.** *"we provide theoretical results, and the investor
+   may have other influence that we don't."* A silent removal asserts knowledge of their situation
+   that we do not have. Say **why** it was flagged, and link sources once sourcing exists.
+2. **When several guardrails fail at once**, lead with the cheapest single fix but **flag that other
+   gaps remain** — a counter or a more elegant device — so a partial fix is never mistaken for a
+   complete one.
+3. **When nothing realistic closes it, say so plainly.** *"If no realistic change can be done, well it
+   is what it is. We tell them."*
+
+**Most of the machinery already exists.** Mission 1 shipped the scenario generator, the plausibility
+rejector, and the report section that shows outcome bands across surviving scenarios (`src/market/`).
+The missing question is *"which of these flip the verdict?"* — an addition, not a new subsystem.
+
+**A design note worth preserving.** Roger's first framing reached for z-scores and a softmax over the
+guardrail inputs to attribute "contribution" to the decision. That was talked through and set aside
+for two reasons: softmax reports relative magnitude, not causation (a wildly-off IRR that changes
+nothing would dominate, while a coverage ratio sitting 0.01 from the line would not), and the verdict
+is a **count of failures**, not a weighted sum, so there is nothing to decompose. Distributions do earn
+their place in judging **plausibility** — which is what the rejector already does. Keeping the verdict
+deterministic also preserves Roger's own R-1 ruling that rules decide and models only observe.
+
+**Interaction with Mission 2's open threshold decisions.** This feature makes hard lines far less
+punishing, because a near-miss becomes legible rather than fatal-looking. A future planner should
+revisit the Year-1 CoC floor and the DECLINE shortcut *after* this ships, not before.
+
 ### Backlog #3 in detail — why `--ai` is a stub, and what "real" looks like
 _Added 2026-08-03 at Roger's request during Mission 2, so a future mission can plan it properly._
 
