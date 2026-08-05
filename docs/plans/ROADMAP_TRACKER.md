@@ -58,8 +58,9 @@ Base (this run): `main @ 6147839`, synced 2026-08-03. **`origin/main` has never 
 ambiguous" — always, before a batch of dispatches. Record `task → agent → tier` and any deviation
 **at dispatch time**, not in a post-mortem.
 
-**2. Never run without the graphify CLI, and keep the graph current.** Refresh it after code
-changes so the next step reads accurate data.
+**2. Never run without the graphify CLI. Refresh the graph after EVERY code update** (Roger,
+2026-08-05) — not at milestones, after each update that lands, so the next step always reads
+accurate data. In practice: after each commit, or as each batch of agents lands.
 
 **Why these are rules rather than guidance** — both failed in Mission 2, the same way:
 
