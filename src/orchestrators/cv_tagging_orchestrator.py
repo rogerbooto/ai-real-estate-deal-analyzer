@@ -2,14 +2,14 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Sequence
 from pathlib import Path
 from typing import Any, cast
 
-from src.core.cv.amenities_defects import ProviderName, is_filename_derived, is_unconfirmed_hint, provider_kind
+from src.core.cv.amenities_defects import ProviderName, is_contested_hint, is_uncorroborated_filename_claim, provider_kind
 from src.core.cv.photo_insights import DETERMINISTIC_VERSION, VISION_STUB_VERSION
 from src.core.cv.runner import tag_amenities_and_defects, tag_images
-from src.core.insights.provenance import dedupe_and_sort, detection_observation, filename_observation
+from src.core.insights.provenance import dedupe_and_sort, detection_observation
 from src.schemas.labels import MATERIAL_TO_AMENITY_SURFACE, MaterialTag
 from src.schemas.models import ObservationKind, ObservationProvenance
 
@@ -35,7 +35,14 @@ class CvTaggingOrchestrator:
         if not normalized:
             return {
                 "images": [],
-                "rollup": {"amenities": [], "condition_tags": [], "defects": [], "warnings": [], "unconfirmed_hints": []},
+                "rollup": {
+                    "amenities": [],
+                    "condition_tags": [],
+                    "defects": [],
+                    "warnings": [],
+                    "unconfirmed_hints": [],
+                    "contested_hints": [],
+                },
                 "observations": [],
             }
 
@@ -60,6 +67,7 @@ class CvTaggingOrchestrator:
         amenity_names: set[str] = set()
         defect_names: set[str] = set()
         unconfirmed_names: set[str] = set()
+        contested_names: set[str] = set()
         for sha, per_img in dets.items():
             for d in per_img:
                 name = str(d.get("name", "")).lower()
@@ -68,43 +76,38 @@ class CvTaggingOrchestrator:
                 cat = str(d.get("category", ""))
                 if cat not in ("amenity", "defect"):
                     continue
+                obs_kind: ObservationKind = "amenity" if cat == "amenity" else "defect"
 
-                # A label nothing was ABLE to look for does not enter the tag lists. Those three
-                # lists are what `finance.engine._apply_insight_modifiers` reads to select OPEX and
-                # income rules, so putting an unmeasured claim in one lets a file name move a
-                # dollar. It is not dropped -- it ships in `rollup["unconfirmed_hints"]`, which the
-                # analyst surfaces to the reader as a note. Shown, never counted.
-                if is_unconfirmed_hint(d):
-                    unconfirmed_names.add(name)
+                # A label the FILE NAME claims but no detector confirmed does not enter the tag
+                # lists -- neither the case nothing was ABLE to look (`filename_unconfirmed`) nor
+                # the case a covering detector looked and disagreed (`filename_contested`). Those
+                # three lists are what `finance.engine._apply_insight_modifiers` reads to select
+                # OPEX and income rules, so putting either kind of claim in one lets a file name
+                # move a dollar -- `insights.amenities: ['parking_garage']` from a blank grey
+                # `garage.jpg` plus a detector that declared `parking_garage` and reported nothing
+                # was exactly this route, saved from moving money today only by an unrelated
+                # label-vs-rule mismatch (defect #4), not by any guard.
+                #
+                # `is_uncorroborated_filename_claim` is the single predicate every producer in this
+                # codebase uses to draw this line (`core.insights.synthesis` is the sibling that
+                # already used it) -- written as "filename-derived AND NOT confirmed" so a source
+                # value added later defaults to the cautious branch rather than being promoted to a
+                # detector's finding by omission. It is not dropped -- it still reaches the reader
+                # through `rollup["unconfirmed_hints"]` / `rollup["contested_hints"]`, worded to say
+                # which of the two facts is true (nothing looked, vs. something looked and
+                # disagreed).
+                source_val = d.get("source")
+                if is_uncorroborated_filename_claim(str(source_val) if source_val is not None else None):
+                    if is_contested_hint(d):
+                        contested_names.add(name)
+                    else:
+                        unconfirmed_names.add(name)
                     continue
 
                 if cat == "amenity":
                     amenity_names.add(name)
                 else:
                     defect_names.add(name)
-                obs_kind: ObservationKind = "amenity" if cat == "amenity" else "defect"
-
-                # `runner._augment_from_filename` splices filename-suggested labels into this same
-                # list. One a detector CONTRADICTED (`filename_contested`) is still the file name's
-                # claim, not the detector's, so it keeps `origin="photo_filename"` and carries no
-                # detection payload -- stamping it as a detection is how a blank grey image called
-                # "mold_basement.jpg" became a 0.90-confidence "mould suspected" *finding*. Its
-                # corroboration score and the disagreement itself go in `detail`, where a reader
-                # sees them for what they are.
-                #
-                # Written as "filename-derived AND not confirmed" rather than "== contested" so a
-                # source value added later defaults to the cautious branch: an unrecognised
-                # filename state must not be promoted to a detector's finding by omission.
-                if is_filename_derived(d) and str(d.get("source", "")) != "filename_confirmed":
-                    observations.append(
-                        filename_observation(
-                            name,
-                            kind=obs_kind,
-                            detail=_contested_detail(d),
-                            source_image_sha=sha,
-                        )
-                    )
-                    continue
                 # `pixels` and `filename_confirmed` alike: a detector looked at the image and
                 # emitted this label. `filename_confirmed` differs only in that a second,
                 # independent signal agreed and lifted the confidence -- the detection's own
@@ -121,10 +124,21 @@ class CvTaggingOrchestrator:
                     )
                 )
 
-        # 3b) Promote filename-derived materials → amenity surface (e.g., kitchen_island)
-        promoted: set[str] = set()
+        # 3b) Filename-derived materials (e.g., kitchen_island) suggest an amenity surface.
+        #
+        # `tag_images` never examines pixels for these labels -- `_filename_generic_labels`
+        # (`core/cv/runner.py`) reads only the file name, with no provider/capability concept at
+        # all -- so there is no detector here that could ever CONFIRM or CONTEST one of these the
+        # way the loop above does for `tag_amenities_and_defects` labels. Every material promotion
+        # is therefore structurally the "nothing was able to look" case, under the same
+        # suggest-vs-confirm rule (R-6) that keeps a contested or unconfirmed detection out of
+        # `amenities`/`condition_tags`/`defects`. Task 3.5's decision: fix it rather than merely
+        # flag it, for consistency with the loop above -- an amenity a reader was told "the file
+        # name says so" does not belong inside the one list the finance engine reads just because
+        # it arrived through a different function. It hits no engine rule today (no dollars move
+        # either way), but "safe by accident" is exactly the shape this mission spent three rows
+        # (defect #4, G2-N1, G2-N2) closing, so it is not left as a fourth.
         for rec in image_records:
-            rec_sha = rec.get("sha256")
             for t in rec.get("tags", []) or []:
                 if not isinstance(t, dict):
                     continue
@@ -137,32 +151,43 @@ class CvTaggingOrchestrator:
                     continue
                 mapped = MATERIAL_TO_AMENITY_SURFACE.get(mt)
                 if mapped:
-                    promoted.add(mapped.value)
-                    # origin="photo_filename", NOT cv_provider: `tag_images` read the file name,
-                    # no detector looked at the pixels.
-                    observations.append(
-                        filename_observation(
-                            mapped.value,
-                            kind="amenity",
-                            detail=raw,
-                            source_image_sha=rec_sha if isinstance(rec_sha, str) else None,
-                        )
-                    )
+                    unconfirmed_names.add(mapped.value)
 
-        amenity_names |= promoted
+        # A hint and a tag are per-LABEL facts, but the loops above are per-DETECTION-RECORD: one
+        # photo in the folder can put a label in `unconfirmed_names`/`contested_names` while a
+        # DIFFERENT photo in the same folder puts the SAME label in `amenity_names`/`defect_names`
+        # (a covering detector genuinely saw it there). Without this, both buckets would ship the
+        # label at once -- the tag list saying a detector observed it, and the hint note saying in
+        # the same breath that "no detector... does not affect any number in this analysis", which
+        # is false the moment the tag is present. A confirmed sighting anywhere in the folder makes
+        # the hint moot for that label everywhere in the folder, so the tag lists win. The two hint
+        # buckets stay distinct from EACH OTHER on purpose (a filename-unconfirmed and a
+        # filename-contested claim are still different facts); only confirmed tags subtract.
+        _confirmed = amenity_names | defect_names
+        unconfirmed_names -= _confirmed
+        contested_names -= _confirmed
 
         # Rollup is expected to be a dict; coerce if not
         raw_rollup: Any = out.get("rollup")
         if not isinstance(raw_rollup, dict):
-            raw_rollup = {"amenities": [], "condition_tags": [], "defects": [], "warnings": [], "unconfirmed_hints": []}
+            raw_rollup = {
+                "amenities": [],
+                "condition_tags": [],
+                "defects": [],
+                "warnings": [],
+                "unconfirmed_hints": [],
+                "contested_hints": [],
+            }
         rollup: dict[str, list[str]] = cast(dict[str, list[str]], raw_rollup)
 
         rollup["amenities"] = sorted(amenity_names)
         rollup["defects"] = sorted(defect_names)
-        # Sibling key, deliberately NOT merged into the three above: those are observations, this
-        # is a question nothing answered. Consumers that only know the original three keys keep
-        # working and simply never see an unmeasured claim, which is the safe default.
+        # Sibling keys, deliberately NOT merged into the three above: those are observations, these
+        # are questions nothing answered (or answered "no"). Consumers that only know the original
+        # three keys keep working and simply never see an unmeasured or contradicted claim, which
+        # is the safe default.
         rollup["unconfirmed_hints"] = sorted(unconfirmed_names)
+        rollup["contested_hints"] = sorted(contested_names)
 
         out_dict: dict[str, Any] = cast(dict[str, Any], out)
         out_dict["rollup"] = rollup
@@ -194,25 +219,6 @@ class CvTaggingOrchestrator:
                 if p.suffix.lower() in _IMAGE_EXTS and p.is_file():
                     collected.append(str(p))
         return collected
-
-
-def _contested_detail(det: Mapping[str, Any]) -> str | None:
-    """The one free-text 'what fired' line for a filename-suggested tag a detector did not confirm.
-
-    ``ObservationProvenance`` gives filename origins exactly one slot and no confidence field (by
-    design -- a filename guess must not be able to look like a scored detection), so the
-    corroboration score goes here, in words, next to the fact that a detector disagreed. A bare
-    "file name contains 'mold'" would leave the reader unable to tell this apart from the case
-    where nothing looked at all.
-    """
-    evidence = next(iter(det.get("evidence") or ()), None)
-    conf = det.get("confidence")
-    if isinstance(conf, (int | float)):
-        return (
-            f"{evidence or 'file name match'}; a detector that covers this label "
-            f"did not report it (corroboration score {float(conf):.2f})"
-        )
-    return str(evidence) if evidence else None
 
 
 def _normalize_paths(paths: Iterable[str]) -> list[str]:

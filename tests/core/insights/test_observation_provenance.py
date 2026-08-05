@@ -151,13 +151,34 @@ def detector_that_covers_dishwashers(tmp_path: Path, monkeypatch) -> object:
     ad._PROVIDERS["local"] = original
 
 
+@pytest.fixture
+def detector_that_confirms_dishwashers(tmp_path: Path, monkeypatch) -> object:
+    """Bind a provider that CAN detect ``dishwasher`` and DOES report it on these images.
+
+    Needed for ``test_same_tag_from_text_and_from_photos_keeps_both_records``: a *contested*
+    filename claim (the sibling fixture above) never reaches the money-reading ``amenities`` list
+    as of Mission 2 task 3.4's Task A, so it can no longer demonstrate "the copy and a photo both
+    saw it" -- only a genuinely confirmed detection (the provider covers the label AND emits it)
+    can produce two independent, tag-list-surviving records to compare.
+    """
+
+    def _confirms_dishwasher(_img: object) -> list[object]:
+        return [{"name": "dishwasher", "confidence": 0.72, "evidence": ["stub_detector"]}]
+
+    monkeypatch.setenv("AIREDEAL_CACHE_DIR", str(tmp_path / "cache_confirmed"))
+    original = ad._PROVIDERS["local"]
+    ad.register_provider("local", _confirms_dishwasher, detects=["dishwasher"])
+    yield _confirms_dishwasher
+    ad._PROVIDERS["local"] = original
+
+
 def test_cv_detection_records_the_provider_its_kind_and_its_confidence(cv_photos: Path) -> None:
     """A genuinely PIXEL-derived detection carries the provider, its kind, and its confidence.
 
     Deliberately asserted on ``stainless_appliances`` (read off the pixels) rather than
     ``dishwasher``: an earlier version of this test used the dishwasher, whose tag comes from the
     *file name*, and so pinned a filename guess as a detector's finding -- certifying the exact
-    fabrication the sibling test below forbids. See test_filename_derived_tag_is_never_a_detection.
+    fabrication the sibling test below forbids. See test_filename_contested_tag_is_never_promoted_to_an_amenity.
     """
     insights = analyze_listing(listing_txt_path=None, photos_folder=str(cv_photos), fallback_text="A home.")
 
@@ -173,55 +194,68 @@ def test_cv_detection_records_the_provider_its_kind_and_its_confidence(cv_photos
     assert obs.detection.evidence, "a real detection carries the measurements it was based on; a fabricated one has none"
 
 
-def test_filename_derived_tag_is_never_a_detection(cv_photos: Path, detector_that_covers_dishwashers: object) -> None:
-    """M17: a label inferred from a FILE NAME must never be stamped as a detector's finding.
+def test_filename_contested_tag_is_never_promoted_to_an_amenity(cv_photos: Path, detector_that_covers_dishwashers: object) -> None:
+    """M17 closed the ATTRIBUTION half of this defect; Mission 2 task 3.4 (Task A) closes the MONEY half.
 
     ``runner._augment_from_filename`` splices filename-suggested labels into the provider's own
-    detection list. Before this was fixed, everything in that list was stamped
-    ``origin="cv_provider"``, so a blank grey image named ``mold_basement.jpg`` produced a
-    0.90-confidence "mould suspected" finding attributed to a detector -- with ``evidence=None``
-    and ``rationale=None``, and the highest confidence in the ledger.
-
-    Per-tag provenance made that worse rather than better: before it, the filename guess was a bare
-    string, dishonest only by omission. After it, it became an affirmative, structured, machine-
-    readable claim with a confidence score attached.
-
-    Here a detector that CAN see dishwashers looked and reported none, so the file name's claim is
-    scoreable -- and it is scored weakly (0.30) -- but it is still the file name's claim. It keeps
-    ``photo_filename`` and carries no ``DetectedLabelModel``: the detector's record must say what
-    the detector said, and the detector said no.
+    detection list. Before M17, everything in that list was stamped ``origin="cv_provider"``, so a
+    blank grey image named ``mold_basement.jpg`` produced a 0.90-confidence "mould suspected"
+    finding attributed to a detector -- with ``evidence=None`` and ``rationale=None``, and the
+    highest confidence in the ledger. M17 fixed the ATTRIBUTION (the record correctly said
+    ``photo_filename``, not ``cv_provider``) but the tag still entered ``insights.amenities`` --
+    the list ``finance.engine._apply_insight_modifiers`` reads by MEMBERSHIP, never confidence --
+    so a claim a detector explicitly REJECTED could still select an income rule. This test used to
+    assert exactly that ("the filename-derived amenity shipped with... provenance", i.e. it shipped
+    as an amenity at all): the premise this mission's G2-N1/G2-N2 rows overturned on the sibling
+    producer and this row (3.4 Task A) overturns here. A contested claim now stays out of
+    ``amenities`` entirely -- it is not dropped, it still reaches the reader through ``notes``,
+    worded to say a covering detector disagreed.
     """
     insights = analyze_listing(listing_txt_path=None, photos_folder=str(cv_photos), fallback_text="A home.")
 
-    dishwasher = _by_tag(insights, "dishwasher")
-    assert dishwasher, "the filename-derived amenity shipped with no provenance at all"
-    assert [o.origin for o in dishwasher] == [
-        "photo_filename"
-    ], f"a tag inferred from the file name is recorded as a detector's finding: {dishwasher}"
-    assert all(o.detection is None for o in dishwasher), "a filename guess must carry no detection payload, and therefore no confidence"
-    assert all(o.provider is None for o in dishwasher), "naming a provider implies that provider looked at the pixels"
+    assert "dishwasher" not in insights.amenities, "a claim a detector CONTRADICTED reached the money-reading list"
+    assert _by_tag(insights, "dishwasher") == [], "a withheld tag left a dangling provenance record"
+    contested_notes = [n for n in insights.notes if "dishwasher" in n]
+    assert contested_notes, f"the contested hint vanished entirely: {insights.notes}"
     # The disagreement itself is on the record: a reader must be able to tell "a detector looked
     # and said no" from "a file name said so and nothing checked".
-    assert any("did not report it" in (o.detail or "") for o in dishwasher), f"the detector's disagreement was dropped: {dishwasher}"
+    assert "did not report it" in contested_notes[0], f"the detector's disagreement was dropped: {contested_notes}"
 
 
-def test_filename_derived_tag_is_not_reported_as_a_detector_seeing_it(cv_photos: Path) -> None:
-    """``photo_filename`` is a distinct origin on purpose: no detector looked at these pixels."""
+def test_filename_promoted_material_stays_out_of_the_tag_lists_too(cv_photos: Path) -> None:
+    """Task 3.5 (Mission 2): a filename-promoted material is the SAME class of claim as a
+    filename-suggested amenity/defect, so it is withheld from ``amenities`` the same way.
+
+    Re-adjudicated: this test used to assert ``kitchen_island`` shipped as a ``photo_filename``-
+    origin observation ON ``insights.amenities``, i.e. that the promotion graduated into the list
+    ``finance.engine._apply_insight_modifiers`` reads. That was consistent with the *pre-3.4* CV
+    pipeline but not with the suggest-vs-confirm rule (R-6) this mission closed everywhere else:
+    ``tag_images``'s material path (``core/cv/runner.py``) has no detector/provider concept at
+    all, so nothing can ever CONFIRM or CONTEST a promoted material the way a covering CV provider
+    can for a filename-suggested amenity. Structurally it is always the "nothing was able to look"
+    case, so it is now an unconfirmed hint -- shown to the reader via ``notes``, not counted as an
+    amenity, and (since ``retain_recorded_tags`` only keeps observations pointing at a tag that
+    actually shipped) it carries no dangling ledger entry either.
+    """
     insights = analyze_listing(listing_txt_path=None, photos_folder=str(cv_photos), fallback_text="A home.")
 
-    island = _by_tag(insights, "kitchen_island")
-    assert island, "the filename-promoted amenity shipped with no provenance"
-    assert [o.origin for o in island] == ["photo_filename"]
-    assert island[0].detection is None, "a filename token is not a detection"
-    assert island[0].detail == "kitchen_island"
+    assert "kitchen_island" not in insights.amenities, "a filename-only material claim reached the money-reading list"
+    assert _by_tag(insights, "kitchen_island") == [], "a withdrawn tag left a dangling provenance record"
+    assert any("kitchen_island" in n for n in insights.notes), "the filename hint vanished instead of being surfaced"
 
 
-def test_same_tag_from_text_and_from_photos_keeps_both_records(cv_photos: Path, detector_that_covers_dishwashers: object) -> None:
+def test_same_tag_from_text_and_from_photos_keeps_both_records(cv_photos: Path, detector_that_confirms_dishwashers: object) -> None:
     """The repeated-tag case ACROSS sources -- the shape decision this field was designed around.
 
     The copy claims a dishwasher and a photo is tagged with one. Those are two independent
     sightings; collapsing them would erase the fact that the two sources agree, which is precisely
     the signal a reader wants.
+
+    Re-adjudicated to use ``detector_that_confirms_dishwashers`` rather than the CONTESTED fixture:
+    since Mission 2 task 3.4 (Task A), a contested photo-side claim never enters ``amenities`` at
+    all (see ``test_filename_contested_tag_is_never_promoted_to_an_amenity``), so it can no longer
+    demonstrate two sources agreeing -- only a genuinely CONFIRMED detection can produce a second,
+    tag-list-surviving record to compare against the text-side one.
     """
     insights = analyze_listing(
         listing_txt_path=None,
@@ -232,12 +266,11 @@ def test_same_tag_from_text_and_from_photos_keeps_both_records(cv_photos: Path, 
     dishwasher = _by_tag(insights, "dishwasher")
     origins = sorted(o.origin for o in dishwasher)
     assert "listing_text" in origins, f"the copy's own claim was dropped: {dishwasher}"
-    # The photo side is `photo_filename`, not `cv_provider`: this tag comes from the file being
-    # named "kitchen_dishwasher.png", and no detector saw a dishwasher in those pixels. The point
-    # of this test is that two independent sightings survive as two records -- a reader can tell
-    # "the copy says so AND a photo agrees" from "only the copy says so". That invariant is
-    # unchanged; what changed is that the photo-side record no longer overstates how it was made.
-    assert "photo_filename" in origins, f"the photo-side sighting was dropped: {dishwasher}"
+    # The photo side is `cv_provider`: a detector that covers "dishwasher" actually emitted it on
+    # these pixels. The point of this test is that two independent sightings survive as two
+    # records -- a reader can tell "the copy says so AND a photo agrees" from "only the copy says
+    # so".
+    assert "cv_provider" in origins, f"the photo-side sighting was dropped: {dishwasher}"
     assert len(dishwasher) >= 2, "the two sources were collapsed into one record"
 
 

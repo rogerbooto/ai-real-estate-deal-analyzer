@@ -26,6 +26,15 @@ same number would assert a degree of belief about a question nobody asked. The f
 usefully weak; the second is fabricated precision. So the unconfirmed case carries no number, and
 it is kept out of every path that can move a dollar.
 
+The second row is ALSO kept out of every path that can move a dollar, despite being scoreable
+-------------------------------------------------------------------------------------------------
+Earned or not, 0.30 is a weak score, not a licence: the consumers that select OPEX and income
+rules (``finance.engine._apply_insight_modifiers``) read MEMBERSHIP in
+``amenities``/``condition_tags``/``defects``, never a confidence. So a ``filename_contested`` entry
+that reaches one of those three lists moves exactly as much money as a 1.0-confidence one -- this
+was G2-N1/G2-N2 (Mission 2), closed first on ``core.insights.synthesis`` and, by the tests in this
+file's "Case 1" section, on the sibling producer ``orchestrators.cv_tagging_orchestrator``.
+
 Every test here turns RED if the fix is reverted -- see the mission report for literal
 before/after output. The pre-fix behaviour was: a blank grey image named ``mold_basement.jpg``
 yielded ``defects: ['mold_suspected']`` at a hardcoded 0.90 confidence, with no pixels examined.
@@ -38,11 +47,13 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from PIL import Image
+from PIL import Image, ImageStat
 
+import src.core.cv.runner as runner_mod
 from src.agents.financial_forecaster import forecast_financials
 from src.agents.listing_analyst import analyze_listing
 from src.core.cv import amenities_defects as ad
+from src.core.cv.ontology import AMENITIES_DEFECTS_V1, Ontology
 from src.core.cv.photo_insights import build_photo_insights
 from src.core.cv.runner import (
     CV_CONFIRMATION_WEIGHT,
@@ -239,18 +250,178 @@ def test_covered_but_unfired_label_scores_exactly_the_bonus(mold_photo: Path, re
     assert "did not report it" in str(det["rationale"])
 
 
-def test_a_contested_label_does_enter_the_tag_lists(mold_photo: Path, restore_providers: None) -> None:
-    """The guard is narrow on purpose: only the UNMEASURED case is withheld.
+def test_a_contested_label_does_not_enter_the_tag_lists(mold_photo: Path, restore_providers: None) -> None:
+    """G2-N1's sibling defect, closed on the ``CvTaggingOrchestrator`` producer (Mission 2, 3.4 Task A).
 
-    A contested label is a real, weak signal about the property and belongs in ``defects`` where
-    the reader and the rules can see it. Withholding it too would be its own dishonesty.
+    This test used to assert the opposite: that a contested label "belongs in ``defects`` where
+    the reader and **the rules** can see it" -- an argument FOR the rules seeing it, on the premise
+    that withholding it would be dishonest. That premise is exactly what G2-N1/G2-N2 overturned on
+    this producer's sibling (``core.insights.synthesis``): ``finance.engine._apply_insight_modifiers``
+    selects OPEX and income rules by MEMBERSHIP in ``amenities``/``condition_tags``/``defects``,
+    never by confidence, so a contested claim entering one of those three lists can select a rule
+    regardless of its deliberately weak 0.30 score. Reproduced end-to-end before this fix: a blank
+    grey ``garage.jpg`` plus a detector covering ``parking_garage`` that reported nothing yielded
+    ``insights.amenities: ['parking_garage']`` from THIS producer -- the exact shape G2-N1 closed
+    on the other one, surviving here because the fix had only been applied to one of the two
+    producers. "The rules can see it" was never a safety property; it was the defect. Withholding a
+    contested claim from the tag lists is not dishonesty, because it is not dropped -- it still
+    reaches the reader via ``notes`` (see the next test), worded to say a covering detector
+    disagreed rather than that nothing looked.
     """
     _bind("local", _silent, detects=[_MOLD])
 
     rollup = CvTaggingOrchestrator().analyze_folder(str(mold_photo))["rollup"]
 
-    assert _MOLD in rollup["defects"]
-    assert _MOLD not in rollup["unconfirmed_hints"]
+    assert _MOLD not in rollup["defects"], f"a claim a detector CONTRADICTED reached the money-reading list: {rollup['defects']}"
+    assert _MOLD not in rollup["unconfirmed_hints"], "contested and unconfirmed are different facts; do not conflate them"
+    assert _MOLD in rollup["contested_hints"]
+
+
+def test_a_contested_label_reaches_the_reader_through_notes_instead(mold_photo: Path, restore_providers: None) -> None:
+    """Withheld from the tag lists must not mean hidden from the reader.
+
+    RED on revert (of the 3.4-Task-A fix): pre-fix, the contested label went straight into
+    ``defects`` and never appeared in ``notes`` at all, so this assertion fails both ways if the
+    withholding regresses -- either the claim reappears in ``defects`` or it vanishes silently.
+    """
+    _bind("local", _silent, detects=[_MOLD])
+
+    insights = analyze_listing(listing_txt_path=None, photos_folder=str(mold_photo), fallback_text="1 Test St.")
+
+    assert _MOLD not in insights.defects
+    contested_notes = [n for n in insights.notes if _MOLD in n]
+    assert contested_notes, f"the contested hint vanished entirely; the reader learns nothing: {insights.notes}"
+    note = contested_notes[0]
+    assert "did not report it" in note
+    assert "does not affect any number" in note
+
+
+# ---------------------------------------------------------------------------------
+# Disjointness across a FOLDER: a hint for label X in one photo must not survive
+# alongside a genuine tag for label X from a DIFFERENT photo in the same folder.
+# ---------------------------------------------------------------------------------
+#
+# `CvTaggingOrchestrator.analyze_paths` builds `amenity_names`/`defect_names` and
+# `unconfirmed_names`/`contested_names` as folder-wide sets, one entry per DETECTION RECORD across
+# every photo. A label can therefore be a hint from one photo's file name and a real sighting from
+# another photo's pixels at the same time, and without a subtraction step both buckets would ship
+# it: `defects` (or `amenities`) saying a detector observed it, and a `notes` sentence in the same
+# report saying in the same breath that "no detector... does not affect any number in this
+# analysis" -- false the moment the tag is present. A sentence in the report the code contradicts
+# is exactly the defect class this mission exists to close.
+
+
+def _greenish_photo(dirpath: Path, name: str) -> Path:
+    """A second, differently-coloured image, so a content-based detector can tell it apart from
+    the blank grey ``_photo`` helper above without depending on the file name at all."""
+    dirpath.mkdir(parents=True, exist_ok=True)
+    p = dirpath / name
+    Image.new("RGB", (900, 700), color=(50, 200, 50)).save(p, quality=95)
+    return p
+
+
+def _sees_mold_only_when_not_grey(img: Image.Image) -> list[dict[str, Any]]:
+    """A detector that genuinely looks at pixel content: silent on a blank grey photo, but reports
+    mould on a differently-coloured one. Content-based (not filename-based) on purpose, so the
+    contested entry (grey, filename says mould) and the confirmed entry (green, pixels say mould)
+    come from two independent sightings rather than one function faking both."""
+    stat = ImageStat.Stat(img.convert("RGB"))
+    r, g, b = stat.mean
+    if abs(r - g) < 5 and abs(g - b) < 5:
+        return []
+    return [{"name": _MOLD, "confidence": 0.88, "evidence": ["non_grey_patch"]}]
+
+
+def test_a_genuine_sighting_elsewhere_in_the_folder_evicts_the_contested_hint_for_the_same_label(
+    tmp_path: Path, restore_providers: None
+) -> None:
+    """RED on revert. Reproduces the coordinator's folder-level overlap defect exactly.
+
+    Folder holds TWO photos: ``mold_basement.jpg`` (blank grey; the detector covers mould and,
+    on this content, is silent -- a genuine contest) and ``utility_room.jpg`` (green; the SAME
+    detector genuinely reports mould there -- a genuine sighting). Both facts are true at once, but
+    only one may reach the reader as ``defects``: asserting disjointness directly, not just the
+    absence of one string, so a regression that reintroduces the overlap for EITHER bucket -- or
+    for the unconfirmed one, or for a promoted material -- is caught the same way.
+    """
+    photos_dir = tmp_path / "photos"
+    _photo(photos_dir, "mold_basement.jpg")
+    _greenish_photo(photos_dir, "utility_room.jpg")
+    _bind("local", _sees_mold_only_when_not_grey, detects=[_MOLD])
+
+    rollup = CvTaggingOrchestrator().analyze_folder(str(photos_dir))["rollup"]
+
+    assert _MOLD in rollup["defects"], "the genuine sighting must still reach the reader as a tag"
+    assert (
+        set(rollup["defects"]) & set(rollup["contested_hints"]) == set()
+    ), f"a label is both a confirmed tag and a contested hint at once: {rollup}"
+    assert (
+        set(rollup["defects"]) & set(rollup["unconfirmed_hints"]) == set()
+    ), f"a label is both a confirmed tag and an unconfirmed hint at once: {rollup}"
+    assert rollup["contested_hints"] == [], "the hint is moot once something elsewhere in the folder confirmed the label"
+
+    # And the report-facing consequence the coordinator flagged: no note may deny a number the
+    # tag list just asserted.
+    insights = analyze_listing(listing_txt_path=None, photos_folder=str(photos_dir), fallback_text="1 Test St.")
+    assert _MOLD in insights.defects
+    assert not any(
+        _MOLD in n and "does not affect any number" in n for n in insights.notes
+    ), f"a note denied affecting a number the tag list just asserted: {insights.notes}"
+
+
+@pytest.fixture
+def ontology_with_kitchen_island(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Simulate a future ontology extension where ``kitchen_island`` is a real, pixel-detectable
+    amenity, not only a filename-promoted material.
+
+    The shipped closed-set ontology does not define ``kitchen_island`` at all today, so the
+    material-promotion path (task 3.5) is its ONLY producer and the two paths cannot collide yet.
+    But the whole point of R-6's capability-declaration mechanism is that a label's disposition
+    upgrades the day a real detector covers it with NO code change -- so proving the disjointness
+    guard holds for the material-promotion path means proving it holds on the day this happens,
+    not only against today's vocabulary.
+    """
+    extended_labels = dict(AMENITIES_DEFECTS_V1.labels)
+    extended_labels["kitchen_island"] = {
+        "name": "kitchen_island",
+        "category": "amenity",
+        "synonyms": [],
+        "confidence_cutoff": 0.5,
+        "maps_to": "kitchen_island",
+    }
+    monkeypatch.setattr(runner_mod, "DEFAULT_ONTOLOGY", Ontology(version="test-with-kitchen-island", labels=extended_labels))
+
+
+def test_the_disjointness_guard_also_covers_a_promoted_material(
+    tmp_path: Path, restore_providers: None, ontology_with_kitchen_island: None
+) -> None:
+    """RED on revert. The material-promotion variant of the same folder-level overlap.
+
+    ``kitchen_island.jpg`` (grey; nothing looks at its pixels, so the ONLY signal is the file
+    name's material promotion -- an unconfirmed hint) sits beside ``other_room.jpg`` (green; a
+    detector genuinely reports the ``kitchen_island`` amenity there). Both facts are true for the
+    same label at once; only the genuine sighting may reach ``amenities``.
+    """
+    photos_dir = tmp_path / "photos"
+    _photo(photos_dir, "kitchen_island.jpg")
+    _greenish_photo(photos_dir, "other_room.jpg")
+
+    def _sees_island_only_when_not_grey(img: Image.Image) -> list[dict[str, Any]]:
+        stat = ImageStat.Stat(img.convert("RGB"))
+        r, g, b = stat.mean
+        if abs(r - g) < 5 and abs(g - b) < 5:
+            return []
+        return [{"name": "kitchen_island", "confidence": 0.80, "evidence": ["island_silhouette"]}]
+
+    _bind("local", _sees_island_only_when_not_grey, detects=["kitchen_island"])
+
+    rollup = CvTaggingOrchestrator().analyze_folder(str(photos_dir))["rollup"]
+
+    assert "kitchen_island" in rollup["amenities"], "the genuine sighting must still reach the reader as a tag"
+    assert (
+        set(rollup["amenities"]) & set(rollup["unconfirmed_hints"]) == set()
+    ), f"a promoted material is both a confirmed amenity and an unconfirmed hint at once: {rollup}"
+    assert rollup["unconfirmed_hints"] == [], "the material hint is moot once something elsewhere in the folder confirmed the label"
 
 
 # ---------------------------------------------------------------------------------
@@ -334,17 +505,31 @@ def test_a_warm_cache_cannot_serve_a_pre_registration_answer(mold_photo: Path, r
     assert after["source"] == "filename_contested", "a stale cached classification outlived the reason it was true"
 
 
-def test_the_upgrade_reaches_the_reader_facing_lists_too(mold_photo: Path, restore_providers: None) -> None:
-    """End-to-end: the same photo folder yields a note before registration and a defect after."""
+def test_the_upgrade_changes_the_hint_wording_not_the_tag_lists(mold_photo: Path, restore_providers: None) -> None:
+    """End-to-end: registering a covering-but-silent detector changes the NOTE's wording, not the
+    tag lists.
+
+    Re-adjudicated alongside ``test_a_contested_label_does_not_enter_the_tag_lists``: this test's
+    original name and final assertion ("the label never graduated out of the hint channel" ->
+    ``_MOLD in after.defects``) pinned the identical wrong premise -- that scoring a contested
+    claim at 0.30 should promote it into ``defects``, the list
+    ``finance.engine._apply_insight_modifiers`` reads by membership. G2-N1 overturned that premise
+    on the sibling producer (``core.insights.synthesis``); 3.4's Task A fixes it here, on
+    ``CvTaggingOrchestrator``. What DOES change when a covering detector is registered is the
+    WORDING of the note -- "nothing could check this" (``UNCONFIRMED_HINT_NOTE``) becomes
+    "something checked and disagreed" (``CONTESTED_HINT_NOTE``) -- because those are different
+    facts and a reader told the second must not come away believing the first.
+    """
     before = analyze_listing(listing_txt_path=None, photos_folder=str(mold_photo), fallback_text="1 Test St.")
     assert _MOLD not in before.defects
-    assert any(_MOLD in n for n in before.notes)
+    assert any("Unconfirmed photo hint" in n and _MOLD in n for n in before.notes)
 
     _bind("local", _silent, detects=[_MOLD])
 
     after = analyze_listing(listing_txt_path=None, photos_folder=str(mold_photo), fallback_text="1 Test St.")
-    assert _MOLD in after.defects, "the label never graduated out of the hint channel"
-    assert not any("Unconfirmed photo hint" in n and _MOLD in n for n in after.notes)
+    assert _MOLD not in after.defects, "a claim a detector CONTRADICTED reached the money-reading list"
+    assert not any("Unconfirmed photo hint" in n and _MOLD in n for n in after.notes), "wording must change once something looked"
+    assert any("Contested photo hint" in n and _MOLD in n for n in after.notes)
 
 
 # ---------------------------------------------------------------------------------
