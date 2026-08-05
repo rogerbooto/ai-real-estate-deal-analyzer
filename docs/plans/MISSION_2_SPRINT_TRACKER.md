@@ -29,6 +29,25 @@ cost. Tier→model mapping used: **capable = opus · standard = sonnet · cheap 
 "Agent → tier" column records the actual dispatch. Revisit only if a task turns out mis-tiered (a
 cheap agent struggling, or a capable agent doing mechanical work) — log that here if it happens.
 
+## What the codes mean (read this first)
+
+_Added 2026-08-05 at Roger's request. This tracker had accumulated a private shorthand — M14, G2-N1,
+R-6, OPD-1, T5 — that nobody outside the run could decode. Every code below is defined once here, and
+should be expanded on first use in any report to Roger._
+
+| Code | Means | Who creates it |
+| --- | --- | --- |
+| **F1 … F20** | The 20 numbered **findings** in the original mission charter — the defects this mission was chartered to fix. F1 = the cap-rate floor that was read by nothing. F20 = `address_struct` vs `address_structure`. | mission-planner, before the mission started |
+| **T4 / T5 / T6** | Charter **tiers** — whole categories rather than single defects. **T4** = dead code (reachable only from tests). **T5** = fields computed then never shown. **T6** = documentation that contradicts the code. | mission-planner |
+| **OPD-1 … OPD-4** | **Open Product Decisions** — the four calls only Roger could make, answered at kickoff. e.g. OPD-2 = "wire the cap-floor warning into the engine". | Roger |
+| **R-1 … R-6** | Things **Roger directed mid-mission**, beyond the charter. e.g. R-6 = "a filename may suggest, only a detector may confirm; 70/30". | Roger |
+| **M1 … M23** | **Binding conditions from the principles-guardian** at a gate. Numbered in the order raised, across all gates. They are obligations, not suggestions — a gate does not pass until the ones marked HARD are closed. e.g. **M14** = "`_provider_llm_stub` still invents 'on-street parking' from image geometry — the same fabrication already removed from its sibling." | principles-guardian |
+| **G2-N1 / G2-N2** | **New findings discovered at Gate 2** (hence G2), numbered separately from the M-series because they were not conditions on work under review — they were defects the review *uncovered*. | principles-guardian |
+| **V1 … V4** | The specific **defects that caused a VETO** at Gate 2's first run. | principles-guardian |
+| **Wave 0/1/2/3** | The mission's phases. Each ends in a **Gate** — a review that must pass before the next Wave starts. | charter |
+| **Gate 0/1/2/3** | The review at the end of each Wave: code-reviewer, sometimes QA, always the guardian's VETO. **Roger holds only the final Mission gate** (merge + push). | charter |
+| **RED-on-revert** | The proof standard used throughout: undo the fix, show the test *fails*, restore, show it passes. A test that passes both ways proves nothing. | charter constraint 4 |
+
 ## Status legend
 `TODO` · `IN-PROGRESS` · `BLOCKED` (needs an OPD or a prior gate) · `REVIEW` (agent says done,
 orchestrator verifying) · `DONE` (verified inline) · `DEFERRED`
