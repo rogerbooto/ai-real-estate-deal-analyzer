@@ -14,8 +14,6 @@
   from src.agents.listing_analyst import analyze_listing
   from src.agents.financial_forecaster import forecast_financials
   from src.agents.chief_strategist import synthesize_thesis
-  from src.agents.photo_tagger import PhotoTaggerAgent
-  from src.agents.listing_ingest import ListingIngestAgent
   from src.agents.crewai_components import (
       ListingAnalystAgent, FinancialForecasterAgent, ChiefStrategistAgent,
   )
@@ -45,7 +43,14 @@
 
 * `synthesize_thesis(forecast: FinancialForecast, *, market: MarketAssumptions | None = None) -> InvestmentThesis`
 
-  * Rule-based verdict (DSCR, cash-flow, spread guardrails) with rationale and improvement levers.
+  * Rule-based verdict (DSCR, cash-flow, cash-on-cash, spread, IRR and cap-floor guardrails) with
+    rationale and improvement levers.
+  * **`MIN_COC_Y1` (3%) is the Year-1 cash-on-cash floor** — `CoC = Year-1 cash flow / acquisition
+    cash`, computed by the engine onto `PurchaseMetrics.coc` and only *read* here. It is a full
+    verdict input: it adds its own rationale line naming both numbers, its own levers, and its own
+    entry in the `fails` list that drives DECLINE. DSCR covers the lender and Year-1 cash flow
+    covers the dollars; neither asks what the buyer's own cash earns, which is why a large down
+    payment can clear both while the equity yield stays under 3%.
   * **`market` is what makes the cap-rate-spread test honour the target the user configured.**
     `run_financial_model` warns `"cap-rate spread below target"` against `market.cap_rate_spread_target`;
     pass the same block here and the thesis is judged against that number too. Omit it and the spread
@@ -56,14 +61,6 @@
   * `spread_target_for(market: MarketAssumptions | None) -> float` exposes that resolution (configured
     target, else `MIN_SPREAD`) for callers that need to state the bar they were judged against.
   * **Never LLM-authored, in any mode.** `ChiefStrategistAgent.run` (see `crewai_components.py`) always calls this function on the forecast — `AIREAL_LLM_MODE` does not change that; `_run_llm` was deleted from that class specifically so the verdict cannot bypass it.
-
-### Photo Tagger
-
-* `PhotoTaggerAgent` — thin policy wrapper that delegates batch photo tagging to the CV stack (`src.core.cv.runner`).
-
-### Listing Ingest Agent
-
-* `ListingIngestAgent` — wraps `core.ingest.listing_ingest.ingest_listing()` and adapts the result (address-first insights) for orchestrators.
 
 ### CrewAI components
 
@@ -87,9 +84,7 @@
 
   * `tests/integration/test_listing_analyst.py` — text + photo aggregation.
   * `tests/integration/test_chief_strategist.py` — rule-based verdicts.
-  * `tests/integration/test_photo_tagger_agent*.py` — deterministic tagging paths.
-  * `tests/integration/test_listing_ingest.py` — ingestion agent flow.
-* Unit tests: `tests/unit/test_financial_forecaster*.py`, `tests/unit/test_strategist*.py`.
+* Unit tests: `tests/unit/test_financial_forecaster*.py`.
 * Run:
 
   ```bash
@@ -112,4 +107,22 @@
 
 ---
 
-_Last reconciled: 2026-08-05 against mission/2-wiring-gaps @ 615aaaf (corrected — the previous stamp cited `a626e9d`, a tree that does not contain the per-tag provenance content it claimed to have reconciled: `ObservationProvenance` appears 0 times there and 6 times at HEAD. A provenance stamp that names the wrong tree is the defect this file documents, applied to itself. Guardian M21.) (Listing Analyst merges text + photo provenance ledgers; the CrewAI listing path stamps model-authored tags `origin="llm"`). Earlier note: 2026-08-04 @ d18ee1a (Gate 2 VETO remediation: Chief Strategist and CrewAI-components entries corrected — `ListingAnalystAgent.run()` does call a real `crew.kickoff()` under `AIREAL_LLM_MODE`, but the verdict is never LLM-authored, in any mode; added the full-suite coverage-gate note)._
+_Last reconciled: 2026-08-05 against mission/2-wiring-gaps, task 3.1b (deletion half) — removed
+`PhotoTaggerAgent` (`agents/photo_tagger.py`) and `ListingIngestAgent` (`agents/listing_ingest.py`):
+both were thin wrappers around deterministic core code with zero production callers and no model
+seam (Roger's 2026-08-05 architecture ruling, `ROADMAP_TRACKER.md` §3b — "an agent exists only
+where a model might one day enter"). `PhotoTaggerAgent` wrapped `CvTaggingOrchestrator` directly;
+`ListingIngestAgent` wrapped `core.ingest.listing_ingest.run_listing_ingest_tool` and its
+`_listing_to_insights_address_first` dropped every stated fact and hardcoded four fields empty.
+Their imports, sections, and test-strategy bullets removed from this file; their tests deleted
+(`tests/integration/test_photo_tagger_agent*.py`, 2 tests) — `tests/integration/
+test_listing_ingest.py` stays, since it tests `core.ingest.listing_ingest` directly and never
+touched the agent. Earlier note: 2026-08-05 @ 615aaaf (corrected — the previous stamp cited
+`a626e9d`, a tree that does not contain the per-tag provenance content it claimed to have
+reconciled: `ObservationProvenance` appears 0 times there and 6 times at HEAD. A provenance stamp
+that names the wrong tree is the defect this file documents, applied to itself. Guardian M21.)
+(Listing Analyst merges text + photo provenance ledgers; the CrewAI listing path stamps
+model-authored tags `origin="llm"`). Earlier note: 2026-08-04 @ d18ee1a (Gate 2 VETO remediation:
+Chief Strategist and CrewAI-components entries corrected — `ListingAnalystAgent.run()` does call a
+real `crew.kickoff()` under `AIREAL_LLM_MODE`, but the verdict is never LLM-authored, in any mode;
+added the full-suite coverage-gate note)._

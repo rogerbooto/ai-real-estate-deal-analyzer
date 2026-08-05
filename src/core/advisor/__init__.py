@@ -1,23 +1,15 @@
 # src/core/advisor/__init__.py
+"""Package marker for `src.core.advisor`.
 
-from typing import Any
+This module used to re-export `rank_deals` / `portfolio_summary` / `compute_risk_flags` as lazy
+wrapper functions. Every real caller (`src/cli/advisor_cli.py`, `src/core/intelligence/
+deal_fusion.py`) has always imported the submodules directly
+(`src.core.advisor.recommender.rank_deals`, `src.core.advisor.portfolio.portfolio_summary`,
+`src.core.advisor.risk.compute_risk_flags`), so the wrappers were dead code with zero callers.
+Mission 2 (Wave 3, task 3.1b) removed them.
 
-__all__ = ("rank_deals", "portfolio_summary", "compute_risk_flags")
+The file itself stays: deleting it would break every submodule import
+(`from src.core.advisor.recommender import rank_deals`, etc.) by removing the package marker.
+"""
 
-
-def rank_deals(*args: Any, **kwargs: Any) -> Any:
-    from .recommender import rank_deals as _rank_deals
-
-    return _rank_deals(*args, **kwargs)
-
-
-def portfolio_summary(*args: Any, **kwargs: Any) -> Any:
-    from .portfolio import portfolio_summary as _portfolio_summary
-
-    return _portfolio_summary(*args, **kwargs)
-
-
-def compute_risk_flags(*args: Any, **kwargs: Any) -> Any:
-    from .risk import compute_risk_flags as _compute_risk_flags
-
-    return _compute_risk_flags(*args, **kwargs)
+from __future__ import annotations

@@ -1,12 +1,16 @@
 # tests/test_chief_strategist.py
+import math
+
 import pytest
 
-from src.agents.chief_strategist import MIN_SPREAD, synthesize_thesis
+from src.agents.chief_strategist import MIN_COC_Y1, MIN_SPREAD, synthesize_thesis
 from src.agents.financial_forecaster import forecast_financials
 from src.schemas.models import (
+    FinancialForecast,
     FinancialInputs,
     FinancingTerms,
     IncomeModel,
+    InvestmentThesis,
     MarketAssumptions,
     OperatingExpenses,
     RefinancePlan,
@@ -341,3 +345,136 @@ def test_warnings_can_never_contradict_the_thesis_about_the_spread(target: float
         thesis_says_missed = "is thin" in lines[0]
 
         assert engine_says_missed == thesis_says_missed, f"target={target!r} deal={builder.__name__}: {forecast.warnings} vs {lines[0]}"
+
+
+# ---------------------------------------------------------------------------
+# Year-1 CASH-ON-CASH guardrail (Mission 2 / Wave 3 task 3.1a — OPD-1 port)
+#
+# `PurchaseMetrics.coc` (`CoC = Year-1 cash flow / acquisition cash`) was computed by
+# the engine on every run and consulted by no verdict. The deleted
+# `core/strategy/strategist.py` carried a `coc < 0.03` floor that never reached
+# production; `MIN_COC_Y1` is that threshold ported into the live strategist.
+#
+# What it adds that the siblings cannot see: DSCR asks whether the lender is covered
+# and the Year-1 cash-flow rule asks whether the deal is above water in dollars. A
+# deal can clear both — DSCR 1.31, +$5,527 in the first year — while the buyer's own
+# cash earns 2.94%. Nothing in the thesis used to say so.
+#
+# Reverting the `coc_ok` guardrail, its rationale lines, its `fails` entry or its
+# levers turns these RED.
+# ---------------------------------------------------------------------------
+
+
+def _inputs_thin_equity_yield(rent_month: float) -> FinancialInputs:
+    """
+    `_inputs_good()` re-let at `rent_month` on a 40% down payment.
+
+    One knob. At 40% down the equity base is large enough that a modest rent moves the
+    Year-1 equity yield across 3% while DSCR stays comfortable and Year-1 cash flow stays
+    positive — which is the only shape in which this guardrail says something new.
+    """
+    good = _inputs_good()
+    return good.model_copy(
+        update={
+            "financing": good.financing.model_copy(update={"down_payment_rate": 0.40}),
+            "income": good.income.model_copy(
+                update={"units": [u.model_copy(update={"rent_month": rent_month}) for u in good.income.units]}
+            ),
+        }
+    )
+
+
+def _coc_lines(thesis: InvestmentThesis) -> list[str]:
+    """The thesis' own claim about cash-on-cash — exactly one line, either way."""
+    return [line for line in thesis.rationale if "Cash-on-cash" in line]
+
+
+def test_weak_cash_on_cash_is_named_with_both_numbers():
+    """
+    Below the floor, the thesis says so and names the deal's CoC *and* the bar.
+
+    House style: every guardrail line quotes its own number and the threshold it was
+    judged against, so a reader can check the call without re-running the model.
+    """
+    inputs = _inputs_thin_equity_yield(545.0)
+    forecast = forecast_financials(inputs)
+    thesis = synthesize_thesis(forecast, market=inputs.market)
+
+    assert forecast.purchase.coc < MIN_COC_Y1
+    assert _coc_lines(thesis) == ["Cash-on-cash (Y1) is weak at 2.94% (< 3.00%)."]
+
+    # The blind spot this closes: the two nearest guardrails both pass on this deal.
+    assert "DSCR (Y1) is healthy at 1.31 (≥ 1.20)." in thesis.rationale
+    assert "Year-1 cash flow is positive at $5,527." in thesis.rationale
+
+
+def test_healthy_cash_on_cash_is_named_with_both_numbers():
+    """The mirror: at or above the floor the thesis makes the positive claim, also numbered."""
+    inputs = _inputs_thin_equity_yield(550.0)
+    forecast = forecast_financials(inputs)
+    thesis = synthesize_thesis(forecast, market=inputs.market)
+
+    assert forecast.purchase.coc >= MIN_COC_Y1
+    assert _coc_lines(thesis) == ["Cash-on-cash (Y1) is healthy at 3.12% (≥ 3.00%)."]
+    assert not any("cash-on-cash" in lever.lower() for lever in thesis.levers)
+
+
+def test_weak_cash_on_cash_is_a_live_verdict_input():
+    """
+    The floor is a *verdict* input, not decoration — it is the third failure that declines.
+
+    Same property, same financing, $5/unit/month apart. At $545 the equity yield is 2.94%
+    and joins the thin spread and the short IRR to make three failures (DECLINE); at $550
+    it is 3.12% and only two guardrails fail (CONDITIONAL). Before the port both deals
+    read CONDITIONAL and neither mentioned the yield on the cash.
+    """
+    weak_inputs = _inputs_thin_equity_yield(545.0)
+    weak = synthesize_thesis(forecast_financials(weak_inputs), market=weak_inputs.market)
+
+    ok_inputs = _inputs_thin_equity_yield(550.0)
+    ok = synthesize_thesis(forecast_financials(ok_inputs), market=ok_inputs.market)
+
+    assert weak.verdict == "DECLINE"
+    assert ok.verdict == "CONDITIONAL"
+
+
+def test_weak_cash_on_cash_offers_levers_on_both_sides_of_the_ratio():
+    """A named weakness with no suggested fix is just a complaint — CoC gets levers like its siblings."""
+    inputs = _inputs_thin_equity_yield(545.0)
+    thesis = synthesize_thesis(forecast_financials(inputs), market=inputs.market)
+
+    assert "Lift Year-1 net cash flow (rents, ancillary income, OPEX bids) to reach cash-on-cash ≥ 3%." in thesis.levers
+    assert "Reduce the cash outlay (seller credits, lower closing costs, smaller upfront reserves) to raise cash-on-cash." in thesis.levers
+
+
+@pytest.mark.parametrize(
+    ("coc", "expected_line"),
+    [
+        (MIN_COC_Y1, "Cash-on-cash (Y1) is healthy at 3.00% (≥ 3.00%)."),
+        (math.nextafter(MIN_COC_Y1, 0.0), "Cash-on-cash (Y1) is weak at 3.00% (< 3.00%)."),
+    ],
+    ids=["exactly-at-the-floor-clears", "one-ulp-below-the-floor-fails"],
+)
+def test_cash_on_cash_floor_is_inclusive_at_the_bar(coc: float, expected_line: str):
+    """
+    Exactly 3.00% PASSES.
+
+    Justified by consistency, not by taste: every sibling guardrail in this module is
+    inclusive at its bar (`dscr >= MIN_DSCR_Y1`, `spread >= target`, `irr >= MIN_IRR_10YR`,
+    `cash_flow >= 0`), the engine's cap-rate floor clears a cap sitting exactly on it, and
+    the ported `strategist.py` rule was `coc < 0.03` — which also passed at 0.03. An
+    exclusive bar here would make 3% mean "3%" in five places and "above 3%" in one.
+
+    The boundary is set on `PurchaseMetrics.coc` directly rather than steered there through
+    the engine: landing a rent-and-financing combination exactly on the float `0.03` is luck,
+    and this test is about the comparison operator, not about the engine's arithmetic. The
+    second case is one unit-in-the-last-place below the constant — it still *prints* 3.00%,
+    so the pair also pins that the rendered line follows the comparison and not the rounding.
+    """
+    inputs = _inputs_thin_equity_yield(545.0)
+    forecast = forecast_financials(inputs)
+    on_the_bar: FinancialForecast = forecast.model_copy(update={"purchase": forecast.purchase.model_copy(update={"coc": coc})})
+
+    thesis = synthesize_thesis(on_the_bar, market=inputs.market)
+
+    assert _coc_lines(thesis) == [expected_line]

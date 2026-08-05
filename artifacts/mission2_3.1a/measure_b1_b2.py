@@ -1,6 +1,14 @@
 """
 MEASUREMENT ONLY — Mission 2 / Wave 3 task 3.1a, Task B. This script IMPLEMENTS NOTHING.
 
+**STALE AS OF 2026-08-05: B1 SHIPPED. Do not quote this script's "today" column any more.**
+Roger accepted B1 and `MIN_COC_Y1 = 0.03` is now a live guardrail in
+`src/agents/chief_strategist.py`. `_guardrails`/`score` below still model the *pre-B1* rule, so
+what they label `today` is now the *old* verdict and what they label `b1` is the current one.
+The `b1` column and the sweep it drives remain valid as the historical decision record; the
+`today` column is history, not the current behaviour. B2 was never adopted and is still
+hypothetical. Re-derive `_guardrails` from the live module before quoting any new number.
+
 It re-scores deals under two *hypothetical* guardrail changes and prints what would move, so the
 decision can be made on numbers rather than on a description. Nothing in `src/` imports it, and it
 changes no file.
@@ -8,6 +16,7 @@ changes no file.
     B1  Add a Year-1 cash-on-cash floor (MIN_COC_Y1 = 3%) as a live verdict input.
         The deleted `src/core/strategy/strategist.py` had `coc < 0.03`; the live strategist has no
         CoC guardrail at all, so `PurchaseMetrics.coc` is computed and never consulted.
+        [ADOPTED 2026-08-05 — see the staleness note above.]
 
     B2  Require the cap-floor DECLINE shortcut to need a *material* breach (>= 25bp / >= 50bp)
         AND `DSCR < 1.00`, instead of today's "any breach AND DSCR < 1.20".

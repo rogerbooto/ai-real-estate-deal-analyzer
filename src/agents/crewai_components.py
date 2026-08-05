@@ -485,7 +485,8 @@ class ChiefStrategistAgent:
     levers that follow from it are a *judgment* over the forecast's metrics. That
     judgment belongs to ``chief_strategist.synthesize_thesis``, which applies the
     project's own tunable thresholds (``MIN_DSCR_Y1``, ``MIN_SPREAD``,
-    ``MIN_IRR_10YR``, the cash-flow requirements and the cap-floor breach signal).
+    ``MIN_IRR_10YR``, ``MIN_COC_Y1``, the cash-flow requirements and the cap-floor
+    breach signal).
     Routing it through a model made the answer irreproducible, unexplainable and
     deaf to those thresholds — the same inputs could yield a different verdict, and
     tuning a threshold would change nothing.

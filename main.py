@@ -10,7 +10,6 @@ Run the full analysis pipeline end-to-end and emit a Markdown report:
        - Listing Analyst (text + photos → insights)
          * Uses the new CV Tagging Orchestrator (single door to deterministic/AI).
          * Honors flags:
-             - AIREAL_PHOTO_AGENT=1  → route via PhotoTaggerAgent
              - AIREAL_USE_VISION=1   → always run AI on all readable images (batch-first)
        - Financial Forecaster (10-year pro forma & purchase metrics)
        - Chief Strategist (investment thesis)

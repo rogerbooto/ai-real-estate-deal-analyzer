@@ -13,7 +13,6 @@ Design
 ------
 - Pure Python, no network assumptions in this module.
 - Uses the new CV Tagging Orchestrator which honors feature flags:
-    * AIREAL_PHOTO_AGENT=1 → PhotoTaggerAgent (delegates to batch-aware cv_tagging)
     * AIREAL_USE_VISION=1  → AI path enabled (provider chosen by AIREAL_VISION_PROVIDER)
 - Conservative merge: text-derived condition/defect tags remain optional; we map
   **photo-derived** signals into condition/defects while text contributes address,

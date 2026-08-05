@@ -19,18 +19,19 @@
   * **advisor/**: multi-deal ranking, portfolio summary, risk flags. `advisor/scenarios.py`
     ("scenario what-ifs") exists but as of 2026-08-03 has zero callers, production or test — see
     Mission 2 charter finding T4.
-  * **strategy/**: `strategist.py` holds a second, rule-based thesis-formation implementation
-    (`form_thesis`) with its own hardcoded DSCR/CoC thresholds — but the live verdict path is
-    `agents/chief_strategist.synthesize_thesis`, not this module; `form_thesis` has no production
-    caller today. Mission 2 (OPD-1) will reconcile any thresholds worth keeping into
-    `chief_strategist`'s tunable constants and then delete `strategist.py`; until that lands, treat
-    this module as legacy/dead, not a second live code path.
-    **Reconciled so far (Mission 2 task 3.1a):** the one guardrail on which this dead module was
-    *more* correct than the live one — judging the cap-rate spread against the user's
-    `market.cap_rate_spread_target` rather than a hardcoded constant — is now the live behaviour;
-    `synthesize_thesis` takes an optional `market=` for exactly that. Its `coc < 0.03` Year-1
-    cash-on-cash floor is **not** ported: that is a product decision pending, measured but not
-    implemented (`artifacts/mission2_3.1a/measure_b1_b2.py`).
+  * *(**strategy/** is gone. It held one function, `form_thesis` — a second rule-based
+    thesis-formation implementation that no production code ever called. Mission 2 task 3.1a
+    reconciled it into the live path and deleted it, per OPD-1's binding reconcile→review→delete
+    sequence. Both of its guardrails that the live strategist lacked now live in
+    `agents/chief_strategist.py`: judging the cap-rate spread against the user's
+    `market.cap_rate_spread_target` instead of a hardcoded constant (`synthesize_thesis` takes an
+    optional `market=` for exactly that), and the `coc < 0.03` Year-1 cash-on-cash floor, now
+    `MIN_COC_Y1`. Its remaining rules were already present and stricter in the live module — which
+    also has an IRR floor `form_thesis` never had — and its `coc < 0 AND dscr < 1.0` DECLINE
+    shortcut is subsumed by `num_fails >= 3` once the CoC floor is live. The architecture ruling
+    behind the deletion is in `docs/plans/ROADMAP_TRACKER.md` §3b: an agent exists only where a
+    model might one day enter; everything deterministic is called directly in `core/`. Verdict
+    formation is a judgment with an LLM-shaped seam, so it belongs to the agent.)*
   * **reports/**: Markdown report generation (see [`reports/README.md`](reports/README.md)).
   * **utils/**: markdown/serialization helpers.
 
@@ -61,13 +62,14 @@
   from src.core.media.insights import analyze_media, enrich_with_intelligence
   from src.core.media.intelligence import compute_phash, compute_quality, extract_palette, rank_hero
 
-  # Insights, Intelligence, Advisor, Strategy
+  # Insights, Intelligence, Advisor
   from src.core.insights.synthesis import synthesize_listing_insights
   from src.core.insights.provenance import attach, text_observation, detection_observation
   from src.core.intelligence.deal_fusion import fuse_deal_intelligence, DealIntelligence
   from src.core.intelligence.scoring import compute_composite_score
-  from src.core.advisor import rank_deals, portfolio_summary, compute_risk_flags
-  from src.core.strategy.strategist import form_thesis  # legacy, no production caller — see below
+  from src.core.advisor.recommender import rank_deals
+  from src.core.advisor.portfolio import portfolio_summary
+  from src.core.advisor.risk import compute_risk_flags
   ```
 
 ### Finance
@@ -120,7 +122,7 @@ The two weights are a tunable split summing to 1.0 (`runner.CV_CONFIRMATION_WEIG
 * `enrich_with_intelligence(bundle, insights, enable=False)`
   Opt-in perceptual-hash near-duplicate detection, quality scoring, palette extraction, and hero ranking.
 
-### Insights, Intelligence, Advisor, Strategy
+### Insights, Intelligence, Advisor
 
 * `synthesize_listing_insights(listing: ListingNormalized, photos: PhotoInsights) -> ListingInsights`
   Deterministically combines textual and visual cues (address resolution, amenities, condition tags, notes), and
@@ -133,12 +135,14 @@ The two weights are a tunable split summing to 1.0 (`runner.CV_CONFIRMATION_WEIG
 * `fuse_deal_intelligence(...) -> DealIntelligence`
   Fuses listing, finance summary, media, and photo insights into a scored deal object.
 * `compute_composite_score(...)` — weighted scoring components (see `intelligence/types.py`).
-* `rank_deals(deals)` / `portfolio_summary(deals)` / `compute_risk_flags(...)` — advisor layer used by the `deal-advisor` CLI.
-* `form_thesis(ff: FinancialForecast, mkt: MarketAssumptions) -> InvestmentThesis`
-  Rule-based thesis formation. **Not** what the live Chief Strategist uses: the deterministic
-  pipeline calls `agents.chief_strategist.synthesize_thesis`, and `form_thesis` has no production
-  caller today (only `tests/unit/test_strategist.py`, `tests/unit/test_strategist_rules_unit.py`).
-  See Mission 2 charter OPD-1 for the planned reconcile-then-delete disposition.
+* `rank_deals(deals)` (`core.advisor.recommender`) / `portfolio_summary(deals)` (`core.advisor.portfolio`) /
+  `compute_risk_flags(...)` (`core.advisor.risk`) — advisor layer used by the `deal-advisor` CLI and
+  `core.intelligence.deal_fusion`. Import the submodules directly; `core.advisor.__init__` is a bare
+  package marker (Mission 2 Wave 3 removed its dead lazy-wrapper re-exports — every caller already
+  imported the submodules, so the facade had zero callers).
+* Thesis formation lives **outside** `core/`, at `agents.chief_strategist.synthesize_thesis`. There is
+  no second implementation: `core/strategy/form_thesis` was deleted in Mission 2 task 3.1a after its
+  guardrails were reconciled into that function (see the `strategy/` note under Structure above).
 
 ## Design Notes / Invariants
 
@@ -189,4 +193,9 @@ The two weights are a tunable split summing to 1.0 (`runner.CV_CONFIRMATION_WEIG
 
 ---
 
-_Last reconciled: 2026-08-05 against mission/2-wiring-gaps @ 615aaaf (corrected — the previous stamp cited `a626e9d`, a tree that does not contain the per-tag provenance content it claimed to have reconciled: `ObservationProvenance` appears 0 times there and 6 times at HEAD. A provenance stamp that names the wrong tree is the defect this file documents, applied to itself. Guardian M21.) (documented the new `core/insights/provenance` builders and `synthesize_listing_insights`' provenance output). Earlier note: 2026-08-04 @ d18ee1a (Gate 2 VETO remediation: narrowed the OPEX-modifier honesty note — unreachable from the deterministic pipeline (text-path condition tags come from the free-string `_CONDITION_KEYWORDS` list, not only the closed enum) but reachable via `--engine crewai` with `AIREAL_LLM_MODE=1`; dropped the dangling "charter finding M10" citation. Earlier note: 2026-08-03 @ 74c985c, corrected the claim that insight-aware OPEX modifiers work on real data; clarified `strategist.py`/`form_thesis`, `narrative_builder.py`/`report_builder.py`, and `advisor/scenarios.py` are dead code with no production caller today, pending Mission 2 Wave 3 disposition)._
+_Last reconciled: 2026-08-05 against mission/2-wiring-gaps @ 8f31eaa + uncommitted Wave 3 work.
+**Task 3.1a** (this stamp's author): `core/strategy/` deleted after its guardrails were reconciled
+into `agents/chief_strategist`; `form_thesis` removed from Structure, the import block and the API
+list. The same working tree also carries **task 3.1b**'s `core/advisor/__init__.py` facade removal,
+reflected in the advisor bullets above but stamped by that task, not this one — two tasks edited
+this file concurrently and neither stamp covers the other's hunks. Earlier note: 2026-08-05 @ 615aaaf (corrected — the previous stamp cited `a626e9d`, a tree that does not contain the per-tag provenance content it claimed to have reconciled: `ObservationProvenance` appears 0 times there and 6 times at HEAD. A provenance stamp that names the wrong tree is the defect this file documents, applied to itself. Guardian M21.) (documented the new `core/insights/provenance` builders and `synthesize_listing_insights`' provenance output). Earlier note: 2026-08-04 @ d18ee1a (Gate 2 VETO remediation: narrowed the OPEX-modifier honesty note — unreachable from the deterministic pipeline (text-path condition tags come from the free-string `_CONDITION_KEYWORDS` list, not only the closed enum) but reachable via `--engine crewai` with `AIREAL_LLM_MODE=1`; dropped the dangling "charter finding M10" citation. Earlier note: 2026-08-03 @ 74c985c, corrected the claim that insight-aware OPEX modifiers work on real data; clarified `strategist.py`/`form_thesis`, `narrative_builder.py`/`report_builder.py`, and `advisor/scenarios.py` are dead code with no production caller today, pending Mission 2 Wave 3 disposition)._

@@ -41,6 +41,15 @@ MIN_DSCR_Y1 = 1.20  # Year 1 DSCR floor
 #: the report's Warnings section cannot disagree about whether the spread cleared the bar.
 MIN_SPREAD = 0.015  # Cap rate - interest rate target (150 bps)
 MIN_IRR_10YR = 0.12  # 10-year IRR target (12%)
+#: Year-1 cash-on-cash floor (3%). Cash-on-cash is the standard first-year equity yield,
+#: ``CoC = Year-1 cash flow / total cash invested`` — where the denominator is the acquisition
+#: cash outlay (down payment + closing costs + upfront reserves). The number itself is computed
+#: once, deterministically, by ``run_financial_model`` (``src/core/finance/engine.py``) and lands
+#: on ``PurchaseMetrics.coc``; this module only reads it. DSCR asks whether the *lender* is
+#: covered and Year-1 cash flow asks whether the deal is above water in dollars, but neither asks
+#: what the *buyer's own cash* earns: a deal can clear both on a large down payment and still
+#: return under 3% on the money it consumed.
+MIN_COC_Y1 = 0.03
 REQUIRE_POSITIVE_CF_ALL = False  # If True, require CF >= 0 for all years to be BUY
 REQUIRE_POSITIVE_CF_Y1 = True  # Require CF >= 0 in Year 1 for BUY
 
@@ -96,6 +105,11 @@ def _levers_for(forecast: FinancialForecast, spread_target: float) -> list[str]:
         levers.append("Trim OPEX (e.g., utilities, PM fees) via vendor bids to lift NOI.")
         levers.append("Phase rent increases (e.g., renewal program) to strengthen DSCR.")
 
+    # If Year-1 cash-on-cash below floor
+    if forecast.purchase.coc < MIN_COC_Y1:
+        levers.append(f"Lift Year-1 net cash flow (rents, ancillary income, OPEX bids) to reach cash-on-cash ≥ {MIN_COC_Y1:.0%}.")
+        levers.append("Reduce the cash outlay (seller credits, lower closing costs, smaller upfront reserves) to raise cash-on-cash.")
+
     # If Year 1 cash flow negative
     if y1.cash_flow < 0:
         levers.append("Target rent optimization (ancillary income, fee schedule) to reach breakeven.")
@@ -128,6 +142,7 @@ def synthesize_thesis(forecast: FinancialForecast, *, market: MarketAssumptions 
       - DSCR (Y1) ≥ MIN_DSCR_Y1
       - Cap-rate spread ≥ the configured ``market.cap_rate_spread_target`` (else MIN_SPREAD)
       - IRR_10yr ≥ MIN_IRR_10YR
+      - Year-1 cash-on-cash ≥ MIN_COC_Y1
       - If REQUIRE_POSITIVE_CF_Y1: Year-1 cash flow ≥ 0
       - If REQUIRE_POSITIVE_CF_ALL: All years have cash flow ≥ 0
       - No critical warnings (cap rate below explicit floor)
@@ -156,6 +171,8 @@ def synthesize_thesis(forecast: FinancialForecast, *, market: MarketAssumptions 
     dscr_ok = y1.dscr >= MIN_DSCR_Y1
     spread_ok = purchase.spread_vs_rate >= spread_target
     irr_ok = forecast.irr_10yr >= MIN_IRR_10YR
+    # Inclusive at the bar, exactly like every sibling above: a deal landing on 3.00% clears it.
+    coc_ok = purchase.coc >= MIN_COC_Y1
     cf_y1_ok = (y1.cash_flow >= 0.0) if REQUIRE_POSITIVE_CF_Y1 else True
     cf_all_ok = all(y.cash_flow >= 0.0 for y in forecast.years) if REQUIRE_POSITIVE_CF_ALL else True
     no_cap_floor_breach = not any("cap rate" in w.lower() and "below floor" in w.lower() for w in forecast.warnings)
@@ -169,6 +186,9 @@ def synthesize_thesis(forecast: FinancialForecast, *, market: MarketAssumptions 
 
     _flag(irr_ok, f"Projected IRR (10y) is {forecast.irr_10yr:.2%} (≥ {MIN_IRR_10YR:.2%}).", rationale)
     _flag(not irr_ok, f"Projected IRR (10y) is {forecast.irr_10yr:.2%} (< {MIN_IRR_10YR:.2%}).", rationale)
+
+    _flag(coc_ok, f"Cash-on-cash (Y1) is healthy at {purchase.coc:.2%} (≥ {MIN_COC_Y1:.2%}).", rationale)
+    _flag(not coc_ok, f"Cash-on-cash (Y1) is weak at {purchase.coc:.2%} (< {MIN_COC_Y1:.2%}).", rationale)
 
     if REQUIRE_POSITIVE_CF_Y1:
         _flag(cf_y1_ok, f"Year-1 cash flow is positive at ${y1.cash_flow:,.0f}.", rationale)
@@ -191,6 +211,7 @@ def synthesize_thesis(forecast: FinancialForecast, *, market: MarketAssumptions 
         (not dscr_ok),  # DSCR below floor
         (not spread_ok),  # spread below target
         (not irr_ok),  # IRR below target
+        (not coc_ok),  # Year-1 cash-on-cash below floor
         (not cf_y1_ok),  # negative Y1 CF (if enforced)
         (not cf_all_ok),  # negative CF in hold (if enforced)
         (not no_cap_floor_breach),  # explicit cap floor breach
