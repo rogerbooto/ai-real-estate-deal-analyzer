@@ -110,6 +110,48 @@ is a **count of failures**, not a weighted sum, so there is nothing to decompose
 their place in judging **plausibility** — which is what the rejector already does. Keeping the verdict
 deterministic also preserves Roger's own R-1 ruling that rules decide and models only observe.
 
+**⚠ THE TRAP THAT WILL BREAK A NAIVE BUILD: the levers are not independent.** Confirmed by research
+(the counterfactual-explanation literature calls these *causal constraints* — a suggested change must
+not violate real relationships between variables). It bites immediately here:
+
+- Cut the purchase price and **three** things move at once: the loan shrinks (debt service falls), the
+  cap rate improves (NOI over a smaller price), and the cash-in changes.
+- Raise the rent and NOI, cap rate, coverage and cash-on-cash all move together.
+
+So algebraically inverting one guardrail formula in isolation gives **wrong numbers, and optimistic
+ones** — the report would promise a $9,800 price cut closes a gap it does not close.
+
+**The build must therefore RE-RUN THE ENGINE with the single input changed**, not invert a formula.
+Slower, but it cannot drift from what the engine actually does. The pattern already exists —
+`build_baseline_outlook` (`src/orchestrators/crew.py`) re-runs the engine for the comparison column.
+
+**This was Roger's intent from the start** and is why he never described the inputs as orthogonal:
+his original framing — *"pass the decision-shifting characteristic to our … keep-only-plausible-ones
+service and see if the decision remains the same or can flip"* — meant **recompute the shifted
+scenario, then test it for plausibility.** Recorded explicitly because the orchestrator initially
+read it as a filtering step only, and a future reader could make the same mistake.
+
+**Performance note (Roger, 2026-08-05).** Searching for the flip point across several levers × several
+guardrails × the plausibility sweep is a lot of engine runs. Vectorising the arithmetic — numpy or
+similar — is the intended optimisation. **Not needed for a first version**; recorded so it is a known
+option rather than a rediscovery. Measure before optimising: the engine is pure and fast, and the
+scenario runner already handles a grid.
+
+**What the research confirmed** (searched 2026-08-05):
+- The idea is an established field — **actionable recourse** / **counterfactual explanations**. Its
+  canonical example is loan denial: *"if annual salary increased to $50,000, the application would be
+  approved."* Same shape, different domain.
+- **Offering several routes is the recommended practice**, for exactly Roger's reason: one person can
+  move income, another can only move location. His several-currencies design matches it.
+- **Flag-don't-remove is ahead of the standard approach.** The usual method filters to "mutable
+  features" chosen by the system; recent work on *individualized* rather than universal actionability
+  raises Roger's objection — the system does not know what this particular person can move.
+- **Plausibility is the field's hardest open problem.** This project has a head start: the rejector
+  already exists.
+- The underlying arithmetic is **routine in commercial real estate** — break-even and sensitivity
+  analysis, lenders stress-testing coverage against rent drops and rate rises. The distinctive part is
+  presenting it to the investor as recourse rather than as risk.
+
 **Interaction with Mission 2's open threshold decisions.** This feature makes hard lines far less
 punishing, because a near-miss becomes legible rather than fatal-looking. A future planner should
 revisit the Year-1 CoC floor and the DECLINE shortcut *after* this ships, not before.
