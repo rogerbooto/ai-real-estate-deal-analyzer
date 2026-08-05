@@ -412,6 +412,37 @@ Constraints held: `src/schemas/models.py` strictly additive; the report is **not
 pass (a later one uses the data); the field must be added to the guard's `_EXCLUDED` **with a written
 reason**, since that table is audited at every gate.
 
+### Graph trust-boundary incident — and a correction to how it was verified (2026-08-05)
+
+`graphify-out/graph.json` carries an edge
+`calls src_agents_chief_strategist_synthesize_thesis -> src_core_strategy_strategist_form_thesis`.
+If true, `form_thesis` was **live** and task 3.1a's deletion would have broken the verdict engine.
+
+**The edge is wrong.** Verified at the graph's *own* commit (`built_at_commit: 0d1b976`):
+`form_thesis` appears **0 times** in `chief_strategist.py` there, which imports only
+`src.schemas.models`. Every other graph edge into `form_thesis` came from the two test files
+deleted in 3.1a.
+
+**Correction to the verification, raised by Roger.** My first check compared the graph's claim against
+the **current** tree — which proves nothing, because Mission 2 had already changed that file. Had the
+call existed at `0d1b976` and been removed since, the graph would have been *correct for its snapshot*
+and the accusation wrong. The conclusion happens to hold, but the evidence behind it did not support it
+when it was written. **The right check is against the commit the graph was built from**, and it is the
+only one available: the contract forbids `graphify update` mid-mission (concurrent rebuilds corrupt the
+output), and the read-only CLI queries read the same stale file, so neither would have caught this.
+
+**Standing rule this sharpens:** the trust boundary says confirm a graph edge against the file it
+points at. Add: *against the file **at the graph's own commit**.* Checking today's tree tests a
+different proposition.
+
+**For the graph maintainer:** this tool can invent an edge, not merely miss one. Worth a look before the
+next mission relies on it for blast-radius analysis.
+
+**Orchestrator note:** this is the fourth overstatement I have had to correct this mission (after the
+env-vector claim at Gate 0, the `ScenarioAnalysis.notes` severity, the test-count baseline, and now
+this). Same shape every time — a conclusion that turned out right, asserted before the evidence
+supported it. Three were caught by the guardian, this one by Roger.
+
 ## Wave 3 — Disposition (WIRE-FIRST; OPDs resolved)
 
 ### OPD-3 pre-work — reachability re-survey, orchestrator, 2026-08-04
