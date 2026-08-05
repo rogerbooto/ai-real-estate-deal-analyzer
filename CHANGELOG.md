@@ -20,6 +20,26 @@ into a live path or delete it as un-wireable; this note will be updated once tha
 that bullet (deal fusion, composite scoring, multi-deal ranking, portfolio summary, risk flags,
 CSV/Markdown exports) is unaffected — those are live and reachable from the `deal-advisor` CLI._
 
+_Status note (2026-08-05, Mission 2 Wave 3 task 3.1b, OPD-3 "wire-first" — supersedes the
+2026-08-03 status note directly above, does not rewrite the entries below it): the "narrative/report
+builders" and "scenario what-ifs" claim in the "Deal intelligence & advisor" bullet is now TRUE.
+`narrative_builder.build_narrative_md` / `report_builder.write_markdown_report` are wired into
+`deal-advisor`'s new `--narrative` flag (one Markdown narrative per ranked deal); `advisor/scenarios.py`'s
+`summarize_scenarios` is wired into the new `--what-if` flag (attached to both the JSON output and
+the `--markdown` summary). Both were reachable only from tests before this task; see
+`docs/plans/MISSION_2_SPRINT_TRACKER.md` row 3.1b for the RED-on-revert proof and
+`src/cli/README.md` for the flags. Same task also wired `src/market/regional_income.py` into
+`deal-advisor --regional-income` (documented as a public entry point by `src/market/README.md`
+since 2026-08-03 but, like the two modules above, reachable only from tests until now), and
+replaced `advisor_cli.py`'s hand-rolled `--markdown`/`--save-artifacts` internals with
+`src/core/utils/markdown.py` / `src/core/utils/serialize.py`, which had zero callers of any kind
+before this task. `deal-advisor`'s pre-existing outputs (JSON/CSV shape, deal fusion, composite
+scoring, multi-deal ranking, portfolio summary, risk flags) are unaffected by default (all five are
+opt-in flags/entry points); `--markdown`'s existing output gains richer per-deal fields (price/sqft,
+beds, baths, sqft, title source) from switching to the shared renderer, which the CLI-level tests
+in `tests/integration/test_advisor_cli_flags.py` (pinned by the earlier Gate-2-era work) still pass
+against, since none of them assert on the deal-card body, only the heading and the JSON shape._
+
 _Status note (2026-08-04, Mission 2 Gate 2 VETO remediation — does not rewrite the entry below):
 the "CrewAI engine seam" bullet's "`crew.kickoff()` not yet called" is now false as a blanket
 statement, as of `5e85836`. With `AIREAL_LLM_MODE` unset (the default), the claim still holds — the

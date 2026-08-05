@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import asdict, is_dataclass
+from dataclasses import fields, is_dataclass
 from typing import Any
 
 _PYDANTIC_TYPE: type[Any] | None = None
@@ -39,9 +39,14 @@ def to_primitive(x: Any) -> Any:
             except Exception:
                 pass
 
-    # Dataclasses
+    # Dataclasses. Deliberately NOT `dataclasses.asdict(x)`: asdict() only recurses into fields
+    # that are themselves dataclasses/lists/tuples/dicts -- a field holding a pydantic model (or
+    # any other non-dataclass object) is returned as-is (via a plain `copy.deepcopy`), which is
+    # exactly the JSON-unsafe shape this function exists to eliminate. Recursing through
+    # `to_primitive` itself, field by field, gives every field the same conversion this function
+    # gives everything else.
     if is_dataclass(x) and not isinstance(x, type):
-        return asdict(x)
+        return {f.name: to_primitive(getattr(x, f.name)) for f in fields(x)}
 
     # Fallback: return as-is
     return x

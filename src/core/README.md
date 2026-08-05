@@ -14,11 +14,18 @@
   * **fetch/**: HTML fetching, robots.txt policy, caching, typed errors.
   * **insights/**: synthesis of listing + photo insights into `ListingInsights`.
   * **intelligence/**: deal fusion, composite scoring (`DealIntelligence`). `narrative_builder.py`
-    and `report_builder.py` also live here, implemented and tested, but as of 2026-08-03 have no
-    production caller (see Mission 2 charter finding T4).
+    (`build_narrative_md`) and `report_builder.py` (`write_markdown_report`) also live here — as of
+    2026-08-05 (Mission 2 task 3.1b, OPD-3 "wire-first") both are reachable in production, via
+    `deal-advisor`'s `--narrative` flag (one Markdown narrative file per ranked deal;
+    `write_markdown_report` calls `build_narrative_md` internally). `md_to_html` remains
+    reachable only from `tests/core/intelligence/test_report_builder.py` — no CLI renders HTML.
   * **advisor/**: multi-deal ranking, portfolio summary, risk flags. `advisor/scenarios.py`
-    ("scenario what-ifs") exists but as of 2026-08-03 has zero callers, production or test — see
-    Mission 2 charter finding T4.
+    ("scenario what-ifs", `summarize_scenarios`) is reachable in production as of 2026-08-05
+    (Mission 2 task 3.1b) via `deal-advisor`'s `--what-if` flag, which attaches each deal's
+    down-payment/rate/renovation-budget what-ifs to both the JSON output and the `--markdown`
+    summary. It remains a deliberately approximate heuristic (documented in its own docstring) —
+    it does not re-run the finance engine, unlike `src/market`'s scenario overlay (see
+    `src/market/README.md`), which does.
   * *(**strategy/** is gone. It held one function, `form_thesis` — a second rule-based
     thesis-formation implementation that no production code ever called. Mission 2 task 3.1a
     reconciled it into the live path and deleted it, per OPD-1's binding reconcile→review→delete
@@ -202,9 +209,13 @@ The marker itself now survives validation: `DetectedLabelModel.source` (see `sch
 
 ---
 
-_Last reconciled: 2026-08-05 against mission/2-wiring-gaps @ 8f31eaa + uncommitted Wave 3 work.
-**Task 3.1a** (this stamp's author): `core/strategy/` deleted after its guardrails were reconciled
-into `agents/chief_strategist`; `form_thesis` removed from Structure, the import block and the API
-list. The same working tree also carries **task 3.1b**'s `core/advisor/__init__.py` facade removal,
-reflected in the advisor bullets above but stamped by that task, not this one — two tasks edited
-this file concurrently and neither stamp covers the other's hunks. Earlier note: 2026-08-05 @ 615aaaf (corrected — the previous stamp cited `a626e9d`, a tree that does not contain the per-tag provenance content it claimed to have reconciled: `ObservationProvenance` appears 0 times there and 6 times at HEAD. A provenance stamp that names the wrong tree is the defect this file documents, applied to itself. Guardian M21.) (documented the new `core/insights/provenance` builders and `synthesize_listing_insights`' provenance output). Earlier note: 2026-08-04 @ d18ee1a (Gate 2 VETO remediation: narrowed the OPEX-modifier honesty note — unreachable from the deterministic pipeline (text-path condition tags come from the free-string `_CONDITION_KEYWORDS` list, not only the closed enum) but reachable via `--engine crewai` with `AIREAL_LLM_MODE=1`; dropped the dangling "charter finding M10" citation. Earlier note: 2026-08-03 @ 74c985c, corrected the claim that insight-aware OPEX modifiers work on real data; clarified `strategist.py`/`form_thesis`, `narrative_builder.py`/`report_builder.py`, and `advisor/scenarios.py` are dead code with no production caller today, pending Mission 2 Wave 3 disposition)._
+_Last reconciled: 2026-08-05 against mission/2-wiring-gaps (task 3.1b, the wiring half): the
+`narrative_builder.py`/`report_builder.py` and `advisor/scenarios.py` bullets above now describe
+the live `deal-advisor --narrative`/`--what-if` callers instead of "no production caller" — see
+`src/cli/README.md` for the flags and `docs/plans/MISSION_2_SPRINT_TRACKER.md` row 3.1b for the
+RED-on-revert proof. Earlier note: 2026-08-05 against mission/2-wiring-gaps @ 8f31eaa + uncommitted
+Wave 3 work. **Task 3.1a** (that stamp's author): `core/strategy/` deleted after its guardrails
+were reconciled into `agents/chief_strategist`; `form_thesis` removed from Structure, the import
+block and the API list. The same working tree also carries **task 3.1b**'s `core/advisor/__init__.py`
+facade removal, reflected in the advisor bullets above but stamped by that task, not this one — two
+tasks edited this file concurrently and neither stamp covers the other's hunks. Earlier note: 2026-08-05 @ 615aaaf (corrected — the previous stamp cited `a626e9d`, a tree that does not contain the per-tag provenance content it claimed to have reconciled: `ObservationProvenance` appears 0 times there and 6 times at HEAD. A provenance stamp that names the wrong tree is the defect this file documents, applied to itself. Guardian M21.) (documented the new `core/insights/provenance` builders and `synthesize_listing_insights`' provenance output). Earlier note: 2026-08-04 @ d18ee1a (Gate 2 VETO remediation: narrowed the OPEX-modifier honesty note — unreachable from the deterministic pipeline (text-path condition tags come from the free-string `_CONDITION_KEYWORDS` list, not only the closed enum) but reachable via `--engine crewai` with `AIREAL_LLM_MODE=1`; dropped the dangling "charter finding M10" citation. Earlier note: 2026-08-03 @ 74c985c, corrected the claim that insight-aware OPEX modifiers work on real data; clarified `strategist.py`/`form_thesis`, `narrative_builder.py`/`report_builder.py`, and `advisor/scenarios.py` are dead code with no production caller today, pending Mission 2 Wave 3 disposition)._

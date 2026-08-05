@@ -104,7 +104,7 @@
 * **Deterministic layout:** section order and headings are fixed for consistency; empty sections are omitted.
 * **Stable rounding:** monetary values to two decimals; rates to two percentage decimals.
 * **Pure function:** `generate_report()` has no side effects; `write_report()` only writes the target file.
-* **Portable:** output is plain Markdown; PDF/HTML rendering is external (see also `core/intelligence/report_builder.py` for the deal-intelligence Markdown/HTML path — as of 2026-08-03 that module exists and is tested but has no production caller; see Mission 2 charter finding T4).
+* **Portable:** output is plain Markdown; PDF/HTML rendering is external (see also `core/intelligence/report_builder.py` for the deal-intelligence Markdown/HTML path — as of 2026-08-05 (Mission 2 task 3.1b) its `write_markdown_report` is wired into `deal-advisor --narrative`; `md_to_html` remains reachable only from `tests/core/intelligence/test_report_builder.py`, since no CLI renders HTML today).
 
 ## Test Strategy
 
@@ -131,7 +131,7 @@
 
 ---
 
-_Last reconciled: 2026-08-05 against mission/2-wiring-gaps (task 3.2 / OPD-4: `market` kwarg on `generate_report`/`write_report`; NOI valuation table now renders the engine's stored track; principal/interest columns; Available Equity floored in all three tables; Photo Coverage gains subject/defects/quality proxies/parking/provider version; Run Provenance gains the underwriting guardrails and the photo-pipeline provenance). Earlier note: 2026-08-04 @ d18ee1a (Gate 2 VETO remediation: narrowed the "Adjustments Applied" honesty note — it is unreachable from the deterministic pipeline (text-path condition tags come from the free-string `_CONDITION_KEYWORDS` list, not only the closed enum) but reachable via `--engine crewai` with `AIREAL_LLM_MODE=1`, where LLM-authored observations bypass normalization; dropped the dangling "charter finding M10" citation (no such charter text exists) in favour of the tracker's actual Gate 2 record. Earlier note: 2026-08-03 @ 74c985c, `generate_report`/`write_report` signatures corrected to include `media_report`/`provenance`)._
+_Last reconciled: 2026-08-05 against mission/2-wiring-gaps (task 3.1b: the "Portable" bullet's `report_builder.py` reachability note updated -- `write_markdown_report` now has a production caller via `deal-advisor --narrative`). Earlier note: 2026-08-05 against mission/2-wiring-gaps (task 3.2 / OPD-4: `market` kwarg on `generate_report`/`write_report`; NOI valuation table now renders the engine's stored track; principal/interest columns; Available Equity floored in all three tables; Photo Coverage gains subject/defects/quality proxies/parking/provider version; Run Provenance gains the underwriting guardrails and the photo-pipeline provenance). Earlier note: 2026-08-04 @ d18ee1a (Gate 2 VETO remediation: narrowed the "Adjustments Applied" honesty note — it is unreachable from the deterministic pipeline (text-path condition tags come from the free-string `_CONDITION_KEYWORDS` list, not only the closed enum) but reachable via `--engine crewai` with `AIREAL_LLM_MODE=1`, where LLM-authored observations bypass normalization; dropped the dangling "charter finding M10" citation (no such charter text exists) in favour of the tracker's actual Gate 2 record. Earlier note: 2026-08-03 @ 74c985c, `generate_report`/`write_report` signatures corrected to include `media_report`/`provenance`)._
 
 ### Appendix — Definitions
 

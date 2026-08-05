@@ -85,12 +85,20 @@ python -m src.cli.advisor_cli --dir data/sample_listings/47_perrot_shediac --out
 # working config-JSON example (listing_path/photos_dir/finance_inputs_path/optional title)
 python -m src.cli.advisor_cli --files data/examples/advisor_deal_config.json --export-csv
 python -m src.cli.advisor_cli --glob "data/sample_listings/*" --save-artifacts --debug
+
+# Mission 2, task 3.1b: deterministic what-ifs, per-deal narrative reports, and a regional
+# rent-comps sanity-check, all opt-in and additive to the JSON/Markdown output above.
+python -m src.cli.advisor_cli --dir data/sample_listings/36_kelly_moncton --out out/advisor_output.json \
+  --markdown --what-if --narrative --regional-income data/examples/regional_income_comps.json
 ```
 
 * Inputs: `--dir`, `--files`, `--glob` (URL mode is intentionally rejected — a finance mapping is required per deal). `--files` accepts bundle directories (auto-discovery) or config JSONs; a config JSON missing `listing_path`/`photos_dir`/`finance_inputs_path` raises a clear error pointing at `data/examples/advisor_deal_config.json`.
 * Outputs: ranked deals + portfolio summary JSON (`--out`), optional CSVs (`--export-csv`), Markdown summary (`--markdown`), and per-deal artifacts (`--save-artifacts`).
 * `--debug` additionally prints the full ranked/portfolio JSON payload to stdout (the compact table is always printed regardless of this flag).
-* `--markdown` writes `<out-stem>.md` next to `--out`. If `--out` already ends in `.md` (so that path would collide with the JSON artifact), it writes `<out-stem>_report.md` instead and prints a note — the JSON at `--out` is never overwritten.
+* `--markdown` writes `<out-stem>.md` next to `--out`. If `--out` already ends in `.md` (so that path would collide with the JSON artifact), it writes `<out-stem>_report.md` instead and prints a note — the JSON at `--out` is never overwritten. As of Mission 2 task 3.1b it renders via `src.core.utils.markdown.render_markdown()` (shared with any future consumer of the same deal-card format) rather than a hand-rolled reimplementation, and gains richer per-deal fields (price/sqft, beds, baths, sqft, title source) the old inline version never had.
+* `--what-if` (Mission 2 task 3.1b) attaches each ranked deal's deterministic down-payment/interest-rate/renovation-budget what-ifs (`src.core.advisor.scenarios.summarize_scenarios`, an approximation that does not re-run the finance engine) to `--out` under `ranked[i].what_if_scenarios` and to a `## What-If Scenarios` section in `--markdown`.
+* `--narrative` (Mission 2 task 3.1b) writes one Markdown narrative report per ranked deal (deal overview/snapshot/media/financials/risks/notes) to `<out-stem>_narratives/deal_NN.md`, via `src.core.intelligence.report_builder.write_markdown_report` (which calls `narrative_builder.build_narrative_md`).
+* `--regional-income <path>` (Mission 2 task 3.1b) loads a JSON file `{region, bedrooms, comps: [rent, ...]}`, builds a `RegionalIncomeTable` via `src.market.regional_income.build_regional_income`, and attaches it to `--out` under `regional_income` and to a `## Regional Income` section in `--markdown`. It is a portfolio-level market sanity-check, not per-deal — comps describe a market, not one listing. Fails loud (`SystemExit`) on a missing/malformed file or missing keys.
 * Delegates to `src.core.intelligence.deal_fusion.fuse_deal_intelligence()`, `src.core.advisor.recommender.rank_deals()`, and `src.core.advisor.portfolio.portfolio_summary()`.
 
 ## Design Notes / Invariants
@@ -103,6 +111,8 @@ python -m src.cli.advisor_cli --glob "data/sample_listings/*" --save-artifacts -
 
 * `tests/integration/test_advisor_cli_dir_mode.py` — advisor directory discovery & ranking.
 * `tests/integration/test_advisor_cli_flags.py` — advisor CLI flag honesty: `--debug` payload dump, `--markdown` not clobbering `--out` when it ends in `.md`, and the `--files` missing-key error citing a real, working example.
+* `tests/integration/test_advisor_cli_wiring.py` — Mission 2 task 3.1b: `--what-if`/`--narrative`/`--regional-income` reach the real `src.core.advisor.scenarios`/`src.core.intelligence.{narrative_builder,report_builder}`/`src.market.regional_income` modules (not a re-derivation of their output), `--markdown` renders via `src.core.utils.markdown` instead of the retired inline block, and `--save-artifacts` serializes via `src.core.utils.serialize.to_primitive`.
+* `tests/core/utils/test_markdown.py`, `tests/core/utils/test_serialize.py` — direct unit coverage of the two newly-wired `src/core/utils/` modules.
 * `tests/integration/test_report_cli_minimal.py`, `test_report_cli_media.py`, `test_report_cli_errors.py`, `test_report_cli_media_report_and_provenance.py` — report CLI paths.
 * `tests/integration/test_report_cli_bad_input_guards.py` — `report_cli` input-honesty checks: `--insights` rejects `{}`/unrelated JSON but still accepts a sparse-but-real file; `--forecast` fails cleanly (not a raw traceback) on a missing file, malformed JSON, or a directory path; the recognized-field gate stays scoped to `ListingInsights` (a schema-invalid `--forecast` still raises pydantic's own `ValidationError`).
 * `tests/integration/test_listing_ingest.py`, `tests/listing/test_ingest.py` — ingestion flows.
@@ -127,4 +137,4 @@ subset command.
 
 ---
 
-_Last reconciled: 2026-08-04 against mission/2-wiring-gaps @ d18ee1a (Gate 2 VETO remediation, condition C4: stamp was stale from before this file's Wave 2 rewrite (`5e85836`) — content re-verified against current code with no further drift found; added the full-suite coverage-gate note. The `--ai` row and `report_cli` section were already corrected in `5e85836` and are unchanged here)._
+_Last reconciled: 2026-08-05 against mission/2-wiring-gaps (task 3.1b, OPD-3 "wire-first"): documented `advisor_cli`'s new `--what-if`/`--narrative`/`--regional-income` flags and the `--markdown`/`--save-artifacts` internals switching to `src.core.utils.markdown`/`serialize`; added `data/examples/regional_income_comps.json`. Earlier note: 2026-08-04 against mission/2-wiring-gaps @ d18ee1a (Gate 2 VETO remediation, condition C4: stamp was stale from before this file's Wave 2 rewrite (`5e85836`) — content re-verified against current code with no further drift found; added the full-suite coverage-gate note. The `--ai` row and `report_cli` section were already corrected in `5e85836` and are unchanged here)._
