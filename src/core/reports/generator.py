@@ -664,7 +664,22 @@ def _photo_capability_covers(report: MediaReport, *canonical_labels: str) -> boo
     raw_provider = report.provenance.get("selected_provider")
     if not isinstance(raw_provider, str) or raw_provider not in _KNOWN_PROVIDER_NAMES:
         return False
-    return provider_covers(cast(ProviderName, raw_provider), *canonical_labels, ontology=AMENITIES_DEFECTS_V1)
+    try:
+        return provider_covers(cast(ProviderName, raw_provider), *canonical_labels, ontology=AMENITIES_DEFECTS_V1)
+    except ValueError:
+        # A NAMED but UNBOUND provider slot. `"onnx"` is a member of `ProviderName`, so it clears
+        # the check above, but it has no default registration -- it only exists once a caller runs
+        # the documented `register_onnx_provider` path. Rendering a report is a *different process*
+        # from producing one, so `deal-report` reading an artifact from an onnx run finds the name
+        # in the artifact and no binding in its own registry, and `provider_capabilities` raises.
+        #
+        # Falling back to False is what the docstring above already promises ("a missing or
+        # unrecognised value is treated the same as 'nothing looked'") and is the conservative
+        # direction: without the registration we genuinely cannot know what that provider declared,
+        # so claiming it looked would be the same unfounded negative this whole check exists to
+        # stop. Letting it raise instead crashed `deal-report` with a bare traceback -- the class
+        # F19 closed in Wave 2 for a missing forecast file.
+        return False
 
 
 def _render_photo_coverage(report: MediaReport | None) -> str:

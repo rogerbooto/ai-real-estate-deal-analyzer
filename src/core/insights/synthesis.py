@@ -24,7 +24,6 @@ from typing import NamedTuple
 from urllib.parse import urlparse
 
 from src.core.cv.amenities_defects import (
-    UNCONFIRMED_HINT_SOURCE,
     contested_hint_note,
     is_uncorroborated_filename_claim,
     unconfirmed_hint_note,
@@ -230,23 +229,23 @@ def _photo_amenity_observations(photos: PhotoInsights, *, surface_key: str, tag:
                 # detector here that could ever confirm or contest one -- structurally always the
                 # "nothing was able to look" case, exactly like `cv_tagging_orchestrator`'s
                 # treatment of this same channel (task 3.5). Routed through the shared predicate,
-                # not decided locally: passing the canonical `UNCONFIRMED_HINT_SOURCE` value asks
-                # `is_uncorroborated_filename_claim` to affirm the classification instead of a
-                # second, ad hoc copy of the rule -- the same predicate the detection loop above
-                # uses for the real `source` values it holds.
-                if is_uncorroborated_filename_claim(UNCONFIRMED_HINT_SOURCE):
-                    unconfirmed.add(material.value)
-                    out.append(
-                        filename_observation(
-                            tag,
-                            kind="amenity",
-                            detail=f"{material.value} suggested by a file name; no detector covers this label",
-                            source_image_sha=sha,
-                        )
+                # so it is withheld unconditionally. This used to be written as
+                # `if is_uncorroborated_filename_claim(UNCONFIRMED_HINT_SOURCE):` to show the rule
+                # came from the shared predicate rather than a local copy -- but the argument is a
+                # compile-time constant, so the branch could never be false. A line that reads like
+                # a runtime guard and is not one invites a later reader to trust a check that isn't
+                # there. The tie to the shared predicate is real and belongs in a test, not in a
+                # decorative `if`: see `test_the_shared_predicate_still_classifies_the_material_channel`.
+                unconfirmed.add(material.value)
+                out.append(
+                    filename_observation(
+                        tag,
+                        kind="amenity",
+                        detail=f"{material.value} suggested by a file name; no detector covers this label",
+                        source_image_sha=sha,
                     )
-                    continue
-                real_sightings += 1
-                out.append(filename_observation(tag, kind="amenity", detail=material.value, source_image_sha=sha))
+                )
+                continue
 
     if not out:
         out.append(

@@ -41,6 +41,7 @@ from typing import Any
 import pytest
 from PIL import Image
 
+from src.core.cv.amenities_defects import UNCONFIRMED_HINT_SOURCE, is_uncorroborated_filename_claim
 from src.core.cv.photo_insights import build_photo_insights
 from src.core.finance.engine import run_financial_model
 from src.core.insights.synthesis import synthesize_listing_insights
@@ -166,3 +167,25 @@ def test_consumer_guard_does_not_touch_a_boolean_backed_by_a_real_detection() ->
     insights = synthesize_listing_insights(ListingNormalized(address="1 Test St"), photos)
 
     assert "stainless appliances" in insights.amenities
+
+
+def test_the_shared_predicate_still_classifies_the_material_channel() -> None:
+    """The tie between this producer and the shared rule, pinned where it can actually fail.
+
+    `_photo_amenity_observations` used to express that tie as
+    `if is_uncorroborated_filename_claim(UNCONFIRMED_HINT_SOURCE):` — but the argument is a
+    module constant, so the branch could never be false. It read like a runtime guard and was
+    not one, which invites a later reader to trust a check that isn't there. The `if` is gone
+    and the claim lives here instead: this test DOES fail if the predicate is ever changed so
+    that the canonical "nothing was able to look" source stops being withheld, which is the
+    only way the withhold-unconditionally code above could become wrong.
+
+    Guardian observation at the Gate 3 re-review; same lesson as Blocker 2 — a property that is
+    only asserted in a comment is not a property.
+    """
+    assert is_uncorroborated_filename_claim(UNCONFIRMED_HINT_SOURCE) is True
+
+    # And the reason it holds: the predicate is an allow-list of "a detector emitted this",
+    # so the material channel's source is withheld by NOT being on it — not by being enumerated.
+    assert is_uncorroborated_filename_claim("pixels") is False
+    assert is_uncorroborated_filename_claim("filename_confirmed") is False

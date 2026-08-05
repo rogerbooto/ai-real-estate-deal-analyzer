@@ -134,6 +134,29 @@ def test_an_unrecognised_or_missing_provider_also_fails_safe() -> None:
     assert "**Parking (from photos):** not checked" in md_bad
 
 
+def test_a_named_but_unregistered_provider_fails_safe_instead_of_crashing() -> None:
+    """The production shape the rest of this file misses: a NAMED but UNBOUND provider slot.
+
+    Every other `onnx` test here registers a provider first. `"onnx"` is a member of `ProviderName`
+    but has no default binding — it exists only after a caller runs the documented
+    `register_onnx_provider` path. Rendering a report is a *different process* from producing one,
+    so `deal-report` reading an artifact from an onnx run finds the name in the artifact and no
+    binding in its own registry, and `provider_capabilities` raises `ValueError`.
+
+    RED on revert: drop the `except ValueError` in `_photo_capability_covers` and this raises
+    `ValueError: Unknown provider: onnx` — which reached the CLI as a bare traceback, the class
+    Wave 2's F19 closed for a missing forecast file. The `not checked` assertion is the second half:
+    failing safe must mean the conservative wording, not merely "no crash".
+    """
+    assert "onnx" not in ad._PROVIDERS, "fixture assumption: onnx must be unbound here"
+
+    md = _render(_media_report(provenance={"selected_provider": "onnx"}))
+
+    assert "**Parking (from photos):** not checked" in md
+    assert "EV charging not checked" in md
+    assert "no EV charging observed" not in md
+
+
 # ---------------------------------------------------------------------------------
 # Branch 2 — something covers the label, looked, and found none: a REAL negative
 # ---------------------------------------------------------------------------------

@@ -1,5 +1,6 @@
 {
-  "region": "Moncton, NB",
+  "_comment": "ILLUSTRATIVE SAMPLE. These five rents are invented for the --regional-income example; they are NOT surveyed market data for Moncton. Replace `comps` with your own rent comparables before reading anything into the output. The percentiles the tool reports are real arithmetic over whatever you supply here — and only as good as it.",
+  "region": "Moncton, NB (illustrative)",
   "bedrooms": 3,
   "comps": [1500, 1550, 1600, 1700, 1800]
 }

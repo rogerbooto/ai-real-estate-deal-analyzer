@@ -338,8 +338,28 @@ class RegionalIncomeTable(BaseModel):
     median_rent: float = Field(..., ge=0, description="Median monthly rent for this unit type.")
     p25_rent: float = Field(..., ge=0, description="25th percentile monthly rent.")
     p75_rent: float = Field(..., ge=0, description="75th percentile monthly rent.")
-    turnover_cost: float = Field(..., ge=0, description="Average turnover cost for this unit type.")
-    str_multiplier: float | None = Field(None, ge=0, description="Optional STR uplift (multiplier) relative to LTR baseline.")
+    turnover_cost: float = Field(
+        ...,
+        ge=0,
+        description=(
+            "NOT an observed average. Its only producer (`market.regional_income`) writes "
+            "`median_rent * 0.5`, an uncited rule of thumb -- the previous wording, 'Average "
+            "turnover cost for this unit type', asserted a measurement nothing took. Withheld from "
+            "`summary()` and from the advisor's JSON at Gate 3 (2026-08-05) so it reaches no "
+            "reader; the field itself stays only because removing a required field is a breaking "
+            "change and that call is Roger's. Do not render it or feed it to a calculation."
+        ),
+    )
+    str_multiplier: float | None = Field(
+        None,
+        ge=0,
+        description=(
+            "Optional STR uplift (multiplier) relative to LTR baseline. Always `None` since Gate 3 "
+            "(2026-08-05): it was a hardcoded 1.5x gated by a policy hook whose entire body was "
+            "`return True`, so it printed for every region on earth about an activity many "
+            "municipalities regulate. It stays `None` until a real regional policy lookup exists."
+        ),
+    )
 
     model_config = ConfigDict(frozen=True, extra="ignore")
 
