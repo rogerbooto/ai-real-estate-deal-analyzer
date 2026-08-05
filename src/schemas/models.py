@@ -344,14 +344,17 @@ class RegionalIncomeTable(BaseModel):
     model_config = ConfigDict(frozen=True, extra="ignore")
 
     def summary(self) -> str:
-        base = (
-            f"[RegionalIncomeTable] {self.region} | {self.bedrooms}BR | "
-            f"P25: ${self.p25_rent:,.0f}, Median: ${self.median_rent:,.0f}, "
-            f"P75: ${self.p75_rent:,.0f} | Turnover: ${self.turnover_cost:,.0f}"
+        # Mission 2, Gate 3 (2026-08-05): dropped the "[RegionalIncomeTable]" class-name prefix and
+        # the turnover_cost/STR-multiplier figures from this string -- both were found fabricated
+        # (turnover_cost is an uncited "median rent * 0.5" rule of thumb; str_multiplier was a
+        # hardcoded 1.5x gated by a policy hook that always returned True) and this method's output
+        # reaches the CLI page. The fields themselves stay on the model (removing them would touch
+        # this file's field declarations, which this project treats as additive-only, and no other
+        # code depends on them); only what this method renders changed. See CHANGELOG.md "Removed".
+        return (
+            f"{self.region} | {self.bedrooms}BR | "
+            f"P25: ${self.p25_rent:,.0f}, Median: ${self.median_rent:,.0f}, P75: ${self.p75_rent:,.0f}"
         )
-        if self.str_multiplier is not None:
-            base += f" | STRx: {self.str_multiplier:.2f}"
-        return base
 
     def __str__(self) -> str:
         return self.summary()
@@ -1234,7 +1237,10 @@ class RunProvenance(BaseModel):
     llm_mode_enabled: bool = Field(
         False,
         description=(
-            "Whether AIREAL_LLM_MODE was active. When true AND engine='crewai', a language model "
+            "Whether a language model ACTUALLY authored observations in this run -- not merely "
+            "whether AIREAL_LLM_MODE was requested. `main.py` writes `llm_mode_enabled() and "
+            "any(o.origin == 'llm' ...)`, so a run with the flag set whose model call fell back to "
+            "the deterministic path records False, which is the honest answer. When true, a model "
             "authored the listing observations (condition tags, defects, amenities) that feed the "
             "deterministic insight modifiers, so it changes the reported figures. Distinct from "
             "vision_enabled, which covers photo tagging only: on an LLM run with vision off, "

@@ -6,12 +6,9 @@ from __future__ import annotations
 def test_intelligence_imports():
     # Modules load without side effects or runtime errors.
     import src.core.intelligence as _pkg  # noqa:F401
-    from src.core.intelligence import deal_fusion, narrative_builder, report_builder, scoring  # noqa:F401
+    from src.core.intelligence import deal_fusion, scoring  # noqa:F401
 
     # Key symbols resolve
     assert hasattr(deal_fusion, "DealIntelligence")
     assert hasattr(deal_fusion, "ScoreComponents")
     assert hasattr(scoring, "compute_composite_score")
-    assert hasattr(narrative_builder, "build_narrative_md")
-    assert hasattr(report_builder, "write_markdown_report")
-    assert hasattr(report_builder, "md_to_html")

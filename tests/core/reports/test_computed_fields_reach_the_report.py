@@ -12,8 +12,11 @@ the test rather than recomputed, so the test cannot drift away from the engine e
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+
 import pytest
 
+import src.core.cv.amenities_defects as ad
 from src.core.finance import run_financial_model
 from src.core.reports.generator import generate_report
 from src.core.reports.report_models import MediaCoverage, MediaReport, ParkingSummary
@@ -228,16 +231,51 @@ def test_photo_coverage_renders_defects_and_quality_proxies() -> None:
     md = generate_report(None, make_minimal_forecast(), None, media_report=_media_report())
 
     assert "- **Defects Seen in Photos:** water_leak_suspected (3 images)" in md
-    assert "- **Quality Proxies:** natural_light_score 0.42" in md
+    assert "- **Quality Proxies (0-1 scale):** natural_light_score 0.42" in md
+
+
+def _dummy_ev_provider(_img: object) -> list[object]:
+    """Carries a fake EV-charger capability declaration only — never a real provider function.
+
+    Capability declarations are keyed by FUNCTION IDENTITY (``_PROVIDER_CAPABILITIES``), not by
+    slot name, and never restored by ``ev_capable_provider``'s snapshot/restore below (which only
+    restores the slot mapping, ``_PROVIDERS``). Registering a built-in function (e.g.
+    ``ad._provider_local``) here under a fake ``detects=`` would permanently overwrite that
+    function's REAL declaration for the rest of the test process, corrupting every later test that
+    relies on the real "local" provider covering nothing parking/EV-related.
+    """
+    return []
+
+
+@pytest.fixture
+def ev_capable_provider() -> Iterator[None]:
+    """Register a stand-in provider that DECLARES EV-charger coverage.
+
+    Every built-in provider declares no parking/EV label at all (see B3 remediation,
+    ``generator._photo_capability_covers``), so a report built with the default fixture
+    provenance always lands on the "nothing could look" branch. This test's whole point is the
+    OTHER branch — a covering provider looked and the result (True/False) is a real
+    observation — so it needs a provider on record that actually declares the label.
+    Snapshot/restore mirrors ``tests/core/cv/test_filename_corroboration.py``'s
+    ``restore_providers`` fixture so the fake binding cannot leak into other tests.
+    """
+    saved = dict(ad._PROVIDERS)
+    ad.register_provider("onnx", _dummy_ev_provider, detects=["ev_charger"])
+    yield
+    ad._PROVIDERS.clear()
+    ad._PROVIDERS.update(saved)
 
 
 @pytest.mark.parametrize(
     ("ev_charging", "expected"),
     [(True, "EV charging observed"), (False, "no EV charging observed")],
 )
-def test_parking_summary_states_ev_charging_either_way(ev_charging: bool, expected: str) -> None:
+def test_parking_summary_states_ev_charging_either_way(ev_charging: bool, expected: str, ev_capable_provider: None) -> None:
     """Cited by _BOOL_FIELDS_WITH_DEDICATED_TESTS in the field guard — keep the name in sync."""
-    report = _media_report(parking=ParkingSummary(parking_type="garage", parking_spots=2, ev_charging=ev_charging))
+    report = _media_report(
+        parking=ParkingSummary(parking_type="garage", parking_spots=2, ev_charging=ev_charging),
+        provenance={"selected_provider": "onnx"},
+    )
     md = generate_report(None, make_minimal_forecast(), None, media_report=report)
 
     assert f"- **Parking (from photos):** garage · 2 spots · {expected}" in md

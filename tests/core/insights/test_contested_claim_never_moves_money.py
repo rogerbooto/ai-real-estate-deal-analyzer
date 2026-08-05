@@ -229,6 +229,35 @@ def test_parking_summary_is_not_set_by_a_contradicted_claim(garage_photo: Path, 
     assert parking.parking_spots is None
 
 
+def test_split_measured_and_hints_withholds_via_the_designated_predicate_not_a_local_copy() -> None:
+    """RED on revert of the Gate 3 BLOCKER 2 follow-on.
+
+    ``photo_insights._split_measured_and_hints`` used to decide "keep vs. withhold" with
+    ``is_unconfirmed_hint(det) or is_contested_hint(det)`` -- re-implementing, locally, the exact
+    rule ``is_uncorroborated_filename_claim`` exists to own centrally. The two were equivalent only
+    because the predicate itself enumerated the same two ``source`` values; a ``source`` this
+    module had never seen matched neither helper and fell through to ``kept.append(det)`` --
+    silently promoted to a MEASURED detection, one call removed from ``amenity_counts``/
+    ``defect_counts`` and the finance rules that read them by membership.
+
+    The fix routes the withhold decision through ``is_uncorroborated_filename_claim`` and uses
+    ``is_unconfirmed_hint``/``is_contested_hint`` only to pick which of the two known NOTE buckets
+    a withheld entry is reported under, so fixing the predicate now fixes every caller, including
+    this one, instead of leaving a second copy to rot.
+    """
+    from src.core.cv.photo_insights import _split_measured_and_hints
+
+    det: dict[str, Any] = {"name": _GARAGE, "category": "amenity", "confidence": 0.5, "source": "filename_llm_guessed"}
+
+    split = _split_measured_and_hints({"sha1": [det]})
+
+    assert split.measured == {"sha1": []}, f"an unrecognised source value was measured: {split.measured}"
+    # Not attributed to either NAMED bucket either -- there is nothing correct to call it yet, but
+    # it must never reach `measured`, which is the property this test pins.
+    assert split.unconfirmed_counts == {}
+    assert split.contested_counts == {}
+
+
 # ---------------------------------------------------------------------------------
 # G2-N1 — the CONSUMER guard, on its own (the third-producer case)
 # ---------------------------------------------------------------------------------
@@ -283,8 +312,9 @@ def test_synthesis_still_trusts_a_boolean_it_has_no_evidence_against() -> None:
 
 
 def test_an_unrecognised_filename_state_fails_safe() -> None:
-    """``is_uncorroborated_filename_claim`` is written as "filename-derived AND NOT confirmed", so
-    a value added to ``DetectionSource`` later lands in the cautious branch by default.
+    """``is_uncorroborated_filename_claim`` is written as "NOT positively a detector's own
+    emission" (an ALLOW-list of the two values that mean that), so a value added to
+    ``DetectionSource`` later lands in the cautious branch by default.
 
     Tested at the predicate rather than through the model, because the model's Literal correctly
     refuses an undeclared value — the predicate is what a future fifth state would flow through.
@@ -294,6 +324,29 @@ def test_an_unrecognised_filename_state_fails_safe() -> None:
     assert not ad.is_uncorroborated_filename_claim("filename_confirmed")
     assert not ad.is_uncorroborated_filename_claim("pixels")
     assert not ad.is_uncorroborated_filename_claim(None), "an absent marker means a detector emitted it"
+
+
+def test_an_unrecognised_filename_state_is_not_silently_trusted() -> None:
+    """RED on revert of the Gate 3 BLOCKER 2 fix.
+
+    ``is_uncorroborated_filename_claim`` used to be a DENY-list: "value is in the hardcoded
+    three-element ``FILENAME_SOURCES`` set and is not ``filename_confirmed``". A ``source`` this
+    predicate had never seen (a fifth ``DetectionSource`` value added later, a typo, or a producer
+    outside this module) is -- by construction -- not a member of a set enumerating only the
+    values known when it was written, so the old body read "not a member of the known-bad set" as
+    "trusted", the OPPOSITE of the "cautious branch by default" property this predicate's own
+    docstring claims. Reproduced directly against the pre-fix body:
+    ``value in {"filename_confirmed", "filename_contested", "filename_unconfirmed"} and value !=
+    "filename_confirmed"`` returns ``False`` for ``"filename_llm_guessed"`` -- promoted to "a
+    detector emitted this" by omission, exactly what the docstring said could not happen.
+
+    The fixed body is an ALLOW-list of the two values that positively mean a detector emitted the
+    label itself (``pixels``, ``filename_confirmed``); anything else, known or not, is withheld.
+    """
+    assert ad.is_uncorroborated_filename_claim(
+        "filename_llm_guessed"
+    ), "an unrecognised source value must be withheld, not promoted to a detector's finding by omission"
+    assert ad.is_uncorroborated_filename_claim("some_future_source_nobody_has_written_yet")
 
 
 # ---------------------------------------------------------------------------------

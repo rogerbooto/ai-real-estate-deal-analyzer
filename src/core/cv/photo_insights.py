@@ -9,7 +9,13 @@ from pathlib import Path
 from statistics import mean
 from typing import Any, NamedTuple, cast
 
-from src.core.cv.amenities_defects import ProviderName, is_contested_hint, is_unconfirmed_hint, provider_kind
+from src.core.cv.amenities_defects import (
+    ProviderName,
+    is_contested_hint,
+    is_unconfirmed_hint,
+    is_uncorroborated_filename_claim,
+    provider_kind,
+)
 from src.core.cv.runner import tag_amenities_and_defects, tag_images
 
 # Centralized labels/enums + helpers
@@ -108,6 +114,19 @@ def _split_measured_and_hints(dets_per_sha: Mapping[str, list[Mapping[str, Any]]
     ``filename_confirmed`` stays in ``measured``: there, the detector did emit the label and the
     file name merely agreed.
 
+    The withhold/keep decision itself is delegated to
+    :func:`~src.core.cv.amenities_defects.is_uncorroborated_filename_claim` rather than
+    re-implemented as "unconfirmed or contested" here. That union used to BE the withhold rule, and
+    was only equivalent to it because ``is_unconfirmed_hint``/``is_contested_hint`` between them
+    enumerate the two known bad ``source`` values -- a ``source`` this module has never seen (a
+    fifth state added later) matched neither predicate and fell through to ``kept.append(det)``,
+    silently promoted to a measured detection. Routing through the single designated predicate means
+    the two can no longer diverge: fix the predicate once and every caller, including this one,
+    inherits the fix. ``is_unconfirmed_hint``/``is_contested_hint`` are still used below, but only to
+    decide which of the two *known* buckets a withheld entry is reported under -- an unrecognised
+    future state is withheld either way and simply is not attributed to either named bucket, because
+    there is nothing correct to call it yet.
+
     Counts use the same "images exhibiting this" convention as the roll-ups.
     """
     measured: dict[str, list[Mapping[str, Any]]] = {}
@@ -119,15 +138,16 @@ def _split_measured_and_hints(dets_per_sha: Mapping[str, list[Mapping[str, Any]]
         seen_contested: set[str] = set()
         for det in dets or []:
             name = str(det.get("name", "")).lower()
-            if is_unconfirmed_hint(det):
-                if name and name not in seen_unconfirmed:
-                    seen_unconfirmed.add(name)
-                    unconfirmed_counts[name] = unconfirmed_counts.get(name, 0) + 1
-                continue
-            if is_contested_hint(det):
-                if name and name not in seen_contested:
-                    seen_contested.add(name)
-                    contested_counts[name] = contested_counts.get(name, 0) + 1
+            source_val = det.get("source")
+            if is_uncorroborated_filename_claim(str(source_val) if source_val is not None else None):
+                if is_unconfirmed_hint(det):
+                    if name and name not in seen_unconfirmed:
+                        seen_unconfirmed.add(name)
+                        unconfirmed_counts[name] = unconfirmed_counts.get(name, 0) + 1
+                elif is_contested_hint(det):
+                    if name and name not in seen_contested:
+                        seen_contested.add(name)
+                        contested_counts[name] = contested_counts.get(name, 0) + 1
                 continue
             kept.append(det)
         measured[sha] = kept

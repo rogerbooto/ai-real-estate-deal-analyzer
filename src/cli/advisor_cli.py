@@ -13,9 +13,7 @@ import src.core.finance.adapters as fin_adapters
 import src.core.ingest as ingest_mod
 from src.core.advisor.portfolio import portfolio_summary
 from src.core.advisor.recommender import rank_deals
-from src.core.advisor.scenarios import summarize_scenarios
 from src.core.intelligence.deal_fusion import fuse_deal_intelligence
-from src.core.intelligence.report_builder import write_markdown_report
 from src.core.utils.markdown import render_markdown
 from src.core.utils.serialize import to_primitive
 from src.market.regional_income import build_regional_income
@@ -275,6 +273,31 @@ def _load_regional_income_table(path_str: str) -> RegionalIncomeTable:
         raise SystemExit(f"--regional-income: {path}: {e}") from e
 
 
+_REGIONAL_INCOME_HONEST_FIELDS = ("region", "bedrooms", "median_rent", "p25_rent", "p75_rent")
+
+
+def _regional_income_payload(table: RegionalIncomeTable) -> dict[str, Any]:
+    """
+    JSON-safe payload for ``--regional-income``, restricted to the fields ``build_regional_income``
+    derives directly from the supplied comps (``statistics.median`` / ``numpy.percentile``).
+
+    ``RegionalIncomeTable`` (``src/schemas/models.py``) also carries ``turnover_cost`` and
+    ``str_multiplier``. Gate 3 (mission/2-wiring-gaps) found both fabricated -- an uncited
+    "median rent * 0.5" rule of thumb and a hardcoded 1.5x STR uplift gated by a policy hook whose
+    entire body was ``return True`` -- and ruled that neither may reach output a reader sees.
+    ``build_regional_income`` no longer computes the STR multiplier (always ``None``);
+    ``RegionalIncomeTable.summary()`` was corrected to stop rendering either field (Gate 3), but
+    ``turnover_cost`` is still a *required* field on the schema, so ``to_primitive`` still carries a
+    computed value for it -- this function is the seam that keeps that value out of ``--out``'s
+    JSON specifically. Dropping the field from the schema itself would touch
+    ``src/schemas/models.py``'s field declarations, which this project treats as additive-only, so
+    that removal is left to a follow-up schema decision rather than made unilaterally here (see
+    CHANGELOG "Removed").
+    """
+    dump = to_primitive(table)
+    return {k: dump[k] for k in _REGIONAL_INCOME_HONEST_FIELDS}
+
+
 def _expand_globs(patterns: list[str]) -> list[Path]:
     out: list[Path] = []
     for pat in patterns:
@@ -400,30 +423,12 @@ def main() -> None:
         help="Emit a Markdown summary next to --out.",
     )
     ap.add_argument(
-        "--what-if",
-        action="store_true",
-        help=(
-            "Compute deterministic what-if scenarios (down payment / interest rate / renovation "
-            "budget knobs) for each deal via src.core.advisor.scenarios and include them in --out "
-            "and the --markdown summary. Approximate -- does not re-run the finance engine."
-        ),
-    )
-    ap.add_argument(
-        "--narrative",
-        action="store_true",
-        help=(
-            "Write one Markdown narrative report per deal (deal-overview/snapshot/media/financials/"
-            "risks/notes) to <out-stem>_narratives/deal_NN.md, via "
-            "src.core.intelligence.report_builder.write_markdown_report."
-        ),
-    )
-    ap.add_argument(
         "--regional-income",
         help=(
-            "Path to a JSON file {region, bedrooms, comps: [rent, ...]}; builds a "
-            "RegionalIncomeTable (median/p25/p75 rent, turnover cost, optional STR multiplier) via "
-            "src.market.regional_income.build_regional_income and includes it in --out and the "
-            "--markdown summary as a portfolio-level market sanity-check (not per-deal)."
+            "Path to a JSON file {region, bedrooms, comps: [rent, ...]}; builds median/p25/p75 rent "
+            "via src.market.regional_income.build_regional_income (statistics.median / "
+            "numpy.percentile over the supplied comps) and includes it in --out and the --markdown "
+            "summary as a portfolio-level market sanity-check (not per-deal)."
         ),
     )
     args = ap.parse_args()
@@ -466,10 +471,6 @@ def main() -> None:
             "postal_code": getattr(ln, "postal_code", None),
             "source_url": getattr(ln, "source_url", None),
         }
-        if args.what_if:
-            # src.core.advisor.scenarios -- deterministic down-payment/rate/reno what-ifs,
-            # approximated from the already-computed finance summary (does not re-run the engine).
-            item["what_if_scenarios"] = summarize_scenarios(d.finance)
         ranked_payload.append(item)
 
     payload: dict[str, Any] = {
@@ -480,7 +481,7 @@ def main() -> None:
     regional_income_table: RegionalIncomeTable | None = None
     if args.regional_income:
         regional_income_table = _load_regional_income_table(args.regional_income)
-        payload["regional_income"] = to_primitive(regional_income_table)
+        payload["regional_income"] = _regional_income_payload(regional_income_table)
         print(regional_income_table.summary())
 
     if args.debug:
@@ -512,34 +513,11 @@ def main() -> None:
         # replacing what used to be a hand-rolled, drifting re-derivation of the same fields.
         md_text = render_markdown(ranked, cast(dict[str, Any], payload["portfolio"]))
 
-        if args.what_if:
-            wi_lines = ["", "## What-If Scenarios", ""]
-            ranked_list = cast(list[dict[str, Any]], payload["ranked"])
-            for i, item in enumerate(ranked_list, start=1):
-                wi_lines.append(f"### {i}. {item['title'] or '(untitled)'}")
-                for sc in cast(list[dict[str, Any]], item.get("what_if_scenarios", [])):
-                    irr_est = sc.get("irr_est")
-                    irr_s = f"{float(irr_est):.2%}" if irr_est is not None else "N/A"
-                    wi_lines.append(
-                        f"- **{sc['name']}**: cashflow/mo {float(sc['cashflow_monthly']):.2f} "
-                        f"(Δ {float(sc['delta_cashflow']):+.2f}), IRR est {irr_s}"
-                    )
-                wi_lines.append("")
-            md_text += "\n".join(wi_lines)
-
         if regional_income_table is not None:
             md_text += "\n".join(["", "## Regional Income", "", regional_income_table.summary(), ""])
 
         md_path.write_text(md_text, encoding="utf-8")
         print(f"Wrote {md_path}")
-
-    if args.narrative:
-        # src.core.intelligence.narrative_builder + report_builder -- one Markdown narrative per
-        # deal (Mission 2, 3.1b). write_markdown_report() creates the parent directory itself.
-        narratives_dir = out_path.with_name(out_path.stem + "_narratives")
-        for idx, (d, _score) in enumerate(ranked, start=1):
-            narrative_path = write_markdown_report(d, narratives_dir / f"deal_{idx:02d}.md")
-            print(f"Wrote {narrative_path}")
 
     if args.save_artifacts:
         art_dir = out_path.with_suffix("").with_name(out_path.stem + "_artifacts")

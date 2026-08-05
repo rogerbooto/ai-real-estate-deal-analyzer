@@ -20,25 +20,37 @@ into a live path or delete it as un-wireable; this note will be updated once tha
 that bullet (deal fusion, composite scoring, multi-deal ranking, portfolio summary, risk flags,
 CSV/Markdown exports) is unaffected — those are live and reachable from the `deal-advisor` CLI._
 
-_Status note (2026-08-05, Mission 2 Wave 3 task 3.1b, OPD-3 "wire-first" — supersedes the
-2026-08-03 status note directly above, does not rewrite the entries below it): the "narrative/report
-builders" and "scenario what-ifs" claim in the "Deal intelligence & advisor" bullet is now TRUE.
-`narrative_builder.build_narrative_md` / `report_builder.write_markdown_report` are wired into
-`deal-advisor`'s new `--narrative` flag (one Markdown narrative per ranked deal); `advisor/scenarios.py`'s
-`summarize_scenarios` is wired into the new `--what-if` flag (attached to both the JSON output and
-the `--markdown` summary). Both were reachable only from tests before this task; see
-`docs/plans/MISSION_2_SPRINT_TRACKER.md` row 3.1b for the RED-on-revert proof and
-`src/cli/README.md` for the flags. Same task also wired `src/market/regional_income.py` into
-`deal-advisor --regional-income` (documented as a public entry point by `src/market/README.md`
-since 2026-08-03 but, like the two modules above, reachable only from tests until now), and
-replaced `advisor_cli.py`'s hand-rolled `--markdown`/`--save-artifacts` internals with
-`src/core/utils/markdown.py` / `src/core/utils/serialize.py`, which had zero callers of any kind
-before this task. `deal-advisor`'s pre-existing outputs (JSON/CSV shape, deal fusion, composite
-scoring, multi-deal ranking, portfolio summary, risk flags) are unaffected by default (all five are
-opt-in flags/entry points); `--markdown`'s existing output gains richer per-deal fields (price/sqft,
-beds, baths, sqft, title source) from switching to the shared renderer, which the CLI-level tests
-in `tests/integration/test_advisor_cli_flags.py` (pinned by the earlier Gate-2-era work) still pass
-against, since none of them assert on the deal-card body, only the heading and the JSON shape._
+_Status note (2026-08-05, Mission 2 Wave 3 task 3.1b, OPD-3 "wire-first" — superseded by the Gate 3
+note directly below; kept for the record of what this task actually did before Gate 3 pulled part
+of it): wired `narrative_builder.build_narrative_md` / `report_builder.write_markdown_report` into
+a new `deal-advisor --narrative` flag and `advisor/scenarios.py`'s `summarize_scenarios` into a new
+`--what-if` flag. Same task also wired `src/market/regional_income.py` into
+`deal-advisor --regional-income`, and replaced `advisor_cli.py`'s hand-rolled `--markdown`/
+`--save-artifacts` internals with `src/core/utils/markdown.py` / `src/core/utils/serialize.py`._
+
+_Status note (2026-08-05, Mission 2 Gate 3 remediation — corrects the note directly above; does not
+rewrite the entries below it): the founder-proxy blocked `--what-if` and `--narrative` at Gate 3 and
+both are now **removed**, not shipped. `--what-if` rendered a fabricated `irr_est` — base IRR plus a
+clamped ±10pp proxy from invented coefficients (`(dp1-dp0)*(price/1000)*0.4`,
+`(r0-r1)*(price/1000)*1.2`, no amortization anywhere) computed against a down-payment-rate fallback
+(`0.25`) that did not match the sample deal's real rate (`0.05`) — and its own returned `"note":
+"Approximate scenario; does not re-run engine."` never reached the rendered page. `--narrative`
+duplicated `deal-report`'s output with strictly less information and printed `IRR: 0.12` where every
+other surface in the project renders `12.29%`. `src/core/advisor/scenarios.py`,
+`src/core/intelligence/narrative_builder.py`, and `src/core/intelligence/report_builder.py` are
+deleted; see **Removed**, below. `deal-advisor --regional-income` (`src/market/regional_income.py`)
+is kept: its median/p25/p75 are real (`statistics.median`/`numpy.percentile` over the supplied
+comps), but its `str_multiplier` (a hardcoded 1.5x STR uplift gated by a policy hook whose entire
+body was `return True`, in a province that regulates short-term rentals) and `turnover_cost` (an
+uncited "median rent × 0.5" rule of thumb, rendered beside real percentiles in identical formatting)
+no longer reach any `--out`/`--markdown`/console output; `str_multiplier` is no longer computed at
+all. `turnover_cost` remains a required field on `RegionalIncomeTable` — dropping it needs a schema
+change, which Gate 3 remediation deliberately left for a follow-up decision rather than editing
+`src/schemas/models.py` unilaterally (that file is additive-only by this project's convention).
+`--markdown`/`--save-artifacts` switching to `src/core/utils/markdown.py`/`serialize.py` is
+unaffected by this note and remains as described above. If engine-backed what-ifs are wanted, the
+bar is `src/market/scenario_runner.py`: it perturbs `FinancialInputs` and re-runs
+`run_financial_model`, rather than approximating outside the engine._
 
 _Status note (2026-08-04, Mission 2 Gate 2 VETO remediation — does not rewrite the entry below):
 the "CrewAI engine seam" bullet's "`crew.kickoff()` not yet called" is now false as a blanket
@@ -61,7 +73,7 @@ docstring and `src/agents/crewai_components.py`'s module docstring for the full 
 - **Media pipeline** (`src/core/media`): HTML media discovery → filtered download → `MediaBundle` manifests; **media intelligence** (opt-in perceptual-hash near-duplicate detection, quality scoring, palette extraction, hero-image ranking).
 - **CV tagging v2** (`src/core/cv`): closed-set amenities/defects ontology, provider seams (`local`/`vision`/`llm` deterministic stubs, user-registered ONNX), per-provider JSON caching; consolidated under `CvTaggingOrchestrator` (removed legacy `tools/vision`).
 - **Address parsing** (`src/core/normalize/address.py`): US/CA parsing via `usaddress` + schema.org/meta/DOM hints; state/province code selection.
-- **Deal intelligence & advisor** (`src/core/intelligence`, `src/core/advisor`, `deal-advisor` CLI): deal fusion, composite scoring, narrative/report builders, multi-deal ranking, portfolio summary, risk flags, scenario what-ifs; CSV/Markdown exports.
+- **Deal intelligence & advisor** (`src/core/intelligence`, `src/core/advisor`, `deal-advisor` CLI): deal fusion, composite scoring, multi-deal ranking, portfolio summary, risk flags, a regional-income (median/p25/p75 rent) market sanity-check; CSV/Markdown exports. (Narrative/report builders and scenario what-ifs were attempted and removed at Gate 3 — see **Removed**.)
 - **Report CLI** (`deal-report`): renders Markdown reports from JSON artifacts, including a Media Overview section.
 - **CrewAI engine seam** (`src/orchestrators/crewai_runner.py`): `--engine crewai` with fail-fast env validation; currently delegates to deterministic math (parity shell — `crew.kickoff()` not yet called).
 
@@ -89,6 +101,7 @@ docstring and `src/agents/crewai_components.py`'s module docstring for the full 
 - **Packaging**: added `[build-system]` + `[project]` metadata (name/version/requires-python) and namespace-aware setuptools package discovery, so `pip install -e .` now succeeds and the `ingest-listing` / `deal-report` / `deal-advisor` console scripts resolve. Runtime dependencies still come from the requirements files (matching CI).
 
 ### Removed
+- **`src/core/advisor/scenarios.py`, `src/core/intelligence/narrative_builder.py`, `src/core/intelligence/report_builder.py` — Mission 2 Gate 3.** Wired into `deal-advisor` in `29ed89b` behind `--what-if`/`--narrative`; blocked by the founder-proxy before merge and deleted rather than fixed, because there was no honest fix that kept the same shape. `scenarios.py` invented its sensitivity coefficients from nothing amortization-shaped and rendered a fabricated `irr_est` while its own disclaimer (`"Approximate scenario; does not re-run engine."`) never reached the page; it was also unanchored to the deal (a hardcoded `0.25` down-payment-rate fallback against a real `0.05`). `narrative_builder`/`report_builder` duplicated `deal-report`'s output with strictly less information and printed raw fractions (`IRR: 0.12`) where every other surface renders a percentage (`12.29%`). An engine-backed what-if belongs behind `src/market/scenario_runner.py` (perturb `FinancialInputs`, re-run `run_financial_model`), not a standalone approximation — see the 2026-08-05 Gate 3 status note above for the full record. `deal-advisor --regional-income` is unaffected other than dropping its two fabricated fields (`str_multiplier`, `turnover_cost`) from output — see the same note.
 - **`src/core/strategy/` (`form_thesis`) — the project's second verdict engine.** It formed a BUY/CONDITIONAL/DECLINE thesis with its own thresholds and was called by nothing but its own two unit tests, so the repo carried two answers to "is this a good deal?" and shipped only one of them. Deleted **after** both guardrails it had and the live `agents/chief_strategist` lacked were ported: judging the cap-rate spread against the user's configured `market.cap_rate_spread_target` rather than a hardcoded 150 bps, and the Year-1 cash-on-cash floor (now `MIN_COC_Y1`, see **Added**). Everything else it did the live module already did, and did more strictly — it also has an IRR floor `form_thesis` never had — and its `coc < 0 AND dscr < 1.0` DECLINE shortcut is fully subsumed by the live `num_fails >= 3` rule once the CoC floor counts as a failure (verified across 21,600 generated deals: 8,400 hits, 8,400 already DECLINE). No behaviour was lost and no public API changed; nothing outside `tests/unit/test_strategist*.py` imported it. Rationale: an agent exists only where a model might one day enter, and everything deterministic is called directly from `core/` — verdict formation is a judgment with an LLM-shaped seam, so it belongs to the agent layer, not to two places at once.
 
 ---

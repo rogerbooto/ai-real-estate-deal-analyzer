@@ -34,4 +34,4 @@ def llm_mode_enabled() -> bool:
     recording provenance must confirm a model actually authored something (see
     ``ListingInsights.observations`` and ``origin="llm"``) rather than treating this as proof.
     """
-    return os.getenv("AIREAL_LLM_MODE", "").strip() in _TRUTHY
+    return os.getenv("AIREAL_LLM_MODE", "").strip().lower() in _TRUTHY

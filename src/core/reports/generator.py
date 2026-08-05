@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, cast, get_args
 
+from src.core.cv.amenities_defects import ProviderName, provider_covers
+from src.core.cv.ontology import AMENITIES_DEFECTS_V1
 from src.core.finance.engine import EQUITY_LTV
+from src.schemas.labels import AmenityLabel, ParkingType
 from src.schemas.models import (
     FinancialForecast,
     InvestmentThesis,
@@ -622,6 +625,48 @@ def _render_glossary() -> str:
     return "\n".join(lines) + "\n"
 
 
+#: Canonical ontology labels the "Parking (from photos)" line reports on jointly. A "none" is only
+#: a real negative finding when at least one of these was something a provider could actually look
+#: for -- see :func:`_photo_capability_covers`.
+_PARKING_TYPE_LABELS: tuple[str, ...] = (
+    AmenityLabel.parking_garage.value,
+    AmenityLabel.parking_driveway.value,
+    AmenityLabel.street_parking.value,
+)
+
+#: `ProviderName`'s member values, read off the type rather than re-typed here so a provider added
+#: to the `Literal` later does not silently fall through `_photo_capability_covers`'s runtime check
+#: to "unrecognised provider -> treat as nothing looked" without anyone noticing the mismatch.
+_KNOWN_PROVIDER_NAMES: frozenset[str] = frozenset(get_args(ProviderName))
+
+
+def _photo_capability_covers(report: MediaReport, *canonical_labels: str) -> bool:
+    """Was the CV provider that produced ``report`` even capable of looking for any of these labels?
+
+    Every negative fact this section states about parking/EV charging is only true because
+    something looked. `ParkingSummary.ev_charging` defaults to `False` and `parking_type` defaults
+    to `"none"` on a schema built with no detections at all -- and every provider shipped with this
+    codebase declares only `{natural_light_high, stainless_appliances}` (plus synonyms), no parking
+    or EV-charger label at all (see `core.cv.amenities_defects`'s "Built-in capability
+    declarations"). So on every default configuration, printing that default as "no EV charging
+    observed" states a sighting nothing was capable of making -- R-6 (the filename-hint rule) run
+    in reverse, on an absence instead of a presence. This is the single check both call sites use
+    to tell "nothing could look" from "something looked and found none", so the two can never drift
+    apart.
+
+    Reads `report.provenance["selected_provider"]` because that -- not `report.coverage.provider`,
+    which is the constant `"cv_v2"` report-schema tag -- is the actual CV provider slot
+    (`"local"`/`"vision"`/`"llm"`/`"onnx"`) that produced the underlying detections; see
+    `core.cv.photo_insights.build_photo_insights`, the sole producer of that key. A missing or
+    unrecognised value is treated the same as "nothing looked": conservative, and the same reading
+    `provider_capabilities` documents for a provider that declared nothing at all.
+    """
+    raw_provider = report.provenance.get("selected_provider")
+    if not isinstance(raw_provider, str) or raw_provider not in _KNOWN_PROVIDER_NAMES:
+        return False
+    return provider_covers(cast(ProviderName, raw_provider), *canonical_labels, ontology=AMENITIES_DEFECTS_V1)
+
+
 def _render_photo_coverage(report: MediaReport | None) -> str:
     """
     Render which rooms the photo set actually documents.
@@ -664,17 +709,35 @@ def _render_photo_coverage(report: MediaReport | None) -> str:
         flagged = ", ".join(f"{label} ({count} image{'s' if count != 1 else ''})" for label, count in sorted(report.defects.items()))
         lines.append(f"- **Defects Seen in Photos:** {flagged}")
 
-    # Scored proxies (0-1). Kept next to the labels they were derived from so a high amenity
-    # count sitting on uniformly low scores is visible rather than implied.
+    # Scored proxies (0-1, higher = the trait shows up more consistently across the photos that
+    # were checked). The scale is stated here because nowhere else in the report defines it. A
+    # score of exactly 0.00 is what an UNMATCHED proxy also produces (mean of an empty list), so it
+    # is rendered as "not measured" rather than as a number — a genuine low score and "nothing in
+    # this photo set matched this trait" are different facts, and a bare 0.00 does not say which.
     if report.quality_flags:
-        scored = ", ".join(f"{name} {score:.2f}" for name, score in sorted(report.quality_flags.items()))
-        lines.append(f"- **Quality Proxies:** {scored}")
+        rendered_flags = [
+            f"{name} not measured" if score <= 0.0 else f"{name} {score:.2f}" for name, score in sorted(report.quality_flags.items())
+        ]
+        lines.append(f"- **Quality Proxies (0-1 scale):** {', '.join(rendered_flags)}")
 
+    # Parking type/spots and EV charging are each gated on whether the CV provider that produced
+    # this report ever declared it could look for the corresponding label at all (see
+    # `_photo_capability_covers`). Every provider shipped with this codebase declares neither, so
+    # both defaults ("none" / False) are schema defaults, not sightings, and the report says so
+    # instead of stating a negative nothing was capable of observing.
     parking = report.parking
-    parking_bits = [parking.parking_type]
-    if parking.parking_spots is not None:
-        parking_bits.append(f"{parking.parking_spots} spot{'s' if parking.parking_spots != 1 else ''}")
-    parking_bits.append("EV charging observed" if parking.ev_charging else "no EV charging observed")
+    if parking.parking_type == ParkingType.none.value and not _photo_capability_covers(report, *_PARKING_TYPE_LABELS):
+        parking_bits = ["not checked — no photo check in this run looks for parking"]
+    else:
+        parking_bits = [parking.parking_type]
+        if parking.parking_spots is not None:
+            parking_bits.append(f"{parking.parking_spots} spot{'s' if parking.parking_spots != 1 else ''}")
+
+    if _photo_capability_covers(report, AmenityLabel.ev_charger.value):
+        parking_bits.append("EV charging observed" if parking.ev_charging else "no EV charging observed")
+    else:
+        parking_bits.append("EV charging not checked — no photo check in this run looks for chargers")
+
     lines.append(f"- **Parking (from photos):** {' · '.join(parking_bits)}")
 
     if report.warnings:

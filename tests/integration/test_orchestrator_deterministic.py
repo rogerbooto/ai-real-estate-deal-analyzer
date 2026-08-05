@@ -55,6 +55,12 @@ def test_orchestrator_deterministic_paths(tmp_path, monkeypatch):
     assert "mold_suspected" in roll["unconfirmed_hints"]
     assert "water_leak_suspected" in roll["unconfirmed_hints"]
 
-    # Amenity rollup may include natural_light_high (heuristic); keep flexible
+    # All four fixture paths are unreadable (`.write_text("stub")`/`"ignore"` is not valid image
+    # bytes), so `tag_amenities_and_defects` falls back to the same near-white 8x8 placeholder
+    # (`Image.new("RGB", (8, 8), color=(240, 240, 240))`, runner.py) for every one of them. That
+    # placeholder's luminance (0.94) always clears `_provider_local`'s 0.78 "natural_light_high"
+    # bar, so this is a deterministic property of the fixture and the local (non-AI) provider, not
+    # a flaky one -- unlike the "`or True`" it replaces, this fails if the fallback-placeholder
+    # behavior regresses.
     assert isinstance(roll.get("amenities", []), list)
-    assert "natural_light_high" in roll["amenities"] or True
+    assert "natural_light_high" in roll["amenities"]

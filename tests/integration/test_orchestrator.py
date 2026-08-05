@@ -50,7 +50,14 @@ def test_analyze_paths_preserves_order_and_flags_unreadable(tmp_path, monkeypatc
 
     assert isinstance(roll.get("defects", []), list)
     assert isinstance(roll.get("condition_tags", []), list)
-    assert "natural_light_high" in roll["amenities"] or True
+    # Every path in this fixture is unreadable (`.write_text("stub")` is not valid image bytes), so
+    # `tag_amenities_and_defects` falls back to the same near-white 8x8 placeholder
+    # (`Image.new("RGB", (8, 8), color=(240, 240, 240))`, runner.py) for each of them. That
+    # placeholder's luminance (0.94) clears `_provider_local`'s 0.78 "natural_light_high" bar every
+    # time, so this is a deterministic property of the fixture and the local provider, not a flaky
+    # or parser-version-dependent one -- unlike the "`or True`" it replaces, this fails if the
+    # fallback-placeholder behavior regresses.
+    assert "natural_light_high" in roll["amenities"]
 
 
 def test_analyze_folder_recursive_and_direct_flag_fallback(tmp_path, monkeypatch):

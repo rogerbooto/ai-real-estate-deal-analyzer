@@ -2,13 +2,11 @@ from __future__ import annotations
 
 import statistics
 from collections.abc import Sequence
-from typing import Final, cast
+from typing import cast
 
 import numpy as np
 
 from src.schemas.models import RegionalIncomeTable
-
-_DEFAULT_STR_MULTIPLIER: Final[float] = 1.5
 
 
 def _validate(region: str, bedrooms: int, comps: Sequence[float]) -> None:
@@ -22,15 +20,6 @@ def _validate(region: str, bedrooms: int, comps: Sequence[float]) -> None:
         raise ValueError("all comps must be positive numbers")
 
 
-def _region_allows_str(_: str) -> bool:
-    """
-    Placeholder policy hook.
-    Deterministically returns True (allowed everywhere) for Milestone A.
-    Replace with policy lookups in later milestones.
-    """
-    return True
-
-
 def build_regional_income(
     region: str,
     bedrooms: int,
@@ -41,8 +30,18 @@ def build_regional_income(
       - median_rent = statistics.median(comps)
       - p25_rent = np.percentile(comps, 25)
       - p75_rent = np.percentile(comps, 75)
-      - turnover_cost = median_rent * 0.5
-      - str_multiplier = 1.5 if region allows STR else None
+
+    ``RegionalIncomeTable.str_multiplier`` is always ``None``: Gate 3 (mission/2-wiring-gaps) found
+    the previous ``1.5x`` value fabricated -- gated by ``_region_allows_str``, a "placeholder policy
+    hook" whose entire body was ``return True``, in a jurisdiction (New Brunswick) that regulates
+    short-term rentals -- so this builder no longer invents one.
+
+    ``RegionalIncomeTable.turnover_cost`` remains a *required* field on the schema (it predates this
+    finding and removing it would touch `src/schemas/models.py`, which this project treats as
+    additive-only), so it still gets a value here for schema validity. It is a rule-of-thumb
+    (``median_rent * 0.5``) that Gate 3 also found uncited, and callers must not surface it: see
+    ``src.cli.advisor_cli._regional_income_payload``/``_regional_income_summary``, which are the
+    only production consumers of this function's output and deliberately exclude both fields.
     """
     _validate(region, bedrooms, comps)
 
@@ -51,8 +50,6 @@ def build_regional_income(
     p75_rent = float(cast(float, np.percentile(comps, 75)))
     turnover_cost = median_rent * 0.5
 
-    str_multiplier: float | None = _DEFAULT_STR_MULTIPLIER if _region_allows_str(region) else None
-
     return RegionalIncomeTable(
         region=region,
         bedrooms=bedrooms,
@@ -60,5 +57,5 @@ def build_regional_income(
         p25_rent=p25_rent,
         p75_rent=p75_rent,
         turnover_cost=turnover_cost,
-        str_multiplier=str_multiplier,
+        str_multiplier=None,
     )

@@ -49,9 +49,13 @@ def test_listing_analyst_with_photos_uses_orchestrator(tmp_path, monkeypatch):
 
     out = analyze_listing(listing_txt_path=str(txt), photos_folder=str(photos))
 
-    # Text-derived fields preserved
+    # Text-derived fields preserved. "dishwasher" comes from `Amenities: dishwasher` in the fixture
+    # text via `normalize_amenities_from_text` (src/schemas/labels.py) -- a deterministic keyword
+    # match on the listing text, not a photo/CV signal -- so it does not depend on which vision
+    # provider (if any) the CV path resolves to, and is safe to assert directly rather than with
+    # the "or True" this replaces.
     assert out.address is not None
-    assert "dishwasher" in out.amenities or True  # parser-dependent; don't overfit
+    assert "dishwasher" in out.amenities
 
     # Photo-derived rollup present
     assert any(c in out.condition_tags for c in ("renovated_kitchen", "updated_bath", "well_maintained", "new_flooring")) or isinstance(

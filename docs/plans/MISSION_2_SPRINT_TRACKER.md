@@ -53,8 +53,14 @@ should be expanded on first use in any report to Roger._
 orchestrator verifying) · `DONE` (verified inline) · `DEFERRED`
 
 ## Overall progress
-- Tasks: **24 / 28 DONE** (one SCOPED — see 0.1) · 0 IN-PROGRESS · 0 BLOCKED · 3 TODO (Wave 3) · 6 founder-directed additions R-1…R-6 all DONE
-- Suite: **500 tests, exit 0, coverage 84.27%** (mission start: 310 / 81.87%) — re-measured 2026-08-05
+- Tasks: **27 / 28 DONE** (one SCOPED — see 0.1) · 0 BLOCKED · **1 TODO: 3.1c, Roger's threshold call** · 6 founder-directed additions R-1…R-6 all DONE
+- Suite: **628 tests, exit 0, coverage 86.04%** (mission start: 310 / 81.87%) — re-measured 2026-08-05 after Gate 3 remediation
+- *(**C5, fourth recurrence.** Caught again at Gate 3 by both the code-reviewer (S2) and the
+  founder-proxy: the line above read "500 tests / 84.27%" against an actual 585, and every Wave 3
+  row read TODO while shipped in commits. Raised at the Gate 2 VETO, recurred as M16, "fixed",
+  stale again at the gate where the founder was asked to sign. The lesson is not "re-measure
+  harder" — it is that a number typed into a document is a claim with no test behind it, and this
+  ledger has now failed its own mission's thesis four times.)*
 - *(Corrected twice. **C5 first raised at the Gate 2 VETO; it then RECURRED and the guardian
   raised it again as M16** — I fixed the numbers once and they went stale within the same wave,
   which is the point: a count copied forward is a claim I stopped checking. Re-measured each
@@ -513,6 +519,59 @@ marker; deleting it breaks every submodule import), but its wrappers are genuine
 is therefore *empty the wrappers* or *route callers through the facade* — **not** "delete the file",
 which the charter's phrasing could be read as inviting.
 
+### 3.1b (wiring half) — orchestrator verification record, 2026-08-05
+
+All five WIRE dispositions above are now live, reached from `cli/advisor_cli.py` behind three new
+opt-in flags (`--what-if`, `--narrative`, `--regional-income`) plus two internal swaps
+(`--markdown` → `core.utils.markdown.render_markdown`, `--save-artifacts` → `core.utils.serialize.to_primitive`).
+No deletion recommendations came back: every module had a documentation claim or a literal duplicate
+to retire, so wire-first held for all five.
+
+**Two real bugs fell out of making them reachable** — both latent precisely *because* the modules
+were dead, which is the mission's thesis in miniature:
+
+| Bug | Why it survived |
+| --- | --- |
+| `markdown.deal_card` raised `TypeError` on any listing with no `price` (`f"{None:,.0f}"`) | `price` is optional; nothing had ever called the function |
+| `serialize.to_primitive` returned live `BaseModel`s from dataclass fields (`dataclasses.asdict` does not recurse into non-dataclass fields) | same — the JSON-unsafe shape the function exists to remove |
+
+**Verified independently of the agent's report:** all nine `data/examples/…` and
+`data/sample_listings/…` paths cited in the touched READMEs and CHANGELOG resolve on disk (this is
+the check that was skipped at M6, when F6 shipped a copy-pasteable command naming two files that did
+not exist). All three new flags are consumed (`args.what_if` / `args.narrative` /
+`args.regional_income` all read). `python main.py` unaffected; `src/core/finance/` and
+`src/schemas/models.py` diffs empty.
+
+**One agent claim was wrong, and it matters.** The report stated *"default CLI behavior (no new
+flags) is unchanged."* `--markdown` is a **pre-existing** flag and its output changed materially —
+verified by running the advisor at `HEAD` in a throwaway worktree and diffing. The change is a net
+gain (Price, Price/sqft, Beds, Baths, Sqft and Title source are new; thousands separators replace
+`1950.00`), **but it silently dropped the rank ordinals**: the retired inline block numbered its
+headings `## 1.`, `## 2.`, and `deal_card` did not. Invisible on the one-deal sample, plain on any
+real portfolio — a section titled "Ranked Deals" whose entries carry no rank.
+
+Fixed in-orchestrator: `deal_card` gained an optional `rank` parameter (default `None`, so existing
+callers are unaffected) which `render_markdown` always passes, numbering from `ranked`'s own order
+rather than re-deriving from scores — a second ordering rule is a second thing that can disagree
+with the first. Covered by `test_render_markdown_numbers_every_deal_in_rank_order`, proven RED on
+revert (dropping `rank=` fails it and its companion).
+
+**Process note, self-reported by the agent and confirmed:** it ran a bare `git stash -u` early on —
+a direct violation of this repo's standing rule, with a *second* agent's uncommitted work live in
+the tree at the time. It caught this itself, popped immediately, and the concurrent WIP was verified
+intact (the CV producer diff was reviewed in full afterwards and was complete and coherent). It used
+a disposable `git worktree` for every subsequent revert experiment. **The rule held up under exactly
+the condition it was written for**; the near-miss is logged because the recovery was luck-adjacent,
+not designed.
+
+**Orchestrator's own slip, same class:** while proving the rank test RED-on-revert I ran
+`git checkout -- src/core/utils/markdown.py` to undo my temporary edit — on an **uncommitted** file,
+which reverted it to `HEAD` and destroyed the agent's two bug fixes along with my change. The
+RED-on-revert evidence was already captured; the file was reconstructed and re-verified green (23
+tests across the three advisor/markdown suites). *Restoring a scratch edit with `git checkout` is
+only safe when the surrounding work is committed.* This is the second stash/checkout near-miss in
+one wave — both from treating a dirty tree as if it were clean.
+
 ### OPD-1 pre-work — threshold audit, orchestrator, 2026-08-03 (step 1 of the binding sequence)
 `form_thesis` (`src/core/strategy/strategist.py`) confirmed dead: referenced **only** by
 `tests/unit/test_strategist.py`, zero production callers. But the audit turned up something that
@@ -541,13 +600,13 @@ before/after artifacts and reproduce commands — not a description. Sequence st
 port → **review** → only then delete.
 | ID | Task | Finding | Agent → tier | Status |
 | --- | --- | --- | --- | --- |
-| 3.1a | **OPD-1 sequence (`strategist.py`):** (1) audit its `dscr<1.20`/`coc<0.03` thresholds; (2) port any Roger-preferred values into `chief_strategist`'s tunable constants; (3) review the threshold change (code-reviewer + finance-interp), regenerate any verdict goldens; (4) **only then** delete `strategist.py` + its tests. Delete must not precede the review. **PLUS — guardian M4/M7, a HARD exit criterion, not advice: reconcile `chief_strategist.MIN_SPREAD` (hardcoded `0.015`, `:38`) against the engine's use of the *input* `mkt.cap_rate_spread_target` (`engine.py:301`).** Today a deal can print "cap-rate spread below target" in Warnings while its own thesis says "meets target", verdict BUY, levers empty so the warning is never explained. Same defect class as F1. Also consider the finance-interpreter's materiality recommendation: breach ≥ 25-50 bp **and** `DSCR < 1.00`, since the current 2-input shortcut is near-tautological at every shipped setting. | T4 | python-eng + finance-interp + code-reviewer → capable | TODO |
-| 3.1b | **OPD-3 wire-first:** wire each dead module into a live path — `narrative_builder`+`report_builder`→feed the report; `scenarios.py`→advisor what-ifs (CHANGELOG:17 claims they ship); `regional_income`→public entry point per `market/README`; `utils/markdown`→replace inline `advisor_cli.py:391-411`; `utils/serialize`→serialization sites; `photo_tagger`→ingest if a real consumer exists. **Delete only the un-wireable:** `orchestrator.py` (0-byte), `agents/listing_ingest.py` (true duplicate, no consumer), `advisor/__init__.py` (bypassed facade). Each wired item ships a RED-on-regression test. | T4 | python-eng + code-reviewer → std | TODO |
-| 3.2 | **OPD-4 populate:** render every computed-then-discarded field into the report. **(a) HARD EXIT CRITERION — guardian M3/M8: the cap-rate FLOOR VALUE must reach the report.** Today a breach prints "Purchase cap rate breaches the configured floor." naming neither the cap nor the floor, while every sibling line names both. House style agreed with founder-proxy: *"Purchase cap rate is 6.35% (≥ the 5.00% floor you set)."* Note this is **not a template edit** — neither `generate_report` (`generator.py:1139`, `write_report` at `:1211` — re-derived 2026-08-05, M23) nor `synthesize_thesis` receives `FinancialInputs`, so it needs an **additive kwarg**. This also restores the positive claim dropped in `6fce278`. **(b)** charter T5 set: `RefinancePlan.market_cap_rate` (implement the fallback or drop the false docstring — **re-review F1's comparison if the fallback lands, since it changes what the floor is tested against**), `YearBreakdown.{ltv_pct,available_equity,est_value}` (render stored values instead of recomputing at `generator.py:643-646` and `:671-674` — **re-derived 2026-08-05 (M23); the old `:592-596` anchor had drifted as the file grew**), `MarketSnapshot.notes`. **(c)** the seven gaps the guard found (see the 1.5 record). **(d) guardian M11:** re-adjudicate — do not inherit — the three uncited `MediaReport.{report_version,ontology_version,provenance}` exclusions; a test author's uncited "not meant to render" must not become the product decision by default, least of all for a field named `provenance`. Additive-only. Each field ships a RED-on-regression test. | T5 | python-eng + finance-interp → std | TODO |
-| 3.3 | **M14/M22 — the last filename/geometry fabrication.** `_provider_llm_stub` (`src/core/cv/amenities_defects.py:508`) still emits `"on-street parking"` at confidence 0.61 from `asp == "landscape" and lum >= 0.55` — a parking claim invented from an image being wide and bright. **This is the identical defect V1 vetoed in `_provider_vision_stub`, surviving in the sibling slot**, and `"llm"` is a documented public-API provider (`src/core/README.md`). It is unreachable from production today (`build_photo_insights` only ever selects `vision` or `local`), which is why it was deferred — but R-6 now declares it as a capability (`_declare_capabilities(_provider_llm_stub, {... "on-street parking"})`, `:531`), so registering that stub would make the fabrication *confirmable* and let it score. Remove the emission as V1 did, or justify keeping it. **Recorded as a ROW because M14 was carried as prose and did not execute — its own text called that 'the decay pattern for the third time', and it then decayed a fourth.** | M14, M22 | python-eng → std | TODO |
-| 3.4 | **G2-N1 + G2-N2 — the contested branch reopens the money path, and re-creates the M17 laundering on the sibling producer. HARD GATE 3 EXIT CRITERIA.** Orchestrator-reproduced: a blank grey `garage.jpg` with a detector that **covers** `parking_garage` and **reported nothing** still yields `insights.amenities: ['parking']` and moves Y1 cash flow by **$1,105.80**. Two distinct defects. **(a) G2-N1:** `_surface_key_for_detection` (`synthesis.py:126-127`) maps every `PARKING_SPECIFIC_AMENITIES` member to the `parking` surface, `_amenities_from` emits the literal tag, and `engine.py:83` reads **membership, not confidence** — so the 0.30 score never gates anything on this route. A filename-derived claim a detector *contradicted* must not select an income or OPEX rule. **(b) G2-N2:** `DetectedLabelModel` (`models.py:520-529`) has no `source` field and `extra="ignore"`, so R-6's marker is **silently dropped at the schema boundary**; `synthesis._photo_amenity_observations` then stamps the record `origin=cv_provider`, `provider_kind=model`, `conf=0.3` — asserting a detector found what it explicitly did not. That is M17 verbatim, on the sibling producer, and unlike M17's original **this one moves a number**. `cv_tagging_orchestrator` handles the same case correctly; `synthesis` structurally cannot, because the marker does not survive validation. Fix by carrying `source` onto `DetectedLabelModel` (additive, in-policy) or by having `synthesis` refuse to stamp `cv_provider` on a record it cannot prove came from pixels. **Not a Gate 2 veto only because no built-in provider declares any of the six filename labels** (verified: empty intersection) — it needs a user to follow the documented `register_onnx_provider` path, which R-6 deliberately makes a zero-code-change action. Each ships a RED-on-revert test. | G2-N1, G2-N2 | python-eng → capable | TODO |
+| 3.1a | **OPD-1 sequence (`strategist.py`):** (1) audit its `dscr<1.20`/`coc<0.03` thresholds; (2) port any Roger-preferred values into `chief_strategist`'s tunable constants; (3) review the threshold change (code-reviewer + finance-interp), regenerate any verdict goldens; (4) **only then** delete `strategist.py` + its tests. Delete must not precede the review. **PLUS — guardian M4/M7, a HARD exit criterion, not advice: reconcile `chief_strategist.MIN_SPREAD` (hardcoded `0.015`, `:38`) against the engine's use of the *input* `mkt.cap_rate_spread_target` (`engine.py:301`).** Today a deal can print "cap-rate spread below target" in Warnings while its own thesis says "meets target", verdict BUY, levers empty so the warning is never explained. Same defect class as F1. Also consider the finance-interpreter's materiality recommendation: breach ≥ 25-50 bp **and** `DSCR < 1.00`, since the current 2-input shortcut is near-tautological at every shipped setting. | T4 | python-eng + finance-interp + code-reviewer → capable | **DONE** · `8cca530` |
+| 3.1b | **OPD-3 wire-first:** wire each dead module into a live path — `narrative_builder`+`report_builder`→feed the report; `scenarios.py`→advisor what-ifs (CHANGELOG:17 claims they ship); `regional_income`→public entry point per `market/README`; `utils/markdown`→replace inline `advisor_cli.py:391-411`; `utils/serialize`→serialization sites; `photo_tagger`→ingest if a real consumer exists. **Delete only the un-wireable:** `orchestrator.py` (0-byte), `agents/listing_ingest.py` (true duplicate, no consumer), `advisor/__init__.py` (bypassed facade). Each wired item ships a RED-on-regression test. | T4 | python-eng + code-reviewer → std | **PARTIAL** · `29ed89b`, then Gate-3 remediation |
+| 3.2 | **OPD-4 populate:** render every computed-then-discarded field into the report. **(a) HARD EXIT CRITERION — guardian M3/M8: the cap-rate FLOOR VALUE must reach the report.** Today a breach prints "Purchase cap rate breaches the configured floor." naming neither the cap nor the floor, while every sibling line names both. House style agreed with founder-proxy: *"Purchase cap rate is 6.35% (≥ the 5.00% floor you set)."* Note this is **not a template edit** — neither `generate_report` (`generator.py:1139`, `write_report` at `:1211` — re-derived 2026-08-05, M23) nor `synthesize_thesis` receives `FinancialInputs`, so it needs an **additive kwarg**. This also restores the positive claim dropped in `6fce278`. **(b)** charter T5 set: `RefinancePlan.market_cap_rate` (implement the fallback or drop the false docstring — **re-review F1's comparison if the fallback lands, since it changes what the floor is tested against**), `YearBreakdown.{ltv_pct,available_equity,est_value}` (render stored values instead of recomputing at `generator.py:643-646` and `:671-674` — **re-derived 2026-08-05 (M23); the old `:592-596` anchor had drifted as the file grew**), `MarketSnapshot.notes`. **(c)** the seven gaps the guard found (see the 1.5 record). **(d) guardian M11:** re-adjudicate — do not inherit — the three uncited `MediaReport.{report_version,ontology_version,provenance}` exclusions; a test author's uncited "not meant to render" must not become the product decision by default, least of all for a field named `provenance`. Additive-only. Each field ships a RED-on-regression test. | T5 | python-eng + finance-interp → std | **DONE** · `c55a2ed` |
+| 3.3 | **M14/M22 — the last filename/geometry fabrication.** `_provider_llm_stub` (`src/core/cv/amenities_defects.py:508`) still emits `"on-street parking"` at confidence 0.61 from `asp == "landscape" and lum >= 0.55` — a parking claim invented from an image being wide and bright. **This is the identical defect V1 vetoed in `_provider_vision_stub`, surviving in the sibling slot**, and `"llm"` is a documented public-API provider (`src/core/README.md`). It is unreachable from production today (`build_photo_insights` only ever selects `vision` or `local`), which is why it was deferred — but R-6 now declares it as a capability (`_declare_capabilities(_provider_llm_stub, {... "on-street parking"})`, `:531`), so registering that stub would make the fabrication *confirmable* and let it score. Remove the emission as V1 did, or justify keeping it. **Recorded as a ROW because M14 was carried as prose and did not execute — its own text called that 'the decay pattern for the third time', and it then decayed a fourth.** | M14, M22 | python-eng → std | **DONE** · `c55a2ed` |
+| 3.4 | **G2-N1 + G2-N2 — the contested branch reopens the money path, and re-creates the M17 laundering on the sibling producer. HARD GATE 3 EXIT CRITERIA.** Orchestrator-reproduced: a blank grey `garage.jpg` with a detector that **covers** `parking_garage` and **reported nothing** still yields `insights.amenities: ['parking']` and moves Y1 cash flow by **$1,105.80**. Two distinct defects. **(a) G2-N1:** `_surface_key_for_detection` (`synthesis.py:126-127`) maps every `PARKING_SPECIFIC_AMENITIES` member to the `parking` surface, `_amenities_from` emits the literal tag, and `engine.py:83` reads **membership, not confidence** — so the 0.30 score never gates anything on this route. A filename-derived claim a detector *contradicted* must not select an income or OPEX rule. **(b) G2-N2:** `DetectedLabelModel` (`models.py:520-529`) has no `source` field and `extra="ignore"`, so R-6's marker is **silently dropped at the schema boundary**; `synthesis._photo_amenity_observations` then stamps the record `origin=cv_provider`, `provider_kind=model`, `conf=0.3` — asserting a detector found what it explicitly did not. That is M17 verbatim, on the sibling producer, and unlike M17's original **this one moves a number**. `cv_tagging_orchestrator` handles the same case correctly; `synthesis` structurally cannot, because the marker does not survive validation. Fix by carrying `source` onto `DetectedLabelModel` (additive, in-policy) or by having `synthesis` refuse to stamp `cv_provider` on a record it cannot prove came from pixels. **Not a Gate 2 veto only because no built-in provider declares any of the six filename labels** (verified: empty intersection) — it needs a user to follow the documented `register_onnx_provider` path, which R-6 deliberately makes a zero-code-change action. Each ships a RED-on-revert test. | G2-N1, G2-N2 | python-eng → capable | **DONE** · `c55a2ed` (synthesis) + `06da901` (sibling producer) |
 | 3.1c | **Threshold decisions — Roger's call, measured but NOT applied.** Both were measured in 3.1a across the 9 repo deals and a 21,600-deal sweep. **(a) Year-1 CoC floor at 3%: RECOMMEND SKIP.** It never catches a deal the existing rules miss — 0 of 21,600. Its whole effect is escalating already-flagged deals from CONDITIONAL to DECLINE (229 deals, 1.06%), and it has a sharp edge: the closest call misses by **0.3 basis points** with DSCR 1.25 and +$3,911 Y1 cash flow. **(b) DECLINE shortcut materiality: RECOMMEND changing the DSCR half from 1.20 → 1.00; DROP the basis-point half.** 25bp and 50bp give **identical** results because all 48 affected deals sit at DSCR 1.01–1.19, so the materiality threshold does no work. The shortcut is the *sole* cause of DECLINE in only 48/21,600 (0.22%) and is near-tautological (at a 5% floor with ≥70% leverage, DSCR already fails **100%** of the time). Worst reproduced case: a **0.0002bp** breach declines a deal with +$7,461 cash flow and 12.05% IRR. **Deferred deliberately:** backlog #6 ("what would have to change?") makes a near-miss legible rather than fatal-looking, which is the better fix for the same problem — so a future planner should revisit both *after* that ships. Verdict-moving, so it needs before/after artifacts at whatever gate applies. | OPD-1, finance-interp | Roger decides → python-eng | TODO |
-| 3.5 | **`tag_images` material promotion** — `kitchen_island.jpg` → the `kitchen_island` amenity surface is the same filename-fabrication class on a different mechanism. It hits no engine rule today, so no dollars move, and flagging is sufficient per the guardian. **Recorded as a row rather than a commit-message flag on the same reasoning that made M14 row 3.3** — a condition that lives only in prose has now decayed four times in this mission. | guardian Q5 | python-eng → std | TODO |
+| 3.5 | **`tag_images` material promotion** — `kitchen_island.jpg` → the `kitchen_island` amenity surface is the same filename-fabrication class on a different mechanism. It hits no engine rule today, so no dollars move, and flagging is sufficient per the guardian. **Recorded as a row rather than a commit-message flag on the same reasoning that made M14 row 3.3** — a condition that lives only in prose has now decayed four times in this mission. | guardian Q5 | python-eng → std | **DONE** · `06da901` |
 
 ## Wave Validation
 | ID | Task | Agent → tier | Status |
@@ -558,6 +617,136 @@ port → **review** → only then delete.
 | ID | Task | Agent → tier | Status |
 | --- | --- | --- | --- |
 | I.1 | Re-sync, re-run battery, `--no-ff` merge to `main`, reconcile+push the 7-commit origin delta (Roger's timing); record merge sha | release-coordinator → std | TODO (Roger gate) |
+
+## Gate 3 — founder-proxy: 🔶 SHIP WITH CONDITIONS, 2026-08-05
+
+**The blocker: 3.1b wired three modules that print numbers the finance engine never computed.**
+Orchestrator-verified before acting — every load-bearing claim reproduced:
+
+| Claim | Verified |
+| --- | --- |
+| `scenarios.py` invents its sensitivity | `cf_from_dp = (dp1-dp0)*(price/1000)*0.4`, `cf_from_rate = (r0-r1)*(price/1000)*1.2`. No amortization in the module. Its own comment calls it a *"toy"* impact model. |
+| It fabricates an IRR onto the page | `irr_est` is `irr0 + clamp(±0.10, ΔCF*12/acq)`, rendered as `IRR est 12.14%` |
+| **Its own disclaimer never reaches the reader** | `apply_scenario` returns `"note": "Approximate scenario; does not re-run engine."`; `advisor_cli.py:515-528` renders `name`/`cashflow_monthly`/`delta_cashflow`/`irr_est` and **not** `note` |
+| The ladder isn't anchored to the deal | `dp0 = getattr(finance, "down_payment_rate", 0.25)`; the sample finance JSON has no such key, so it silently reads 25% against a real 5% |
+| `regional_income` prints an unbacked STR multiplier | `str_multiplier = 1.5 if _region_allows_str(region)`, and `_region_allows_str` is `return True` under a docstring reading *"Placeholder policy hook… Replace with policy lookups in later milestones."* NB municipalities regulate STRs. |
+| A correct implementation already exists | `src/market/scenario_runner.py` perturbs `FinancialInputs` and re-runs `run_financial_model` |
+
+This violates the project's first principle — every figure in a report traces to the deterministic
+engine and explicit inputs. It is also the *same defect class* the mission had just finished
+deleting: `strategist.py` died for being a second verdict engine with diverged thresholds, and
+3.1b wired in a second **finance** engine with invented coefficients. Unlike `strategist.py`, this
+one reaches a file the user reads.
+
+**Founder ruling, accepted:** pull `--what-if`, `--narrative`, `--regional-income`; delete
+`scenarios.py`; **correct the CHANGELOG claim rather than build something to satisfy it.** Keep the
+two internal swaps (`--markdown`→`utils/markdown`, `--save-artifacts`→`utils/serialize`) and the two
+latent bugs they exposed — that is the wiring that mattered.
+
+> *"Wire-first was never 'find a home for every orphan.' A module that can only be wired by printing
+> a number the engine didn't compute is un-wireable, and deleting it is the right outcome — that's
+> what the fallback clause is for."*
+
+**Orchestrator's own failure, logged:** I verified 3.1b's doc paths resolved and caught its
+rank-ordinal regression, but **never audited what the wired modules actually print**. The reachability
+question ("is it called?") is not the honesty question ("is what it emits true?"), and this mission is
+about the second. Wire-first made me check the first and stop.
+
+**APPROVED at this gate:** the contested-hint routing (`06da901`). The founder reproduced both
+branches independently and ruled it *honours* "flag, don't remove" better than leaving the label in
+`defects` would have — `notes` renders above the fold on page one, the sentence says more than the
+bare tag ever did, and `defects` is an engine **input**, not a display list. *"A file name gets to
+suggest. Only something that looked at the pixels gets to confirm."*
+
+**C5 — stale ledger, fourth recurrence.** Every Wave 3 row still read `TODO` while shipped in
+commits. Raised at the Gate 2 VETO, recurred as M16, "fixed", stale again at the gate where the
+founder was asked to sign. In a mission whose thesis is *documents must not assert what the code
+contradicts*, its own ledger has now failed that test four times. Statuses corrected above.
+
+**Report-quality conditions (non-blocking, recorded as rows not prose — prose has decayed four times
+this mission):** raw snake_case tags (`in_unit_laundry`) beside plain-English ones on the same page;
+a 64-char SHA, a double-printed byte count and pixel dimensions in an investor document; `bps`
+undefined and the *same* threshold printed as `1.50%` in one place and `150 bps` in another;
+"cap-rate spread" and "seasoning" used without a glossary entry; Warnings that name no numbers while
+the cap-floor line now does; and `MIN_DSCR_Y1`/`MIN_IRR_10YR`/`MIN_COC_Y1` absent from a Run
+Provenance table that claims reproducing a report means matching it.
+
+## Gate 3 — guardian 🔴 VETO + code-reviewer 🔴 REQUEST CHANGES, 2026-08-05 → all remediated
+
+Three reviewers ran independently and **converged on the same root cause**: 3.1b's wiring made five
+modules *reachable* without anyone asking whether what they *emit* is true. The orchestrator's own
+verification checked reachability (flags consumed, doc paths resolve, no content lost) and stopped
+there. **Reachability and honesty are different questions, and this mission is about the second.**
+
+### B1/B2 (guardian) = Blocker 1 (code-reviewer) — fabricated money on the page → **modules deleted**
+The code-reviewer ran the project's own engine against the toy model's knobs: the page understated
+engine cash-flow deltas by **25×** and **22×**, and rendered downside/upside as symmetric when
+amortization says they are not. It also found the baseline could *never* be read — `scenarios.py`
+does `getattr(finance, "down_payment_rate", 0.25)` on a `FinanceSummary` whose six declared fields
+do not include it, so the fallback fires on every deal, always: `acquisition_cash_est` printed
+**$99,975** against a real **$19,995**, and `base` rendered `Δ +0.00` with the engine's true IRR
+beside it — a fiction that reads as "your deal, unchanged."
+
+**Resolution (founder ruling):** `scenarios.py`, `narrative_builder.py`, `report_builder.py` deleted;
+`--what-if` and `--narrative` removed; `--regional-income` kept with `turnover_cost`/`str_multiplier`
+and the `_region_allows_str` placeholder stripped from everything the reader sees. CHANGELOG
+**retracted** rather than satisfied, pointing at `market/scenario_runner.py` as the honest pattern.
+*Open, flagged honestly by the agent:* `RegionalIncomeTable.turnover_cost` is still a required field
+carrying a fabricated value internally — never rendered now, but the field-removal question needs a
+follow-up decision, since removing it would touch a field declaration in an additive-only file.
+
+### B3 (guardian) — **R-6 inverted, authored by this mission** → fixed
+`generator.py` printed `Parking (from photos): none · no EV charging observed` when **no built-in
+provider declares `ev_charger` or any parking label at all**. The same wave that stopped a file name
+from claiming a thing exists left the report claiming a thing does *not* exist, on identical
+non-evidence — a default rendered as a negative sighting. `Quality Proxies: … 0.00` had the same
+shape: indistinguishable from "not measured."
+
+Both now gate on `provider_covers()`, which answers "was anything even able to look?":
+
+    - **Quality Proxies (0-1 scale):** … not measured, … not measured, … not measured
+    - **Parking (from photos):** not checked — no photo check in this run looks for parking ·
+      EV charging not checked — no photo check in this run looks for chargers
+
+12 tests, covering **both** the "nothing could look" and the "a covering detector looked and found
+none" branches — a test that only covers the shipped default proves half the rule.
+
+### Blocker 2 (code-reviewer) — **the fail-safe claim was false, and I had repeated it** → fixed
+`is_uncorroborated_filename_claim`'s docstring, this tracker, and commit `06da901`'s message all
+claimed an unrecognised `source` value "lands in the cautious branch by omission." It did the
+opposite: `FILENAME_SOURCES` was a hardcoded deny-list, so an unknown value was **not in** it and the
+predicate returned `False` — treating it as a detector's finding. Orchestrator-reproduced before
+acting (`filename_llm_guessed → withhold=False`). Now an allow-list keyed on the two values that
+positively mean *a detector emitted this* (`pixels`, `filename_confirmed`); everything else, present
+or future, is withheld. Verified after: `filename_llm_guessed` and `totally_new_state` both withhold.
+
+`photo_insights._split_measured_and_hints` was a **second local copy** of the same rule and now
+routes through the predicate — the two were equivalent only because the predicate was itself a
+closed enumeration, so fixing one without the other would have let them diverge silently.
+
+**This is the sharpest lesson of the gate:** the safety property was a hand-maintained list, which is
+exactly the failure mode the docstring said it had eliminated — and it survived because the claim was
+*repeated* (docstring → tracker → commit message) rather than *tested*. It is now pinned by a test
+that feeds a value outside `DetectionSource` and asserts it is withheld.
+
+### B4 (guardian) — docs contradicting code → fixed
+`schemas/README.md` Usage Example 1 raised `ValidationError` (a Gate 2 condition explicitly bound to
+Gate 3, still open). Fixed **and every fenced example in the file is now executed by a test**, so it
+cannot rot again. `:111`'s claim that `cv_tagging_orchestrator` was "unchanged by this pass"
+reconciled against `06da901`.
+
+### S3 — `RunProvenance.llm_mode_enabled` description contradicted its only producer → fixed
+It said "Whether AIREAL_LLM_MODE was active"; `main.py:313` writes `llm_mode_enabled() and
+any(o.origin == "llm" ...)` — authorship that *happened*, deliberately. A run with the flag set whose
+model call fell back recorded `False` while the description asserted `True`. Description corrected;
+the report copy was already right.
+
+### Agent self-report worth keeping
+The B3 agent's first draft registered a fake capability using an existing provider function as a
+stand-in. `_PROVIDER_CAPABILITIES` is keyed by **function identity, not slot**, so it permanently
+overwrote the real `local` provider's declaration for the rest of the test process — passing in
+isolation, failing in the full run. It caught this itself, from the full-suite run, and fixed it.
+Logged because it is a live argument for running the whole suite rather than the touched files.
 
 ## Gate decision records
 - **Gate 0 (Truth):** _in progress 2026-08-03._

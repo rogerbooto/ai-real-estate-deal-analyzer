@@ -137,20 +137,37 @@ def is_filename_derived(det: Mapping[str, Any]) -> bool:
     return str(det.get("source", "pixels")) in FILENAME_SOURCES
 
 
+#: The only two ``source`` values that positively mean "a detector emitted this label itself" --
+#: either it looked directly (``"pixels"``, the default) or its own emission was independently
+#: corroborated by a matching file name (``"filename_confirmed"``). This is an ALLOW-list, not a
+#: deny-list, on purpose: :func:`is_uncorroborated_filename_claim` used to be written as "value is
+#: in ``FILENAME_SOURCES`` and is not ``filename_confirmed``" -- a deny-list keyed on
+#: ``FILENAME_SOURCES``, a hardcoded three-element ``frozenset``. A ``source`` value that predicate
+#: had never seen (a fifth state added later, or a typo, or a producer from outside this module)
+#: was, by construction, NOT a member of that set, so the deny-list read it as "not a filename
+#: claim" and let it through unwithheld -- silently promoting an unrecognised state to a detector's
+#: finding, exactly the failure this function exists to prevent. Reproduced directly: feed
+#: ``"filename_llm_guessed"`` to the old body and it returns ``False``. Flipping the polarity to an
+#: allow-list closes that: only a value proven to mean "a detector emitted this" is trusted;
+#: everything else -- known-withheld, unknown, or not-yet-invented -- is withheld by default.
+_DETECTOR_EMITTED_SOURCES: frozenset[str] = frozenset({"pixels", "filename_confirmed"})
+
+
 def is_uncorroborated_filename_claim(source: str | None) -> bool:
-    """True when the claim is the FILE NAME's and no detector emitted the label itself.
+    """True unless ``source`` positively means a detector emitted the label itself.
 
     Takes the raw ``source`` VALUE rather than a record, because the two holders of that value have
     different shapes: ``core/cv`` and ``orchestrators`` hold raw ``DetectedLabel`` mappings, while
     ``core.insights.synthesis`` holds a validated :class:`~src.schemas.models.DetectedLabelModel`.
     One rule, two access shapes, no second copy of the rule.
 
-    Written as "filename-derived AND NOT confirmed" rather than "is contested or unconfirmed" so
-    that a source value added later lands in the cautious branch by default: an unrecognised
-    filename state must never be promoted to a detector's finding by omission.
+    Written as "NOT positively a detector's own emission" -- an allow-list of the two values that
+    mean that (see :data:`_DETECTOR_EMITTED_SOURCES`) -- rather than "is contested or unconfirmed",
+    so that a source value this function has never seen lands in the cautious branch by default: an
+    unrecognised filename state must never be promoted to a detector's finding by omission.
     """
     value = str(source or "pixels")
-    return value in FILENAME_SOURCES and value != "filename_confirmed"
+    return value not in _DETECTOR_EMITTED_SOURCES
 
 
 # =========================
@@ -194,6 +211,37 @@ def provider_capabilities(provider: ProviderName) -> frozenset[str]:
     if fn is None:
         raise ValueError(f"Unknown provider: {provider}")
     return _PROVIDER_CAPABILITIES.get(fn, frozenset())
+
+
+def provider_covers(provider: ProviderName, *canonical_labels: str, ontology: Ontology) -> bool:
+    """True when the function bound to ``provider`` declares a synonym for any of ``canonical_labels``.
+
+    Answers the question a report has to ask before it may print a NEGATIVE finding ("no EV
+    charging observed", "parking: none"): was anything even capable of looking for this? A default
+    value on a schema (e.g. ``ParkingSummary.ev_charging = False``) and a real negative observation
+    are indistinguishable once printed, and on every shipped provider today (see the "Built-in
+    capability declarations" block below -- exhaustively ``{natural_light_high,
+    stainless_appliances}`` plus synonyms) the default is what actually reaches the reader; nothing
+    built in declares any parking or EV-charging label. Printing that default as a sighting is R-6
+    inverted: the same "nothing looked" vs. "something looked and disagreed" distinction that keeps
+    a file name from asserting a defect applies just as much to a report asserting an absence.
+
+    ``provider_capabilities(provider)`` may return synonyms rather than canonical ontology names
+    (an ONNX labels file is whatever the model's author wrote), so each declared name is resolved
+    through ``ontology`` before comparing -- the same resolution
+    :func:`~src.core.cv.runner._covered_labels` performs for filename corroboration, exposed here
+    publicly because a reporting consumer needs the identical answer and lives outside ``core/cv``.
+
+    Raises ``ValueError`` for an unregistered ``provider``, matching :func:`provider_capabilities`.
+    """
+    wanted = {lab.strip().lower() for lab in canonical_labels if lab and lab.strip()}
+    if not wanted:
+        return False
+    for raw in provider_capabilities(provider):
+        meta = ontology.lookup(raw)
+        if meta is not None and meta["name"] in wanted:
+            return True
+    return False
 
 
 # =========================

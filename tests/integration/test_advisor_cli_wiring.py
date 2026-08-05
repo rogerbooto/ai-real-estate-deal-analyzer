@@ -1,15 +1,25 @@
 # tests/integration/test_advisor_cli_wiring.py
 """
-Mission 2, Wave 3, task 3.1b (OPD-3 "wire-first") — advisor_cli.py wiring for five modules the
-OPD-3 pre-work reachability survey found reachable only from tests (or from nothing at all):
+Mission 2, Wave 3, task 3.1b (OPD-3 "wire-first") — advisor_cli.py wiring for the modules the
+OPD-3 pre-work reachability survey found reachable only from tests (or from nothing at all).
 
-  - src.core.advisor.scenarios          (new --what-if flag)
-  - src.core.intelligence.narrative_builder + report_builder  (new --narrative flag)
-  - src.market.regional_income          (new --regional-income flag)
-  - src.core.utils.markdown             (--markdown now calls render_markdown() instead of a
+Gate 3 (2026-08-05) blocked and reverted two of the five: `--what-if` (`src.core.advisor.scenarios`)
+and `--narrative` (`src.core.intelligence.narrative_builder`/`report_builder`) both printed numbers
+the deterministic finance engine never computed onto a file the user reads (a fabricated IRR proxy
+with no amortization behind it; a duplicate, strictly-poorer report printing raw-fraction IRR where
+every other surface renders a percentage). Both modules are deleted (see `CHANGELOG.md` "Removed"),
+and this file's job for them is now the opposite of before: prove the flags are **rejected** by the
+parser, not silently accepted as no-ops.
+
+The three surviving items:
+
+  - src.market.regional_income          (--regional-income flag, corrected at Gate 3 to drop its
+                                          two fabricated fields — turnover_cost, str_multiplier —
+                                          from every rendered output)
+  - src.core.utils.markdown             (--markdown calls render_markdown() instead of a
                                           hand-rolled reimplementation that used to live inline
                                           at advisor_cli.py, drifting from src/core/utils/markdown.py)
-  - src.core.utils.serialize            (--save-artifacts now calls to_primitive())
+  - src.core.utils.serialize            (--save-artifacts calls to_primitive())
 
 Each test below is the RED-on-revert proof for its module: reverting the corresponding wiring in
 advisor_cli.py (removing the flag's body, or reverting the --markdown/--save-artifacts bodies to
@@ -27,9 +37,8 @@ from typing import Any
 import pytest
 
 from src.cli.advisor_cli import _deal_artifact_payload, main as advisor_main
-from src.core.advisor.scenarios import DEFAULT_SCENARIOS, summarize_scenarios
 from src.market.regional_income import build_regional_income
-from tests.utils import _patched_argv_and_syspath, make_finance_summary, repo_root
+from tests.utils import _patched_argv_and_syspath, repo_root
 
 
 def _write_json(p: Path, obj: object) -> None:
@@ -60,100 +69,51 @@ def _build_deal_dir(deal_dir: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# src.core.advisor.scenarios — --what-if
+# Gate 3 — --what-if / --narrative must be rejected, not silently accepted
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.integration
-def test_what_if_flag_adds_the_real_scenario_module_output(tmp_path: Path) -> None:
+def test_what_if_flag_is_rejected_by_the_parser(tmp_path: Path, capsys) -> None:
+    """
+    src.core.advisor.scenarios was deleted at Gate 3 (fabricated irr_est, no amortization, its own
+    "does not re-run engine" disclaimer never reached the page). --what-if must be an argparse
+    error (exit code 2), not a quietly-ignored flag -- a silent no-op would be indistinguishable
+    from someone re-wiring the deleted module.
+    """
     deal_dir = tmp_path / "dealA"
     _build_deal_dir(deal_dir)
     out_path = tmp_path / "advisor_output.json"
 
     argv = ["advisor_cli.py", "--files", str(deal_dir), "--out", str(out_path), "--what-if"]
     with _patched_argv_and_syspath(argv, str(repo_root())):
-        advisor_main()
+        with pytest.raises(SystemExit) as exc_info:
+            advisor_main()
 
-    payload = json.loads(out_path.read_text(encoding="utf-8"))
-    scenarios = payload["ranked"][0]["what_if_scenarios"]
-
-    # Independently computed from the same finance summary via the real module -- not a
-    # re-derivation of advisor_cli's own logic, so this cannot pass "for the wrong reason".
-    expected = summarize_scenarios(make_finance_summary(**_FINANCE_JSON))
-    assert scenarios == expected
-    assert [sc["name"] for sc in scenarios] == [sc.name for sc in DEFAULT_SCENARIOS]
+    assert exc_info.value.code == 2
+    assert not out_path.exists()
+    assert "unrecognized arguments" in capsys.readouterr().err
 
 
 @pytest.mark.integration
-def test_without_what_if_flag_no_scenarios_key_is_added(tmp_path: Path) -> None:
-    deal_dir = tmp_path / "dealA"
-    _build_deal_dir(deal_dir)
-    out_path = tmp_path / "advisor_output.json"
-
-    argv = ["advisor_cli.py", "--files", str(deal_dir), "--out", str(out_path)]
-    with _patched_argv_and_syspath(argv, str(repo_root())):
-        advisor_main()
-
-    payload = json.loads(out_path.read_text(encoding="utf-8"))
-    assert "what_if_scenarios" not in payload["ranked"][0]
-
-
-@pytest.mark.integration
-def test_what_if_scenarios_also_render_in_the_markdown_summary(tmp_path: Path) -> None:
-    deal_dir = tmp_path / "dealA"
-    _build_deal_dir(deal_dir)
-    out_path = tmp_path / "advisor_output.json"
-
-    argv = ["advisor_cli.py", "--files", str(deal_dir), "--out", str(out_path), "--what-if", "--markdown"]
-    with _patched_argv_and_syspath(argv, str(repo_root())):
-        advisor_main()
-
-    md_text = out_path.with_suffix(".md").read_text(encoding="utf-8")
-    assert "## What-If Scenarios" in md_text
-    for sc in DEFAULT_SCENARIOS:
-        assert f"**{sc.name}**" in md_text
-
-
-# ---------------------------------------------------------------------------
-# src.core.intelligence.narrative_builder + report_builder — --narrative
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.integration
-def test_narrative_flag_writes_one_report_builder_markdown_file_per_deal(tmp_path: Path, capsys) -> None:
+def test_narrative_flag_is_rejected_by_the_parser(tmp_path: Path, capsys) -> None:
+    """
+    src.core.intelligence.narrative_builder/report_builder were deleted at Gate 3 (a duplicate,
+    strictly-poorer report than deal-report's, printing raw-fraction IRR). --narrative must be an
+    argparse error (exit code 2), not a quietly-ignored flag.
+    """
     deal_dir = tmp_path / "dealA"
     _build_deal_dir(deal_dir)
     out_path = tmp_path / "advisor_output.json"
 
     argv = ["advisor_cli.py", "--files", str(deal_dir), "--out", str(out_path), "--narrative"]
     with _patched_argv_and_syspath(argv, str(repo_root())):
-        advisor_main()
+        with pytest.raises(SystemExit) as exc_info:
+            advisor_main()
 
-    narrative_path = tmp_path / "advisor_output_narratives" / "deal_01.md"
-    assert narrative_path.exists()
-    text = narrative_path.read_text(encoding="utf-8")
-
-    # These headings/sections are build_narrative_md's own structure (tests/core/intelligence/
-    # test_narrative_builder.py pins the format) -- present here only if write_markdown_report()
-    # really called it, not some ad hoc re-derivation in the CLI.
-    assert text.startswith("# Deal Overview")
-    assert "## Snapshot" in text
-    assert "## Financials" in text
-
-    captured = capsys.readouterr()
-    assert str(narrative_path) in captured.out
-
-
-@pytest.mark.integration
-def test_without_narrative_flag_no_narratives_directory_is_created(tmp_path: Path) -> None:
-    deal_dir = tmp_path / "dealA"
-    _build_deal_dir(deal_dir)
-    out_path = tmp_path / "advisor_output.json"
-
-    argv = ["advisor_cli.py", "--files", str(deal_dir), "--out", str(out_path)]
-    with _patched_argv_and_syspath(argv, str(repo_root())):
-        advisor_main()
-
+    assert exc_info.value.code == 2
+    assert not out_path.exists()
+    assert "unrecognized arguments" in capsys.readouterr().err
     assert not (tmp_path / "advisor_output_narratives").exists()
 
 
@@ -184,10 +144,62 @@ def test_regional_income_flag_embeds_the_real_module_output(tmp_path: Path, caps
 
     payload = json.loads(out_path.read_text(encoding="utf-8"))
     expected = build_regional_income("Metro A", 2, [1500, 1550, 1600, 1700, 1800])
-    assert payload["regional_income"] == expected.model_dump()
+
+    # Independently computed from the same comps via the real module -- not a re-derivation of
+    # advisor_cli's own logic, so this cannot pass "for the wrong reason".
+    assert payload["regional_income"] == {
+        "region": expected.region,
+        "bedrooms": expected.bedrooms,
+        "median_rent": expected.median_rent,
+        "p25_rent": expected.p25_rent,
+        "p75_rent": expected.p75_rent,
+    }
 
     captured = capsys.readouterr()
     assert expected.summary() in captured.out
+
+
+@pytest.mark.integration
+def test_regional_income_flag_never_surfaces_the_two_fabricated_fields(tmp_path: Path, capsys) -> None:
+    """
+    Gate 3 (mission/2-wiring-gaps): RegionalIncomeTable.turnover_cost (an uncited "median rent *
+    0.5" rule of thumb) and .str_multiplier (a hardcoded 1.5x STR uplift previously gated by a
+    policy hook whose entire body was `return True`, in a province that regulates short-term
+    rentals) must never reach --out's JSON, the console summary, or --markdown. RED on revert: if
+    either field is re-added to advisor_cli's rendering, this test catches it.
+    """
+    deal_dir = tmp_path / "dealA"
+    _build_deal_dir(deal_dir)
+    comps_path = tmp_path / "comps.json"
+    _write_json(comps_path, {"region": "Metro A", "bedrooms": 2, "comps": [1500, 1550, 1600, 1700, 1800]})
+    out_path = tmp_path / "advisor_output.json"
+
+    argv = [
+        "advisor_cli.py",
+        "--files",
+        str(deal_dir),
+        "--out",
+        str(out_path),
+        "--regional-income",
+        str(comps_path),
+        "--markdown",
+    ]
+    with _patched_argv_and_syspath(argv, str(repo_root())):
+        advisor_main()
+
+    payload = json.loads(out_path.read_text(encoding="utf-8"))
+    assert "turnover_cost" not in payload["regional_income"]
+    assert "str_multiplier" not in payload["regional_income"]
+
+    captured = capsys.readouterr()
+    assert "turnover" not in captured.out.lower()
+    assert "strx" not in captured.out.lower()
+    assert "[RegionalIncomeTable]" not in captured.out
+
+    md_text = out_path.with_suffix(".md").read_text(encoding="utf-8")
+    assert "turnover" not in md_text.lower()
+    assert "strx" not in md_text.lower()
+    assert "[RegionalIncomeTable]" not in md_text
 
 
 @pytest.mark.integration

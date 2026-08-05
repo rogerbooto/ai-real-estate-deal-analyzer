@@ -24,6 +24,7 @@ from typing import NamedTuple
 from urllib.parse import urlparse
 
 from src.core.cv.amenities_defects import (
+    UNCONFIRMED_HINT_SOURCE,
     contested_hint_note,
     is_uncorroborated_filename_claim,
     unconfirmed_hint_note,
@@ -145,11 +146,19 @@ class _AmenitySupport(NamedTuple):
     #: rejected. Carried as the DETECTION names, not the surface key, so the reader is told what was
     #: actually claimed ("parking_garage") in the same vocabulary the producer-side note uses.
     contradicted_labels: list[str]
-    #: True only when sightings WERE found and every one of them is a claim a detector examined the
-    #: pixels for and rejected (or that nothing was able to check). "No sighting at all" is
-    #: deliberately False: an unattributable boolean is a caller's assertion this module has no
-    #: grounds to overrule, while a contradicted one is a claim something actually looked at.
-    contradicted_only: bool
+    #: Ontology labels behind this boolean whose only support is a material promoted off a file
+    #: name (S1). ``_filename_generic_labels`` (core/cv/runner.py) never examines pixels for a
+    #: material tag, so no detector could ever confirm or contest one -- the OTHER half of the
+    #: suggest-vs-confirm rule from ``contradicted_labels``: "nothing was able to look" rather than
+    #: "something looked and disagreed". Carried as the MaterialTag value, matching the vocabulary
+    #: ``unconfirmed_hint_note`` renders.
+    unconfirmed_labels: list[str]
+    #: True only when sightings WERE found and every one of them is either a claim a detector
+    #: examined the pixels for and rejected, or a claim nothing was ever able to check. "No sighting
+    #: at all" is deliberately False: an unattributable boolean is a caller's assertion this module
+    #: has no grounds to overrule, while a withheld one is a claim something concrete backs -- just
+    #: never a real sighting.
+    withheld: bool
 
 
 def _photo_amenity_observations(photos: PhotoInsights, *, surface_key: str, tag: str) -> _AmenitySupport:
@@ -170,6 +179,7 @@ def _photo_amenity_observations(photos: PhotoInsights, *, surface_key: str, tag:
     out: list[ObservationProvenance] = []
     real_sightings = 0
     contradicted: set[str] = set()
+    unconfirmed: set[str] = set()
 
     for sha, dets in (photos.image_detections or {}).items():
         for det in dets or []:
@@ -212,9 +222,29 @@ def _photo_amenity_observations(photos: PhotoInsights, *, surface_key: str, tag:
                 continue
             mapped = MATERIAL_TO_AMENITY_SURFACE.get(material)
             if mapped is not None and mapped.value == surface_key:
-                # A material promoted off a file name (task 3.5's territory, deliberately untouched
-                # here): still a sighting for the purposes of this count, because nothing
-                # contradicted it.
+                # A material promoted off a file name is the same suggest-vs-confirm rule this
+                # function already applies to detections above (S1 -- this branch used to count it
+                # as a real sighting "because nothing contradicted it", which is the wrong test:
+                # nothing was ever ABLE to contradict it). `_filename_generic_labels`
+                # (core/cv/runner.py) never examines pixels for a material tag, so there is no
+                # detector here that could ever confirm or contest one -- structurally always the
+                # "nothing was able to look" case, exactly like `cv_tagging_orchestrator`'s
+                # treatment of this same channel (task 3.5). Routed through the shared predicate,
+                # not decided locally: passing the canonical `UNCONFIRMED_HINT_SOURCE` value asks
+                # `is_uncorroborated_filename_claim` to affirm the classification instead of a
+                # second, ad hoc copy of the rule -- the same predicate the detection loop above
+                # uses for the real `source` values it holds.
+                if is_uncorroborated_filename_claim(UNCONFIRMED_HINT_SOURCE):
+                    unconfirmed.add(material.value)
+                    out.append(
+                        filename_observation(
+                            tag,
+                            kind="amenity",
+                            detail=f"{material.value} suggested by a file name; no detector covers this label",
+                            source_image_sha=sha,
+                        )
+                    )
+                    continue
                 real_sightings += 1
                 out.append(filename_observation(tag, kind="amenity", detail=material.value, source_image_sha=sha))
 
@@ -222,11 +252,12 @@ def _photo_amenity_observations(photos: PhotoInsights, *, surface_key: str, tag:
         out.append(
             unattributed_observation(tag, kind="amenity", detail=f"photo amenity surface '{surface_key}' with no supporting detection")
         )
-    return _AmenitySupport(out, sorted(contradicted), contradicted_only=bool(contradicted) and real_sightings == 0)
+    withheld = bool(contradicted or unconfirmed) and real_sightings == 0
+    return _AmenitySupport(out, sorted(contradicted), sorted(unconfirmed), withheld)
 
 
 class _AmenityResult(NamedTuple):
-    """Amenity tags, their provenance ledger, and the labels withheld as contradicted."""
+    """Amenity tags, their provenance ledger, and the labels withheld as contradicted/unconfirmed."""
 
     tags: list[str]
     observations: list[ObservationProvenance]
@@ -234,6 +265,10 @@ class _AmenityResult(NamedTuple):
     #: Kept out of ``tags`` and surfaced to the reader through ``notes`` instead, so the fact is
     #: shown but cannot be read by ``finance.engine._apply_insight_modifiers``.
     contradicted_labels: list[str]
+    #: Ontology labels behind a withheld amenity boolean whose only support is a filename-promoted
+    #: material nothing was ever able to check (S1). Sibling of ``contradicted_labels``: same
+    #: withholding, different reason, different reader-facing sentence.
+    unconfirmed_labels: list[str]
     #: The surface keys those labels came from, so the "Amenities present" roll-up can exclude
     #: exactly the booleans that did not graduate rather than re-asserting them a line later.
     withheld_surface_keys: list[str]
@@ -247,17 +282,19 @@ def _amenities_from(listing: ListingNormalized, photos: PhotoInsights) -> _Ameni
     Also returns one provenance record per sighting: an amenity stated by the copy AND seen in a
     photo yields two, so a reader can tell agreement from a single unverified claim.
 
-    A photo amenity boolean whose ONLY support is a filename claim a covering detector rejected
-    does not become a tag. This is the ingest-side half of the G2-N1 guard: the finance engine
-    selects income and OPEX rules by MEMBERSHIP in this list and never reads a confidence, so the
-    0.30 corroboration score gates nothing on this route -- a tag that never arrives is the only
-    thing that cannot select a rule. Deliberately scoped to "contradicted", not to "unattributed":
-    a caller who hand-builds ``photos.amenities`` with no detections at all has asserted something
-    this module has no evidence against, and overruling that would be a different (and wrong) call.
+    A photo amenity boolean whose ONLY support is a filename claim a covering detector rejected, or
+    a filename-promoted material nothing was ever able to check (S1), does not become a tag. This
+    is the ingest-side half of the G2-N1 guard: the finance engine selects income and OPEX rules by
+    MEMBERSHIP in this list and never reads a confidence, so the 0.30 corroboration score gates
+    nothing on this route -- a tag that never arrives is the only thing that cannot select a rule.
+    Deliberately scoped to "contradicted"/"unconfirmed", not to "unattributed": a caller who
+    hand-builds ``photos.amenities`` with no detections at all has asserted something this module
+    has no evidence against, and overruling that would be a different (and wrong) call.
     """
     out: set[str] = set()
     observations: list[ObservationProvenance] = []
     contradicted_labels: set[str] = set()
+    unconfirmed_labels: set[str] = set()
     withheld_keys: set[str] = set()
 
     # From normalized listing facts
@@ -299,18 +336,19 @@ def _amenities_from(listing: ListingNormalized, photos: PhotoInsights) -> _Ameni
         else:
             tag = k.replace("_", " ")
         support = _photo_amenity_observations(photos, surface_key=k, tag=tag)
-        if support.contradicted_only:
+        if support.withheld:
             # Withheld, not silently dropped: the caller turns it into a reader-facing note. The
             # provenance records are dropped with it -- `provenance.retain_recorded_tags` would
             # discard them anyway, and a ledger entry pointing at a tag the reader cannot find is
             # worse than no entry.
             contradicted_labels.update(support.contradicted_labels)
+            unconfirmed_labels.update(support.unconfirmed_labels)
             withheld_keys.add(k)
             continue
         out.add(tag)
         observations.extend(support.observations)
 
-    return _AmenityResult(sorted(out), observations, sorted(contradicted_labels), sorted(withheld_keys))
+    return _AmenityResult(sorted(out), observations, sorted(contradicted_labels), sorted(unconfirmed_labels), sorted(withheld_keys))
 
 
 # ----------------------------
@@ -445,14 +483,20 @@ def synthesize_listing_insights(listing: ListingNormalized, photos: PhotoInsight
     defects: list[str] = []  # keep empty until wired to explicit signals
     notes = _notes_from(listing, photos)
 
-    # A photo amenity withheld because a detector contradicted it is still told to the reader --
-    # just in the channel nothing in the finance core reads. Emitted here rather than in
+    # A photo amenity withheld because a detector contradicted it, or because its only support is
+    # a filename-promoted material nothing was ever able to check (S1), is still told to the reader
+    # -- just in the channel nothing in the finance core reads. Emitted here rather than in
     # `_notes_from` because only `_amenities_from` knows which booleans failed to graduate. Named
     # by the ontology label the file name actually claimed, so this reads identically to the
-    # producer-side note `_notes_from` emits from `photos.contested_hint_counts`.
+    # producer-side notes `_notes_from` emits from `photos.contested_hint_counts` /
+    # `photos.unconfirmed_hint_counts` -- and to `cv_tagging_orchestrator`'s `unconfirmed_hints`.
     withheld = set(amenity_result.withheld_surface_keys)
     for label in amenity_result.contradicted_labels:
         note = contested_hint_note(label)
+        if note not in notes:
+            notes.append(note)
+    for label in amenity_result.unconfirmed_labels:
+        note = unconfirmed_hint_note(label)
         if note not in notes:
             notes.append(note)
 

@@ -11,10 +11,19 @@
     (Mission 2 task 3.1b, OPD-3 "wire-first") `build_regional_income` (`regional_income.py`) is
     reachable in production via `deal-advisor`'s `--regional-income <path>` flag: a JSON file
     `{"region": ..., "bedrooms": ..., "comps": [rent, ...]}` is loaded, built into a
-    `RegionalIncomeTable`, and embedded in the advisor's JSON/`--markdown` output as a
-    portfolio-level sanity-check (it is not per-deal — comps describe a market, not one listing).
-    It is a deliberately separate entry point from the scenario overlay below: it needs only
-    comps, not a `FinancialInputs`/engine run.
+    `RegionalIncomeTable`, and its real comps-derived fields (median/p25/p75 rent) are embedded in
+    the advisor's JSON/`--markdown` output as a portfolio-level sanity-check (it is not per-deal —
+    comps describe a market, not one listing). It is a deliberately separate entry point from the
+    scenario overlay below: it needs only comps, not a `FinancialInputs`/engine run. **Gate 3
+    correction (2026-08-05):** `RegionalIncomeTable.str_multiplier`/`turnover_cost` were found
+    fabricated (a hardcoded 1.5x STR uplift gated by a policy hook that always returned `True`, and
+    an uncited "median rent × 0.5" rule of thumb) and neither reaches `deal-advisor`'s output;
+    `build_regional_income` no longer computes an STR multiplier at all (`str_multiplier` is always
+    `None`) and `RegionalIncomeTable.summary()` no longer renders either field or the
+    `[RegionalIncomeTable]` class-name prefix it used to print. `turnover_cost` remains a required
+    schema field computed internally for validity; `advisor_cli.py`'s `_regional_income_payload`
+    additionally keeps it out of `--out`'s JSON specifically (the field-removal question is left to
+    a follow-up schema decision — see `CHANGELOG.md` "Removed").
   * **NEW — Wave 2:** Perturb financial inputs per hypothesis and re-run the frozen finance engine to produce prior-weighted scenario outcomes (`adapter.py`, `scenario_runner.py`).
 * **Current status**: fully implemented and tested; wired into the pipeline as an **opt-in** “Market Scenarios” overlay behind `--scenarios` / `AIREAL_SCENARIOS` / `run.scenarios`. When OFF (default), the hot path adds zero scenario imports and produces byte-identical output. Scenarios are deterministic what-if calculations, not predictions.
 
@@ -35,7 +44,8 @@
   * `MarketSnapshot` (fractional fields, frozen) — baseline context.
   * `MarketHypothesis` (absolute **deltas**; priors; rationale; STR flag).
   * `HypothesisSet` (collection with notes/seed; priors sum to 1 after rejector).
-  * `RegionalIncomeTable` (median/p25/p75, turnover, optional STR uplift).
+  * `RegionalIncomeTable` (median/p25/p75; also carries `turnover_cost`/`str_multiplier` fields the
+    schema still defines but no production caller renders — see the Gate 3 correction above).
 * **Functions / Classes:**
 
   * `build_snapshot(m: Mapping[str, Any]) -> MarketSnapshot`
@@ -95,7 +105,7 @@ print(hs_clean.summary(top_n=3))
 from src.market.regional_income import build_regional_income
 
 tbl = build_regional_income("Metro A", bedrooms=2, comps=[1500, 1550, 1600, 1700, 1800])
-print(tbl.summary())  # includes P25/Median/P75 and turnover; STR multiplier if present
+print(tbl.summary())  # region/bedrooms/P25/Median/P75 rent -- same string deal-advisor prints
 ```
 
 > As of 2026-08-05 this is also reachable from `deal-advisor --regional-income <path>` (Mission 2
@@ -143,7 +153,8 @@ print(tbl.summary())  # includes P25/Median/P75 and turnover; STR multiplier if 
   * `tests/unit/test_rejector.py` — hard bounds, rent-vs-vacancy rule, STR coherence flip, renormalization, deterministic order.
   * `tests/unit/test_market_regional_income.py` — table shape & summaries.
   * `tests/integration/test_advisor_cli_wiring.py` — `deal-advisor --regional-income` end-to-end
-    (embeds the real `build_regional_income()` output; loud-fails on missing keys).
+    (embeds the real `build_regional_income()` median/p25/p75 output; loud-fails on missing keys;
+    asserts `turnover_cost`/`str_multiplier` never appear in `--out`/`--markdown`/console output).
 * Run:
 
   ```
@@ -171,7 +182,11 @@ print(tbl.summary())  # includes P25/Median/P75 and turnover; STR multiplier if 
 
 ---
 
-_Last reconciled: 2026-08-05 against mission/2-wiring-gaps (task 3.1b, OPD-3 "wire-first"):
+_Last reconciled: 2026-08-05 against mission/2-wiring-gaps (Gate 3 remediation): corrected the
+`build_regional_income`/`RegionalIncomeTable` bullets above — `str_multiplier`/`turnover_cost` were
+fabricated and no longer reach `deal-advisor`'s output (`str_multiplier` is no longer computed at
+all); every code sample and reachability note updated to say so. See `CHANGELOG.md` "Removed".
+Earlier note: 2026-08-05 against mission/2-wiring-gaps (task 3.1b, OPD-3 "wire-first"):
 `build_regional_income` is now wired into `deal-advisor --regional-income`, closing the
 reachability gap this file has tracked since 2026-08-03 — every "reachable only from tests"
 mention above is updated accordingly. Earlier note: 2026-08-04 against mission/2-wiring-gaps @ d18ee1a (Gate 2 VETO remediation: added the full-suite coverage-gate note; no other content change — the guardian confirmed this file's OPD-3 framing accurate at Gate 2. Earlier note: 2026-08-03 @ 74c985c, clarified `build_regional_income` is reachable only from tests today; Wave 3/OPD-3 will decide whether to wire it)._

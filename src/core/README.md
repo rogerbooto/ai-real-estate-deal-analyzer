@@ -13,19 +13,24 @@
   * **media/**: media discovery, filtered download, bundle manifests, and media intelligence (phash/quality/palette/hero).
   * **fetch/**: HTML fetching, robots.txt policy, caching, typed errors.
   * **insights/**: synthesis of listing + photo insights into `ListingInsights`.
-  * **intelligence/**: deal fusion, composite scoring (`DealIntelligence`). `narrative_builder.py`
-    (`build_narrative_md`) and `report_builder.py` (`write_markdown_report`) also live here — as of
-    2026-08-05 (Mission 2 task 3.1b, OPD-3 "wire-first") both are reachable in production, via
-    `deal-advisor`'s `--narrative` flag (one Markdown narrative file per ranked deal;
-    `write_markdown_report` calls `build_narrative_md` internally). `md_to_html` remains
-    reachable only from `tests/core/intelligence/test_report_builder.py` — no CLI renders HTML.
-  * **advisor/**: multi-deal ranking, portfolio summary, risk flags. `advisor/scenarios.py`
-    ("scenario what-ifs", `summarize_scenarios`) is reachable in production as of 2026-08-05
-    (Mission 2 task 3.1b) via `deal-advisor`'s `--what-if` flag, which attaches each deal's
-    down-payment/rate/renovation-budget what-ifs to both the JSON output and the `--markdown`
-    summary. It remains a deliberately approximate heuristic (documented in its own docstring) —
-    it does not re-run the finance engine, unlike `src/market`'s scenario overlay (see
-    `src/market/README.md`), which does.
+  * **intelligence/**: deal fusion, composite scoring (`DealIntelligence`). Task 3.1b (2026-08-05)
+    wired `narrative_builder.py` (`build_narrative_md`) and `report_builder.py`
+    (`write_markdown_report`) into a new `deal-advisor --narrative` flag; the founder-proxy blocked
+    that wiring at Gate 3 the same day because the resulting report duplicated `deal-report`'s
+    output with strictly less information and printed raw-fraction IRR (`0.12`) where every other
+    surface renders a percentage. Both files, and the flag, were deleted at Gate 3 remediation — see
+    `CHANGELOG.md` "Removed". `intelligence/` now holds only `deal_fusion.py`, `scoring.py`,
+    `types.py`.
+  * **advisor/**: multi-deal ranking, portfolio summary, risk flags. Task 3.1b also wired
+    `advisor/scenarios.py` ("scenario what-ifs", `summarize_scenarios`) into a `deal-advisor
+    --what-if` flag; blocked at the same Gate 3 review because `summarize_scenarios` rendered a
+    fabricated `irr_est` (base IRR plus a clamped ±10pp proxy from invented, uncited coefficients,
+    no amortization anywhere) whose own returned disclaimer ("Approximate scenario; does not re-run
+    engine.") never reached the rendered page, computed against a down-payment-rate fallback that
+    did not match the sample deal's real rate. Deleted at Gate 3 remediation — see `CHANGELOG.md`
+    "Removed". An engine-backed what-if belongs behind `src/market/scenario_runner.py` (perturbs
+    `FinancialInputs`, re-runs `run_financial_model`) — see `src/market/README.md` — not a
+    standalone approximation. `advisor/` now holds `portfolio.py`, `recommender.py`, `risk.py`.
   * *(**strategy/** is gone. It held one function, `form_thesis` — a second rule-based
     thesis-formation implementation that no production code ever called. Mission 2 task 3.1a
     reconciled it into the live path and deleted it, per OPD-1's binding reconcile→review→delete
@@ -209,7 +214,12 @@ The marker itself now survives validation: `DetectedLabelModel.source` (see `sch
 
 ---
 
-_Last reconciled: 2026-08-05 against mission/2-wiring-gaps (task 3.1b, the wiring half): the
+_Last reconciled: 2026-08-05 against mission/2-wiring-gaps (Gate 3 remediation): the
+`narrative_builder.py`/`report_builder.py` and `advisor/scenarios.py` bullets above now describe
+their deletion, not their wiring — the founder-proxy blocked both at Gate 3 for printing figures
+the finance engine never computed, and the task-3.1b stamp this note supersedes (below) described
+them as live. See `CHANGELOG.md` "Removed" for the full record. Earlier note: 2026-08-05 against
+mission/2-wiring-gaps (task 3.1b, the wiring half): the
 `narrative_builder.py`/`report_builder.py` and `advisor/scenarios.py` bullets above now describe
 the live `deal-advisor --narrative`/`--what-if` callers instead of "no production caller" — see
 `src/cli/README.md` for the flags and `docs/plans/MISSION_2_SPRINT_TRACKER.md` row 3.1b for the
