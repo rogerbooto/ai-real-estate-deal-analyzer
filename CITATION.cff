@@ -1,8 +1,8 @@
 cff-version: 1.2.0
 message: "If you use this project in research, coursework, or derivative works, please cite it as below."
 title: "The AI Real Estate Deal Analyzer"
-version: "1.0.0"
-date-released: 2025-09-15
+version: "0.3.0"
+date-released: 2026-08-05
 authors:
   - family-names: "Booto Tokime"
     given-names: "Roger"

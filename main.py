@@ -1,6 +1,6 @@
 # main.py
 """
-Entry Point — AI Real Estate Deal Analyzer (V2)
+Entry Point — AI Real Estate Deal Analyzer (V3)
 
 Purpose
 -------
@@ -112,7 +112,7 @@ def build_sample_inputs() -> FinancialInputs:
 
 def parse_args() -> argparse.Namespace:
     """Parse CLI arguments for configurable runs."""
-    p = argparse.ArgumentParser(description="AI Real Estate Deal Analyzer (V2)")
+    p = argparse.ArgumentParser(description="AI Real Estate Deal Analyzer (V3)")
     p.add_argument("--config", type=str, default=None, help="Path to JSON config (FinancialInputs or AppInputs).")
     p.add_argument("--out", type=str, default=None, help="Output Markdown path (overrides config).")
     p.add_argument("--horizon", type=int, default=None, help="Forecast horizon in years (overrides config).")
@@ -213,7 +213,7 @@ def resolve_config_path(config: str | None, listing: str | None, photos: str | N
 
 def main() -> None:
     """Run end-to-end analysis and write investment_analysis.md (or chosen output)."""
-    print("Running AI Real Estate Deal Analyzer (V2)...")
+    print("Running AI Real Estate Deal Analyzer (V3)...")
     args = parse_args()
 
     loader = InputsLoader()

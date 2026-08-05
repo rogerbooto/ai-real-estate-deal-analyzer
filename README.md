@@ -23,7 +23,7 @@ git clone https://github.com/rogerbooto/ai-real-estate-deal-analyzer.git && cd a
 Expected output:
 
 ```text
-Running AI Real Estate Deal Analyzer (V2)...
+Running AI Real Estate Deal Analyzer (V3)...
 Report written to investment_analysis.md
 Thesis verdict: DECLINE
 ```
@@ -277,7 +277,7 @@ python main.py --config data/sample_listings/36_kelly_moncton/inputs.json --scen
 Expected console output:
 
 ```text
-Running AI Real Estate Deal Analyzer (V2)...
+Running AI Real Estate Deal Analyzer (V3)...
 Report written to investment_analysis.md
 Thesis verdict: DECLINE
 ```

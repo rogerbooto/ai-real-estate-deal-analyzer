@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ai-real-estate-deal-analyzer"
-version = "0.1.0"
+version = "0.3.0"
 description = "A deterministic-first investment co-pilot that ingests real estate listings and user-provided financial data to produce financial breakdowns, media insights, and a human-readable investment thesis."
 readme = "README.md"
 requires-python = ">=3.10"

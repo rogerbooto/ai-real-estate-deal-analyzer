@@ -6,6 +6,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.3.0] - 2026-08-05
+
+**The V3 generation, released.** `main.py` now announces V3 — it had been printing "V2" since
+before the Market Scenarios overlay shipped on 2026-07-24, so the banner was a generation behind
+the code. The README roadmap already recorded V3 as shipped; this closes the gap between what the
+program says and what it is, which is the same class of drift Mission 2 was chartered to remove.
+
+Versioned `0.3.0` rather than `3.0.0`: the V-numbers are **product generations** documented in the
+README roadmap, not semver majors. The package stays pre-1.0 because it is not published and the
+schema is still moving — claiming a stable major would assert an API freeze that is not true.
+`CITATION.cff` said `1.0.0` while `pyproject.toml` said `0.1.0`; the citation file predates the
+0.1.0 release and was wrong. Both now read `0.3.0`.
+
 _Status note (2026-07-24): section reconciled against main @ e4716df — the entries below reflect work actually merged since v0.1.0. Market Scenarios (opt-in scenarios overlay, Mission 1 Wave 2) now shipped._
 
 _Status note (2026-08-03, Mission 2 Wave 2 reachability audit — does not rewrite the entries below):
