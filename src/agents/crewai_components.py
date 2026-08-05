@@ -38,7 +38,7 @@ Design
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import TypeVar
+from typing import Any, TypeVar
 
 try:
     # Optional import: present when users actually run with engine="crewai"
@@ -318,8 +318,22 @@ class ListingAnalystAgent:
     """CrewAI wrapper that deterministically produces ListingInsights."""
 
     def __init__(self) -> None:
-        if _CREW_AVAILABLE:
-            self.agent = Agent(
+        # LAZY on purpose. Constructing the shell here made merely INSTANTIATING this
+        # class require an OpenAI key: crewai backfills a default model, and newer
+        # versions validate `OPENAI_API_KEY` at construction time rather than at call
+        # time. That broke the DETERMINISTIC path -- which this project guarantees needs
+        # no model and no key -- and it broke it invisibly: locally a `.env` supplies a
+        # key, so the suite stayed green while CI (no key, unpinned `crewai>=0.28.0`,
+        # therefore a newer release) went red on a test whose whole point is that LLM
+        # mode is OFF. Deferring construction to the one place the shell is actually
+        # used keeps the parity affordance without letting it reach the default path.
+        self._agent: Any | None = None
+
+    @property
+    def agent(self) -> Any:
+        """The crewai Agent, built on first use. Only ``_run_llm`` reaches this."""
+        if self._agent is None:
+            self._agent = Agent(
                 role="Listing Analyst",
                 goal="Extract high-signal insights from local listing assets.",
                 backstory="Parses local listing text and tags photos using a CV stub.",
@@ -327,15 +341,7 @@ class ListingAnalystAgent:
                 allow_delegation=False,
                 llm=_get_model_name(),
             )
-            self.task = Task(
-                description=(
-                    "Analyze local listing text and photos and produce ListingInsights "
-                    "(address, amenities, notes, condition_tags, defects). "
-                    "Respond with JSON ONLY that matches the ListingInsights schema."
-                ),
-                expected_output="JSON matching ListingInsights",
-                agent=self.agent,
-            )
+        return self._agent
 
     def _run_llm(self, listing_txt_path: str | None, photos_folder: str | None) -> ListingInsights:
         if not _ensure_crewai_ready():
@@ -439,25 +445,14 @@ class FinancialForecasterAgent:
     """
 
     def __init__(self) -> None:
-        if _CREW_AVAILABLE:
-            self.agent = Agent(
-                role="Financial Forecaster (Deterministic)",
-                goal="Generate a rigorous, deterministic financial forecast using the local model.",
-                backstory="Wraps the local financial model engine; no LLM reasoning.",
-                verbose=False,
-                allow_delegation=False,
-                # Declares intent only: crewai backfills its default model when this is None.
-                # The real guarantee is that .run() never executes this shell.
-                llm=None,
-            )
-            self.task = Task(
-                description=(
-                    "Run the local financial model to produce NOI, DSCR, cash flows, IRR, and equity multiple "
-                    "for the specified horizon. This is a deterministic computation; do not call an LLM."
-                ),
-                expected_output="A valid FinancialForecast object (Pydantic).",
-                agent=self.agent,
-            )
+        # No shell is built. The old constructor's own comment said "crewai backfills its
+        # default model when this is None" -- and newer crewai backfills EAGERLY and then
+        # validates the API key, so this deterministic agent could not be instantiated
+        # without one. `.run()` never executed the shell, so nothing is lost by not
+        # building it; what is gained is that the deterministic path stops depending on a
+        # model provider it never calls. See `ListingAnalystAgent.agent` for the lazy
+        # form, used by the one class that genuinely runs a crew.
+        pass
 
     def run(
         self,
@@ -510,26 +505,14 @@ class ChiefStrategistAgent:
     """
 
     def __init__(self) -> None:
-        if _CREW_AVAILABLE:
-            self.agent = Agent(
-                role="Chief Strategist (Deterministic)",
-                goal="Synthesize a clear, defensible investment thesis from the local rule engine.",
-                backstory="Applies rule-based guardrails and levers; no LLM reasoning.",
-                verbose=False,
-                allow_delegation=False,
-                # Declares intent only (see module docstring); the verdict is kept
-                # model-free by there being no kickoff() path in this class at all.
-                llm=None,
-            )
-            self.task = Task(
-                description=(
-                    "Given FinancialForecast (+ optional ListingInsights), produce a BUY/CONDITIONAL/DECLINE thesis "
-                    "by applying the local underwriting thresholds. This is a deterministic computation; "
-                    "do not call an LLM."
-                ),
-                expected_output="A valid InvestmentThesis object (Pydantic).",
-                agent=self.agent,
-            )
+        # No shell is built -- same reason as `FinancialForecasterAgent`. The verdict is
+        # kept model-free by there being no kickoff() path in this class at all, which is
+        # a STRUCTURAL guarantee; an `llm=None` Agent only ever documented that intent,
+        # and newer crewai turned that documentation into a hard dependency on an API key
+        # by backfilling and validating a default model at construction. A decorative
+        # shell that cannot run, and that breaks the deterministic path when a dependency
+        # updates, is worse than no shell.
+        pass
 
     def run(
         self,
