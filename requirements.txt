@@ -1,6 +1,12 @@
 # Core AI & Agents
-crewai>=0.28.0
-crewai[tools]>=0.28.0
+# Ceiling is deliberate and evidence-based, not caution. `crewai>=0.28.0` (no ceiling) let CI
+# install 1.15.11 against a developer machine on 0.193.2 -- a 0.x -> 1.x MAJOR jump. 1.x
+# validates OPENAI_API_KEY when an Agent is CONSTRUCTED rather than when it is called, so simply
+# instantiating a deterministic agent began requiring a key and CI went red on tests whose whole
+# premise is that no model is involved. Raise this ceiling only with a run of the suite against
+# the new major, since that is the boundary the break crossed.
+crewai>=0.28.0,<1.0.0
+crewai[tools]>=0.28.0,<1.0.0
 
 # Environment & Config
 python-dotenv>=1.0.1
@@ -14,6 +20,11 @@ beautifulsoup4>=4.12.3
 lxml>=6.1.0
 requests>=2.31.0
 usaddress>=0.5.10    # For high-accuracy US/CA address parsing
+# Imported directly by core/cv/amenities_defects.py's registered ONNX provider (lazily, so it
+# is optional at runtime). It was never declared and reached us only through crewai's
+# dependency tree -- so dropping or downgrading the agent framework would have silently taken
+# the ONNX CV seam with it. Declared explicitly to break that accidental coupling.
+onnxruntime>=1.16.0,<2.0.0
 
 # Image Processing (ensure BICUBIC constant and modern Resampling)
 pillow>=9.1.0,<11.0.0
