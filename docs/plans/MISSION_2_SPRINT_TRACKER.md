@@ -92,10 +92,10 @@ orchestrator verifying) · `DONE` (verified inline) · `DEFERRED`
 | Branch | Wave Branch | 1 | 1 | **DONE** 2026-08-03 | — |
 | 0 | Truth (Tier 0 + deps) | 5 | 5 | **DONE** 2026-08-03 — all five committed (`705149c`, `2dd36bc`, `5a061aa`, `6fce278`). 0.1 closure scoped to CLI flags (guardian M1). | **Gate 0: Roger only** |
 | 1 | Wiring + anti-regression guard | 5 | 5 | **DONE** 2026-08-03 — `db366de`, `6f0642a`, `821cdac`, `369a1f0`, `252e517` | **Gate 1: ready** |
-| 2 | CLI honesty + docs | 10 | 10 | **DONE** 2026-08-03 (`74c985c`, `0b5c0b0`, `bb8f54b`) — **Gate 2 VETOED**; remediation in flight (`5e85836` + 3 agents) | Gate 2 🔴 |
-| 3 | Disposition (wire-first) | 7 | 0 | TODO — 3.1a/3.1b/3.2 chartered + **3.3/3.4/3.5 added 2026-08-05** — M14's fabrication (M22), the contested-branch money leak + laundering (G2-N1/G2-N2, HARD Gate 3 exit), and the `tag_images` promotion | Gate 3 |
-| Val | Validation | 1 | 0 | TODO | — |
-| Int | Wave Integrate | 1 | 0 | TODO | Mission gate (Roger) |
+| 2 | CLI honesty + docs | 10 | 10 | **DONE** 2026-08-03 (`74c985c`, `0b5c0b0`, `bb8f54b`) — Gate 2 vetoed twice, remediated (`5e85836` + 3 agents); conditions re-verified in shipped code at Gate 3 | Gate 2 ✅ (closed at Gate 3) |
+| 3 | Disposition (wire-first) | 7 | 6 | **DONE** 2026-08-05 — `8cca530`, `c55a2ed`, `06da901`, `29ed89b`, `f4965ad`, `fbc3179`. Remaining 3.1c is Roger's threshold call, not engineering work | **Gate 3 ✅** VETO lifted + review approved |
+| Val | Validation | 1 | 1 | **DONE** `fbc3179` — 630 tests, 86.09%, 3 consecutive clean runs, `main.py` byte-identical | — |
+| Int | Wave Integrate | 1 | 1 | **DONE** — merged `--no-ff` as `8b2acf8`, released v0.3.0 (`652acd7`), **pushed** to `origin/main`; CI green at `66ffacd` | Mission gate: Roger ✅ |
 
 ## Wave Sync
 | ID | Task | Agent → tier | Status |
