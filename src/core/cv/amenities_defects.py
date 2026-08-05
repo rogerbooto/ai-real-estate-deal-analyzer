@@ -15,6 +15,15 @@ from PIL import Image, ImageStat
 # Enum-aligned labels
 from src.schemas.labels import MaterialTag
 
+# `DetectionSource` — how a `DetectedLabel` entry came to exist, and the four epistemic states of
+# the rule "a file name may SUGGEST; only a detector that actually looked may CONFIRM". Re-exported
+# here under its historical name because every consumer in `core/cv` reads it from this module and
+# `runner._augment_from_filename` is the producer that assigns it. The DEFINITION lives in the
+# schema layer (with the canonical description of the four states) because the marker now crosses a
+# pipeline boundary on `DetectedLabelModel`, and `src/schemas` may not import `src/core` — so only
+# one of the two can own it, and it has to be that one.
+from src.schemas.models import DetectionSource as DetectionSource
+
 from .ontology import Ontology
 
 ProviderName = Literal["local", "vision", "llm", "onnx"]
@@ -28,36 +37,15 @@ class ImageDesc(TypedDict):
     aspect: Literal["landscape", "portrait", "square"]
 
 
-#: How a :class:`DetectedLabel` entry came to exist.
-#:
-#: The governing rule is **a file name may SUGGEST; only a detector that actually looked may
-#: CONFIRM.** These four values are the four epistemic states that rule produces, and consumers
-#: branch on them (see ``runner._augment_from_filename`` for the producer):
-#:
-#:   pixels               — a provider examined the image and emitted the label. Its own
-#:                          confidence, evidence and rationale are the record.
-#:   filename_confirmed   — a provider that CAN detect this label did detect it, AND the file name
-#:                          independently says the same thing. Two agreeing signals, so the
-#:                          confidence is the corroborated blend (see ``runner``'s constants).
-#:   filename_contested   — a provider that CAN detect this label examined the image and did NOT
-#:                          emit it, while the file name says it is there. A genuine
-#:                          disagreement: something measured it, so the claim is scoreable, and
-#:                          the blend scores it deliberately weakly.
-#:   filename_unconfirmed — NO registered provider declares the ability to detect this label, so
-#:                          nothing measured it. Carries **no confidence at all** — a number here
-#:                          would be fabricated precision for a question nobody asked — and must
-#:                          be kept out of every path that can move a number.
-#:
-#: Absent means ``pixels``: third-party providers and any record that never went through the
-#: filename pass read as detections, which is what they are.
-DetectionSource = Literal["pixels", "filename_confirmed", "filename_contested", "filename_unconfirmed"]
-
 #: The value that marks an entry nothing was capable of measuring. Named once so the "keep it out
 #: of the money path" checks downstream cannot drift from the producer.
 UNCONFIRMED_HINT_SOURCE = "filename_unconfirmed"
 
+#: The value that marks an entry a covering detector examined the pixels for and did NOT report.
+CONTESTED_HINT_SOURCE = "filename_contested"
+
 #: Sources whose claim originates in a file name rather than in a provider's own output.
-FILENAME_SOURCES: frozenset[str] = frozenset({"filename_confirmed", "filename_contested", UNCONFIRMED_HINT_SOURCE})
+FILENAME_SOURCES: frozenset[str] = frozenset({"filename_confirmed", CONTESTED_HINT_SOURCE, UNCONFIRMED_HINT_SOURCE})
 
 
 class DetectedLabel(TypedDict, total=False):
@@ -99,9 +87,28 @@ UNCONFIRMED_HINT_NOTE = (
 )
 
 
+#: The sibling sentence, for the OTHER half of the rule: something WAS able to look, looked, and
+#: did not see it. Deliberately not a variant of the wording above — "nothing could check this" and
+#: "a detector checked and disagreed" are different facts, and a reader told the second must not
+#: come away believing the first. The corroboration score is deliberately NOT quoted here: it is
+#: 0.30 by construction for every contested entry (see ``runner.corroborated_confidence``), it is
+#: not a safety property, and printing it invites a reader to take it as a partial endorsement of a
+#: claim a detector rejected. The consequence is stated instead, because that is what is actionable.
+CONTESTED_HINT_NOTE = (
+    "Contested photo hint: a file name suggests '{label}', but a detector able to recognise it "
+    "examined the pixels and did not report it. Recorded as a hint only — it is not counted as an "
+    "observation and does not affect any number in this analysis."
+)
+
+
 def unconfirmed_hint_note(label: str) -> str:
     """Render :data:`UNCONFIRMED_HINT_NOTE` for one label."""
     return UNCONFIRMED_HINT_NOTE.format(label=label)
+
+
+def contested_hint_note(label: str) -> str:
+    """Render :data:`CONTESTED_HINT_NOTE` for one label."""
+    return CONTESTED_HINT_NOTE.format(label=label)
 
 
 def is_unconfirmed_hint(det: Mapping[str, Any]) -> bool:
@@ -113,9 +120,37 @@ def is_unconfirmed_hint(det: Mapping[str, Any]) -> bool:
     return str(det.get("source", "pixels")) == UNCONFIRMED_HINT_SOURCE
 
 
+def is_contested_hint(det: Mapping[str, Any]) -> bool:
+    """True when a detector that COVERS this label examined the image and did not report it.
+
+    Same answer as :func:`is_unconfirmed_hint` to the question "may this entry influence a
+    number?" — no — and for a stronger reason: there, nothing measured the claim; here, something
+    measured it and disagreed. The claim is scoreable (it has a corroboration score) but a score
+    is not a licence, because the consumers that select OPEX and income rules read MEMBERSHIP and
+    never a confidence.
+    """
+    return str(det.get("source", "pixels")) == CONTESTED_HINT_SOURCE
+
+
 def is_filename_derived(det: Mapping[str, Any]) -> bool:
     """True when the *claim* originated in a file name (whether or not a detector corroborated it)."""
     return str(det.get("source", "pixels")) in FILENAME_SOURCES
+
+
+def is_uncorroborated_filename_claim(source: str | None) -> bool:
+    """True when the claim is the FILE NAME's and no detector emitted the label itself.
+
+    Takes the raw ``source`` VALUE rather than a record, because the two holders of that value have
+    different shapes: ``core/cv`` and ``orchestrators`` hold raw ``DetectedLabel`` mappings, while
+    ``core.insights.synthesis`` holds a validated :class:`~src.schemas.models.DetectedLabelModel`.
+    One rule, two access shapes, no second copy of the rule.
+
+    Written as "filename-derived AND NOT confirmed" rather than "is contested or unconfirmed" so
+    that a source value added later lands in the cautious branch by default: an unrecognised
+    filename state must never be promoted to a detector's finding by omission.
+    """
+    value = str(source or "pixels")
+    return value in FILENAME_SOURCES and value != "filename_confirmed"
 
 
 # =========================
@@ -474,7 +509,6 @@ def _provider_llm_stub(img: Image.Image) -> Iterable[RawCandidate]:
     3. Applies rule-based keyword matching:
        • If caption mentions "bright" → `"natural_light_high"`
        • If spread ≤ 12.0 and luminance ≥ 0.45 → `"stainless steel appliances"`
-       • If landscape + luminance ≥ 0.55 → `"on-street parking"`
     4. Each output candidate includes:
        {
          "name": <ontology tag>,
@@ -482,6 +516,25 @@ def _provider_llm_stub(img: Image.Image) -> Iterable[RawCandidate]:
          "evidence": [<caption>],
          "rationale": "caption-><trigger>"
        }
+
+    What it deliberately does NOT emit
+    ----------------------------------
+    A parking label — the same removal already made to ``_provider_vision_stub``, which this stub
+    outlived by one release. It used to emit `"on-street parking"` at 0.61 whenever
+    `aspect == "landscape" and luminance >= 0.55`: a *property attribute* asserted from a photo
+    being wide and not dark. `"on-street parking"` resolves to `AmenityLabel.street_parking`, which
+    `to_photoinsights_amenities_surface` folds into the `parking` surface, which
+    `synthesis._amenities_from` emits as the literal tag `"parking"`, which
+    `finance.engine._apply_insight_modifiers` reads by MEMBERSHIP to add $50/month/unit of other
+    income. So the claim was one registration away from moving money, and no roll-up on that route
+    has room for the caveat "we guessed this because the photo is wide".
+
+    It was left in place once, when this slot was unreachable from `build_photo_insights`. That
+    stopped being the whole story when the provider gained a declared capability list: declaring
+    `"on-street parking"` would have made the fabrication *confirmable* by a matching file name and
+    let it score. Removed rather than annotated, and the declaration below shrinks with it — a real
+    classifier registered into this slot may of course emit `street_parking`; the ontology entry and
+    the `_parking_summary` roll-up that consume it are untouched.
 
     Notes
     -----
@@ -495,6 +548,8 @@ def _provider_llm_stub(img: Image.Image) -> Iterable[RawCandidate]:
     asp = description["aspect"]
 
     brightness = "bright" if lum >= 0.75 else ("dim" if lum < 0.35 else "normal")
+    # `asp` still appears in the caption: it is a true statement about the image, and the caption is
+    # the stub's evidence string. What was removed is the inference FROM it to a property claim.
     cap = f"Photo, {brightness} lighting, {asp} frame, spread={spr:.1f}"
 
     out: list[RawCandidate] = []
@@ -503,9 +558,6 @@ def _provider_llm_stub(img: Image.Image) -> Iterable[RawCandidate]:
 
     if spr <= 12.0 and lum >= 0.45:
         out.append({"name": "stainless steel appliances", "confidence": 0.64, "evidence": [cap], "rationale": "caption->grayish"})
-
-    if asp == "landscape" and lum >= 0.55:
-        out.append({"name": "on-street parking", "confidence": 0.61, "evidence": [cap], "rationale": "caption->landscape"})
 
     return out
 
@@ -524,11 +576,12 @@ _PROVIDERS: dict[ProviderName, ProviderFn] = {
 # set is the point. Declaring the full ontology here would tell every filename hint "a detector
 # covers you and disagreed", which is the precise lie this declaration exists to prevent.
 #
-# tests/core/cv/test_provider_capabilities.py holds these to their functions: anything a stub
+# tests/core/cv/test_filename_corroboration.py holds these to their functions: anything a stub
 # actually emits must be declared, so a threshold added without updating its declaration fails.
+# (The path in this comment used to name a file that does not exist -- corrected in Mission 2.)
 _declare_capabilities(_provider_local, {"natural_light_high", MaterialTag.stainless_appliances.value})
 _declare_capabilities(_provider_vision_stub, {"natural light", "stainless appliances"})
-_declare_capabilities(_provider_llm_stub, {"natural_light_high", "stainless steel appliances", "on-street parking"})
+_declare_capabilities(_provider_llm_stub, {"natural_light_high", "stainless steel appliances"})
 
 ProviderKind = Literal["heuristic_stub", "model"]
 

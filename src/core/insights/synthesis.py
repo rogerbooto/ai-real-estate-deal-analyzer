@@ -20,9 +20,14 @@ Design goals
 
 from __future__ import annotations
 
+from typing import NamedTuple
 from urllib.parse import urlparse
 
-from src.core.cv.amenities_defects import unconfirmed_hint_note
+from src.core.cv.amenities_defects import (
+    contested_hint_note,
+    is_uncorroborated_filename_claim,
+    unconfirmed_hint_note,
+)
 from src.core.insights.provenance import (
     attach,
     derived_observation,
@@ -132,26 +137,61 @@ def _surface_key_for_detection(name: str) -> str | None:
     return label.value if label in PHOTOINSIGHTS_AMENITY_SURFACE else None
 
 
-def _photo_amenity_observations(photos: PhotoInsights, *, surface_key: str, tag: str) -> list[ObservationProvenance]:
+class _AmenitySupport(NamedTuple):
+    """What backs one True amenity boolean, and whether any of it is a real sighting."""
+
+    observations: list[ObservationProvenance]
+    #: Ontology labels behind this boolean whose claim a detector examined the pixels for and
+    #: rejected. Carried as the DETECTION names, not the surface key, so the reader is told what was
+    #: actually claimed ("parking_garage") in the same vocabulary the producer-side note uses.
+    contradicted_labels: list[str]
+    #: True only when sightings WERE found and every one of them is a claim a detector examined the
+    #: pixels for and rejected (or that nothing was able to check). "No sighting at all" is
+    #: deliberately False: an unattributable boolean is a caller's assertion this module has no
+    #: grounds to overrule, while a contradicted one is a claim something actually looked at.
+    contradicted_only: bool
+
+
+def _photo_amenity_observations(photos: PhotoInsights, *, surface_key: str, tag: str) -> _AmenitySupport:
     """Explain one True amenity boolean: which detections and/or filenames set it.
 
     Returns one record per supporting sighting. When nothing supports it -- the boolean is True
     but no detection and no filename token in this PhotoInsights accounts for it -- a single
     ``unknown`` record is emitted. That case is real (a caller can hand-build the boolean map),
     and saying "we cannot attribute this" is the honest answer, not silence.
+
+    A detection record whose ``source`` says the CLAIM is the file name's and that no detector
+    emitted the label (``filename_contested`` / ``filename_unconfirmed``) is recorded as
+    ``origin="photo_filename"``, NOT as a detection. Stamping it ``cv_provider`` / ``provider_kind=
+    "model"`` -- which this function did until the ``source`` marker survived schema validation --
+    asserted that a detector found what it had explicitly reported it did not find (G2-N2).
     """
     provider, provider_kind_val, version = _provider_facts(photos)
     out: list[ObservationProvenance] = []
+    real_sightings = 0
+    contradicted: set[str] = set()
 
     for sha, dets in (photos.image_detections or {}).items():
         for det in dets or []:
             # `PhotoInsights.image_detections` is `dict[str, list[DetectedLabelModel]]`
-            # (models.py:622), so this is always a model. The raw-dict fallback that used to
+            # (models.py), so this is always a model. The raw-dict fallback that used to
             # live here was unreachable, and --strict mypy said so by narrowing `{}` to
             # `dict[Never, Never]`; a defensive branch that cannot run is just untested code.
             name = det.name
             if _surface_key_for_detection(name) != surface_key:
                 continue
+            if is_uncorroborated_filename_claim(det.source):
+                contradicted.add(name)
+                out.append(
+                    filename_observation(
+                        tag,
+                        kind="amenity",
+                        detail=f"{name} suggested by a file name; a detector that covers it did not report it",
+                        source_image_sha=sha,
+                    )
+                )
+                continue
+            real_sightings += 1
             out.append(
                 detection_observation(
                     det,
@@ -172,25 +212,53 @@ def _photo_amenity_observations(photos: PhotoInsights, *, surface_key: str, tag:
                 continue
             mapped = MATERIAL_TO_AMENITY_SURFACE.get(material)
             if mapped is not None and mapped.value == surface_key:
+                # A material promoted off a file name (task 3.5's territory, deliberately untouched
+                # here): still a sighting for the purposes of this count, because nothing
+                # contradicted it.
+                real_sightings += 1
                 out.append(filename_observation(tag, kind="amenity", detail=material.value, source_image_sha=sha))
 
     if not out:
         out.append(
             unattributed_observation(tag, kind="amenity", detail=f"photo amenity surface '{surface_key}' with no supporting detection")
         )
-    return out
+    return _AmenitySupport(out, sorted(contradicted), contradicted_only=bool(contradicted) and real_sightings == 0)
 
 
-def _amenities_from(listing: ListingNormalized, photos: PhotoInsights) -> tuple[list[str], list[ObservationProvenance]]:
+class _AmenityResult(NamedTuple):
+    """Amenity tags, their provenance ledger, and the labels withheld as contradicted."""
+
+    tags: list[str]
+    observations: list[ObservationProvenance]
+    #: Ontology labels behind a withheld amenity boolean, i.e. the claims a detector contradicted.
+    #: Kept out of ``tags`` and surfaced to the reader through ``notes`` instead, so the fact is
+    #: shown but cannot be read by ``finance.engine._apply_insight_modifiers``.
+    contradicted_labels: list[str]
+    #: The surface keys those labels came from, so the "Amenities present" roll-up can exclude
+    #: exactly the booleans that did not graduate rather than re-asserting them a line later.
+    withheld_surface_keys: list[str]
+
+
+def _amenities_from(listing: ListingNormalized, photos: PhotoInsights) -> _AmenityResult:
     """
     Union of normalized listing facts and photo-derived amenities.
     Only include amenities that are confidently true/explicit.
 
     Also returns one provenance record per sighting: an amenity stated by the copy AND seen in a
     photo yields two, so a reader can tell agreement from a single unverified claim.
+
+    A photo amenity boolean whose ONLY support is a filename claim a covering detector rejected
+    does not become a tag. This is the ingest-side half of the G2-N1 guard: the finance engine
+    selects income and OPEX rules by MEMBERSHIP in this list and never reads a confidence, so the
+    0.30 corroboration score gates nothing on this route -- a tag that never arrives is the only
+    thing that cannot select a rule. Deliberately scoped to "contradicted", not to "unattributed":
+    a caller who hand-builds ``photos.amenities`` with no detections at all has asserted something
+    this module has no evidence against, and overruling that would be a different (and wrong) call.
     """
     out: set[str] = set()
     observations: list[ObservationProvenance] = []
+    contradicted_labels: set[str] = set()
+    withheld_keys: set[str] = set()
 
     # From normalized listing facts
     if listing.parking:
@@ -230,10 +298,19 @@ def _amenities_from(listing: ListingNormalized, photos: PhotoInsights) -> tuple[
             tag = "kitchen island"
         else:
             tag = k.replace("_", " ")
+        support = _photo_amenity_observations(photos, surface_key=k, tag=tag)
+        if support.contradicted_only:
+            # Withheld, not silently dropped: the caller turns it into a reader-facing note. The
+            # provenance records are dropped with it -- `provenance.retain_recorded_tags` would
+            # discard them anyway, and a ledger entry pointing at a tag the reader cannot find is
+            # worse than no entry.
+            contradicted_labels.update(support.contradicted_labels)
+            withheld_keys.add(k)
+            continue
         out.add(tag)
-        observations.extend(_photo_amenity_observations(photos, surface_key=k, tag=tag))
+        observations.extend(support.observations)
 
-    return sorted(out), observations
+    return _AmenityResult(sorted(out), observations, sorted(contradicted_labels), sorted(withheld_keys))
 
 
 # ----------------------------
@@ -318,6 +395,10 @@ def _notes_from(listing: ListingNormalized, photos: PhotoInsights) -> list[str]:
     # core, so the reader still learns the hint exists without it touching a number.
     notes.extend(unconfirmed_hint_note(label) for label in sorted(photos.unconfirmed_hint_counts or {}))
 
+    # The other half of the same rule, and the stronger case: a detector that CAN see the label
+    # looked and did not report it. Same channel, same reason, different sentence.
+    notes.extend(contested_hint_note(label) for label in sorted(photos.contested_hint_counts or {}))
+
     return notes
 
 
@@ -358,14 +439,29 @@ def synthesize_listing_insights(listing: ListingNormalized, photos: PhotoInsight
     """
     address = _resolve_address(listing)
     stated_facts = _stated_facts_from(listing)
-    amenities, amenity_observations = _amenities_from(listing, photos)
+    amenity_result = _amenities_from(listing, photos)
+    amenities, amenity_observations = amenity_result.tags, amenity_result.observations
     condition, condition_observations = _condition_tags_from(photos)
     defects: list[str] = []  # keep empty until wired to explicit signals
     notes = _notes_from(listing, photos)
 
-    # Add a concise amenities roll-up note if any are present (sorted for determinism)
+    # A photo amenity withheld because a detector contradicted it is still told to the reader --
+    # just in the channel nothing in the finance core reads. Emitted here rather than in
+    # `_notes_from` because only `_amenities_from` knows which booleans failed to graduate. Named
+    # by the ontology label the file name actually claimed, so this reads identically to the
+    # producer-side note `_notes_from` emits from `photos.contested_hint_counts`.
+    withheld = set(amenity_result.withheld_surface_keys)
+    for label in amenity_result.contradicted_labels:
+        note = contested_hint_note(label)
+        if note not in notes:
+            notes.append(note)
+
+    # Add a concise amenities roll-up note if any are present (sorted for determinism). Reads
+    # `photos.amenities` minus the withheld keys, NOT the raw boolean map: a roll-up naming an
+    # amenity the tag list deliberately excludes would re-assert on one line what the line above
+    # just retracted.
     try:
-        present_amenities = sorted([k for k, v in (photos.amenities or {}).items() if v])
+        present_amenities = sorted([k for k, v in (photos.amenities or {}).items() if v and k not in withheld])
     except Exception:
         present_amenities = []
     if present_amenities:

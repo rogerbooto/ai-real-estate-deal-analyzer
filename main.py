@@ -327,6 +327,10 @@ def main() -> None:
             # report shows the same deal with and without those observations. getattr keeps
             # third-party/older OrchestrationResult shapes working, as the media fields do.
             baseline=getattr(result, "baseline", None),
+            # The same guardrails the thesis was judged against (crew.py passes this exact block
+            # to synthesize_thesis), so the report can name the cap-rate floor it cleared or
+            # breached instead of alluding to "the configured floor".
+            market=inputs.market,
         )
 
         print(f"Report written to {out_path}")

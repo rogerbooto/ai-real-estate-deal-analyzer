@@ -206,8 +206,57 @@ def test_cap_floor_respected_is_not_a_breach():
 
     assert not any("below floor" in w.lower() for w in forecast.warnings)
     assert BREACHES_FLOOR not in thesis.rationale
-    # The numbered positive claim returns in Wave 3 with OPD-4, once the strategist can see
-    # the floor value and can name it ("... is 6.35% (>= the 5.00% floor you set).").
+    # Without a market block this module cannot tell "cleared" from "no policy", so it says
+    # nothing at all. The numbered positive claim needs the floor VALUE — see below.
+
+
+# ---------------------------------------------------------------------------
+# Mission 2 / task 3.2 (OPD-4): with the market block in hand, the floor line names
+# BOTH numbers, like every sibling rationale line ("DSCR (Y1) is weak at 1.19 (< 1.20).").
+# ---------------------------------------------------------------------------
+
+
+def test_cleared_floor_names_the_cap_and_the_floor():
+    inputs = _inputs_with_floor(cap_rate_purchase=0.0635, cap_rate_floor=0.05)
+    forecast = forecast_financials(inputs)
+    thesis = synthesize_thesis(forecast, market=inputs.market)
+
+    assert "Purchase cap rate is 6.35% (≥ the 5.00% floor you set)." in thesis.rationale
+
+
+def test_breached_floor_names_the_cap_and_the_floor():
+    inputs = _inputs_with_floor(cap_rate_purchase=0.04, cap_rate_floor=0.05)
+    forecast = forecast_financials(inputs)
+    thesis = synthesize_thesis(forecast, market=inputs.market)
+
+    assert "Purchase cap rate is 4.00% (< the 5.00% floor you set)." in thesis.rationale
+    assert BREACHES_FLOOR not in thesis.rationale, "the unnumbered line is the no-market fallback only"
+
+
+def test_market_block_with_no_floor_still_makes_no_floor_claim():
+    """The silence case, now with the market block present: no policy, no claim in either direction.
+
+    The sibling `test_no_floor_policy_makes_no_floor_claim` covers the same property for callers
+    that pass no market at all. Both arms matter: the whole point of plumbing the value through
+    is that "cleared" and "never configured" stop looking identical.
+    """
+    inputs = _inputs_with_floor(cap_rate_purchase=0.01, cap_rate_floor=None)
+    forecast = forecast_financials(inputs)
+    thesis = synthesize_thesis(forecast, market=inputs.market)
+
+    assert not any("floor" in line.lower() for line in thesis.rationale)
+
+
+def test_breach_without_a_market_block_keeps_the_unnumbered_line():
+    """A caller that hands over no guardrails still gets the breach — just not the numbers.
+
+    The breach itself is certain (the engine only warns when a real floor was configured), so
+    suppressing it would be a worse lie than not naming the number.
+    """
+    forecast = forecast_financials(_inputs_with_floor(cap_rate_purchase=0.04, cap_rate_floor=0.05))
+    thesis = synthesize_thesis(forecast)
+
+    assert BREACHES_FLOOR in thesis.rationale
 
 
 def test_no_floor_policy_makes_no_floor_claim():

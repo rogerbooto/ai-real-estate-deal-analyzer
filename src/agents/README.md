@@ -60,6 +60,14 @@
     while its own **Investment Thesis** says the spread meets target.
   * `spread_target_for(market: MarketAssumptions | None) -> float` exposes that resolution (configured
     target, else `MIN_SPREAD`) for callers that need to state the bar they were judged against.
+  * **`market` also decides what the cap-rate-floor rationale line can honestly say.** The
+    breach/clear decision always comes from the engine's `"cap rate below floor"` warning (this
+    module re-does no comparison), but that warning's *absence* means "cleared" and "no floor
+    configured" equally. So: with a market block, the line names both numbers like every sibling
+    (`"Purchase cap rate is 6.35% (≥ the 5.00% floor you set)."`, or `(< the …)` on a breach);
+    without one, a breach still prints as `"Purchase cap rate breaches the configured floor."` and
+    a non-breach prints **nothing at all**. Silence on an unconfigured floor is pinned by
+    `tests/integration/test_chief_strategist.py::test_no_floor_policy_makes_no_floor_claim`.
   * **Never LLM-authored, in any mode.** `ChiefStrategistAgent.run` (see `crewai_components.py`) always calls this function on the forecast — `AIREAL_LLM_MODE` does not change that; `_run_llm` was deleted from that class specifically so the verdict cannot bypass it.
 
 ### CrewAI components
@@ -107,7 +115,7 @@
 
 ---
 
-_Last reconciled: 2026-08-05 against mission/2-wiring-gaps, task 3.1b (deletion half) — removed
+_Last reconciled: 2026-08-05 against mission/2-wiring-gaps, task 3.2 (the cap-rate-floor rationale line now names the cap and the floor when `market` is supplied, and stays silent when no floor is configured). Earlier note: task 3.1b (deletion half) — removed
 `PhotoTaggerAgent` (`agents/photo_tagger.py`) and `ListingIngestAgent` (`agents/listing_ingest.py`):
 both were thin wrappers around deterministic core code with zero production callers and no model
 seam (Roger's 2026-08-05 architecture ruling, `ROADMAP_TRACKER.md` §3b — "an agent exists only

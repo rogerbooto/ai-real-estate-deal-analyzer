@@ -156,7 +156,8 @@ def synthesize_thesis(forecast: FinancialForecast, *, market: MarketAssumptions 
         market: The run's market guardrails, when the caller has them. Optional and additive so
             existing callers keep working — but every orchestrator passes ``inputs.market``,
             because the spread test must use the target the *user* configured, not a constant
-            baked into this module. Omit it and the spread falls back to ``MIN_SPREAD``.
+            baked into this module. Omit it and the spread falls back to ``MIN_SPREAD`` and the
+            cap-rate-floor rationale falls back to an unnumbered breach line (see below).
 
     Returns:
         InvestmentThesis with verdict, rationale, and levers.
@@ -198,13 +199,29 @@ def synthesize_thesis(forecast: FinancialForecast, *, market: MarketAssumptions 
         _flag(cf_all_ok, "Cash flow is non-negative across the hold period.", rationale)
         _flag(not cf_all_ok, "Cash flow turns negative in some years.", rationale)
 
-    # Only the breach is claimable. `no_cap_floor_breach` is inferred from the *absence* of the
-    # engine's warning, which is equally true when no floor was configured at all
-    # (`cap_rate_floor` defaults to None) -- so a positive line here would assert compliance with
-    # a policy that may not exist. Silence is the honest default until the strategist can see the
-    # floor value itself; Wave 3 / OPD-4 restores the positive claim in the house style, naming
-    # both numbers ("Purchase cap rate is 6.35% (>= the 5.00% floor you set).").
-    _flag(not no_cap_floor_breach, "Purchase cap rate breaches the configured floor.", rationale)
+    # Cap-rate floor. `no_cap_floor_breach` is inferred from the *absence* of the engine's
+    # warning, which is equally true when no floor was configured at all (`cap_rate_floor`
+    # defaults to None). The floor VALUE is what tells those two cases apart, so the claim this
+    # module can honestly make depends on whether the caller handed over a market block:
+    #
+    #   floor known      -> name both numbers, in either direction, like every sibling line above.
+    #   floor unknown,
+    #     engine warned  -> the breach is still certain (the engine only warns on a real floor),
+    #                       but this module cannot name the number it breached.
+    #   floor unknown,
+    #     no warning     -> SILENCE. "Respects the floor policy" would assert compliance with a
+    #                       policy that may not exist (Gate 0 / B1; pinned by
+    #                       test_no_floor_policy_makes_no_floor_claim).
+    #
+    # The breach/clear decision always comes from the engine's warning, never from a comparison
+    # re-done here: the money numbers and the guardrail test belong to run_financial_model.
+    cap_floor = market.cap_rate_floor if market is not None else None
+    if cap_floor is not None:
+        cap = purchase.cap_rate
+        _flag(no_cap_floor_breach, f"Purchase cap rate is {cap:.2%} (≥ the {cap_floor:.2%} floor you set).", rationale)
+        _flag(not no_cap_floor_breach, f"Purchase cap rate is {cap:.2%} (< the {cap_floor:.2%} floor you set).", rationale)
+    else:
+        _flag(not no_cap_floor_breach, "Purchase cap rate breaches the configured floor.", rationale)
 
     # Verdict logic (critical fail threshold)
     fails = [

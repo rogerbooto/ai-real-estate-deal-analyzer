@@ -58,7 +58,11 @@ def test_builds_the_observation_free_counterpart_when_a_modifier_fired():
     assert outlook is not None
     expected = forecast_financials(inputs=inputs, insights=None, horizon_years=10)
     assert outlook.forecast == expected
-    assert outlook.thesis == synthesize_thesis(expected)
+    # `market=` matches what build_baseline_outlook itself passes: the baseline verdict has to be
+    # judged against the same guardrails as the observed one, or the comparison table would be
+    # contrasting two different underwriting policies. Since Mission 2 / 3.2 those guardrails are
+    # visible in the rationale too ("Purchase cap rate is X (>= the Y floor you set).").
+    assert outlook.thesis == synthesize_thesis(expected, market=inputs.market)
     # The two OPEX rules add exactly $500/yr in Year 1; the baseline must not carry it.
     assert not outlook.forecast.years[0].notes
     assert round(observed.years[0].total_opex - outlook.forecast.years[0].total_opex, 2) == 500.00

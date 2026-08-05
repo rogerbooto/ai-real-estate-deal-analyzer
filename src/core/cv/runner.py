@@ -49,7 +49,14 @@ AssetLike = str | Path | MediaAsset
 # v3 → v4: filename-derived entries changed shape. They now carry a corroboration score (or, when
 # nothing can look, no confidence at all) and a four-valued `source`; a v3 entry holds the old
 # hardcoded 0.90/0.85/0.75/0.70/0.66 payloads.
-_CACHE_BEHAVIOUR_VERSION = "v4"
+#
+# v4 → v5: `_provider_llm_stub` stopped emitting `"on-street parking"` from an image being wide and
+# bright (Mission 2, task 3.3). A v4 entry for provider `llm` holds that fabricated detection.
+# The capability digest below would in fact have segregated this one on its own -- the declaration
+# shrank with the emission, so the key changes anyway -- but the version is the segment a human
+# reads and reasons about, and "a provider's detection payload changed" is exactly what it is for.
+# Belt and suspenders, at a cost of one recompute.
+_CACHE_BEHAVIOUR_VERSION = "v5"
 
 
 def _cache_root() -> Path:
@@ -161,13 +168,19 @@ CV_CONFIRMATION_WEIGHT = 0.70
 #: exactly 0.30 means "a detector that can see this looked and did not see it; only the file name
 #: says otherwise".
 #:
-#: ⚠ 0.30 is NOT a safety guarantee, and an earlier version of this comment implied it was. It is
-#: below the 0.6 "strong" bar `_parking_summary` applies — but that bar does not gate every route
-#: to the money. `amenity_counts` -> `synthesis._amenities_from` -> the literal tag `"parking"` ->
-#: `engine.py:83` reads MEMBERSHIP, not confidence, so a contested 0.30 claim still selects an
-#: income rule. Verified: a blank grey `garage.jpg`, with a detector that covers `parking_garage`
-#: and reported nothing, still moved Y1 cash flow by $1,105.80. Tracked as G2-N1; the fix is a
-#: Gate 3 exit criterion. Do not cite this constant as the reason a contested claim is harmless.
+#: ⚠ 0.30 is NOT a safety guarantee and must never be cited as one. An earlier version of this
+#: comment implied it was, on the grounds that it sits below the 0.6 "strong" bar
+#: `_parking_summary` applies — but that bar does not gate every route to the money.
+#: `amenity_counts` -> `synthesis._amenities_from` -> the literal tag `"parking"` ->
+#: `engine._apply_insight_modifiers` reads MEMBERSHIP, not confidence, so a contested 0.30 claim
+#: selected an income rule regardless of its score: a blank grey `garage.jpg`, with a detector that
+#: covers `parking_garage` and reported nothing, moved Y1 cash flow by $1,105.80 (G2-N1).
+#:
+#: That route is now closed, and NOT by this number. A contested entry is routed out of
+#: `amenity_counts`/`defect_counts` by `photo_insights._split_measured_and_hints` and out of
+#: `ListingInsights.amenities` by `synthesis._amenities_from`; it reaches the reader as a note.
+#: A tag that never arrives cannot select a rule — that is the guarantee. This constant remains
+#: what it always was: the size of a binary file-name match's credit, and nothing more.
 FILENAME_CORROBORATION_BONUS = 0.30
 
 

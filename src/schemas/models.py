@@ -97,10 +97,17 @@ class RefinancePlan(BaseModel):
     refi_ltv: float = Field(0.75, ge=0, le=1, description="Loan-to-Value used at refi to size the new loan.")
     exit_cap_rate: float | None = Field(
         None,
-        description="Cap rate used to value the asset at refi. If None, falls back to market_cap_rate or heuristic.",
+        description=(
+            "Cap rate used to value the asset at refi. If None, the engine falls back to "
+            "market.cap_rate_purchase, then to the computed purchase cap rate."
+        ),
     )
     market_cap_rate: float | None = Field(
-        None, description="Market cap rate reference; also used for purchase if cap_rate_purchase is not provided."
+        None,
+        description=(
+            "Market cap rate reference. NOT read by any engine or agent — record-keeping only. "
+            "Set market.cap_rate_purchase to override the purchase cap rate."
+        ),
     )
 
 
@@ -517,6 +524,33 @@ class ParkingType(str, Enum):
     unknown = "unknown"
 
 
+#: How a detection record came to exist — **a file name may SUGGEST; only a detector that
+#: actually looked may CONFIRM.** These four values are the four epistemic states that rule
+#: produces, and consumers branch on them:
+#:
+#:   pixels               — a provider examined the image and emitted the label. Its own
+#:                          confidence, evidence and rationale are the record.
+#:   filename_confirmed   — a provider that CAN detect this label did detect it, AND the file name
+#:                          independently says the same thing. Two agreeing signals, so the
+#:                          confidence is the corroborated blend.
+#:   filename_contested   — a provider that CAN detect this label examined the image and did NOT
+#:                          emit it, while the file name says it is there. A genuine
+#:                          disagreement: something measured it, so the claim is scoreable, and
+#:                          the blend scores it deliberately weakly.
+#:   filename_unconfirmed — NO registered provider declares the ability to detect this label, so
+#:                          nothing measured it. Carries no confidence at all and must be kept out
+#:                          of every path that can move a number.
+#:
+#: Absent means ``pixels``: a record that never went through the filename pass is a detection,
+#: which is what it is.
+#:
+#: Defined HERE rather than in ``core.cv`` because it crosses the schema boundary on
+#: :class:`DetectedLabelModel`, and the schema layer may not import ``core``.
+#: ``core.cv.amenities_defects`` re-exports this name, with the producer-side notes, so existing
+#: importers are unaffected and there is exactly one definition to drift from.
+DetectionSource = Literal["pixels", "filename_confirmed", "filename_contested", "filename_unconfirmed"]
+
+
 class DetectedLabelModel(BaseModel):
     """Closed-set amenity/defect detection for a single image."""
 
@@ -527,6 +561,20 @@ class DetectedLabelModel(BaseModel):
     confidence: float = Field(..., ge=0.0, le=1.0, description="Model confidence in [0,1].")
     evidence: list[str] | None = Field(default=None, description="Optional textual/visual evidence ids.")
     rationale: str | None = Field(default=None, description="Short model rationale (if available).")
+
+    # ADDITIVE (Mission 2, G2-N2). The producer has always set this on the raw ``DetectedLabel``
+    # mapping; this model did not declare it and ``extra="ignore"`` therefore DELETED it at the
+    # validation boundary. Downstream, `core.insights.synthesis` had nothing left to branch on and
+    # stamped every surviving record `origin="cv_provider", provider_kind="model"` — asserting a
+    # detector found what it had explicitly reported it did NOT find. Carrying the marker on the
+    # model is what makes refusing that stamp possible at all.
+    source: DetectionSource = Field(
+        default="pixels",
+        description=(
+            "How this record came to exist; see DetectionSource. Default 'pixels' matches the "
+            "producer's contract that an absent marker means a provider emitted the label itself."
+        ),
+    )
 
 
 #: Which ``ListingInsights`` list an observation belongs to.
@@ -639,6 +687,23 @@ class PhotoInsights(BaseModel):
         description=(
             "How many images had a FILE NAME suggesting each label that no registered provider "
             "declares it can detect. Advisory only: unscored, and never an input to any number."
+        ),
+    )
+
+    # ADDITIVE (Mission 2, G2-N1). The sibling of the field above, for the OTHER half of the same
+    # rule. `unconfirmed_hint_counts` holds claims nothing was able to check; this holds claims a
+    # detector that CAN see the label checked and CONTRADICTED. Deliberately a separate roll-up
+    # rather than an entry in `amenity_counts`/`defect_counts`, because those two feed
+    # `ListingInsights` and from there `finance.engine._apply_insight_modifiers`, which selects
+    # rules by MEMBERSHIP and never reads a confidence — so a contested label sitting in them let a
+    # file name a detector had contradicted move Y1 cash flow by $1,105.80. Merging the two hint
+    # roll-ups would be a lie in the other direction: "nothing looked" and "something looked and
+    # disagreed" are different facts and are reported with different words.
+    contested_hint_counts: dict[str, int] = Field(
+        default_factory=dict,
+        description=(
+            "How many images had a FILE NAME suggesting each label that a covering detector "
+            "examined the pixels for and did not report. Advisory only: never an input to any number."
         ),
     )
     parking: ParkingSummary | None = Field(default=None, description="Derived listing-level parking summary.")

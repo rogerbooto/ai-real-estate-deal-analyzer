@@ -443,6 +443,42 @@ env-vector claim at Gate 0, the `ScenarioAnalysis.notes` severity, the test-coun
 this). Same shape every time — a conclusion that turned out right, asserted before the evidence
 supported it. Three were caught by the guardian, this one by Roger.
 
+### Rows 3.3 / 3.4 — orchestrator verification record, 2026-08-05
+**Both leaks closed. Orchestrator-reproduced:** a blank grey `garage.jpg` plus a detector that
+*declares* `parking_garage` and reports nothing now yields `amenities: []`, the claim recorded as
+`contested_hint_counts: {'parking_garage': 1}` with an honest note, and **Y1 cash flow delta
+$1,105.80 → $0.00**.
+
+**3.3 was worse than its own deferral rationale.** It was deferred as "unreachable, therefore
+confirmable-only-later". In fact registering the `llm` stub — the documented zero-code-change path —
+makes it **move money on its own**: `"on-street parking"` → `AmenityLabel.street_parking` → the
+`parking` surface → the literal tag → `_apply_insight_modifiers`, **+$1,105.80** off one wide, bright,
+otherwise blank photo. The deferral was based on an incomplete trace.
+
+**G2-N2 route, and why it fails safe:** carry `source` on `DetectedLabelModel` (additive, defaulting
+`"pixels"`) **and** branch on it in `synthesis`. These are not alternatives — *a consumer cannot
+decline to vouch for evidence it was never handed*, and `extra="ignore"` was deleting the marker at
+the schema boundary, which is exactly why `synthesis` "structurally cannot" was true. The marker now
+travels with the data rather than depending on one producer having filtered correctly. The predicate
+is written as *"filename-derived AND NOT confirmed"*, so a future fifth `DetectionSource` value lands
+in the cautious branch **by omission** rather than needing to be remembered.
+
+### 🔶 NEW — flagged, not fixed: the sibling producer route still ships contested labels
+`agents/listing_analyst.py` → `orchestrators/cv_tagging_orchestrator.py` still puts contested labels
+into `ListingInsights.amenities`/`defects`. Verified end-to-end: `amenities: ['parking_garage']`.
+
+**It moves no money today only by accident.** The engine matches the literal string `"parking"` while
+the orchestrator emits the ontology name `parking_garage` — so it is saved by the **label-vs-rule
+mismatch recorded as defect #4**, not by any guard. Close defect #4 (or add a rule for the ontology
+name) and this route starts moving dollars.
+
+**And an existing test pins the wrong premise.**
+`tests/core/cv/test_filename_corroboration.py::test_a_contested_label_does_enter_the_tag_lists`
+asserts a contested label *"belongs in `defects` where the reader and **the rules** can see it"* —
+which G2-N1 overrules. The fix is ~2 lines (adopt `is_uncorroborated_filename_claim` there) but it
+requires re-adjudicating that test's premise, so it is a deliberate hand-off rather than a smuggled
+edit. **Gate 3 should rule on it.**
+
 ## Wave 3 — Disposition (WIRE-FIRST; OPDs resolved)
 
 ### OPD-3 pre-work — reachability re-survey, orchestrator, 2026-08-04

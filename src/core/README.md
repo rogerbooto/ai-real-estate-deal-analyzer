@@ -106,10 +106,19 @@ A file name may **suggest** a label; only a detector that actually looked may **
 | provider covers the label? | provider reported it? | `source` | confidence |
 | --- | --- | --- | --- |
 | yes | yes | `filename_confirmed` | `CV_CONFIRMATION_WEIGHT × cv + FILENAME_CORROBORATION_BONUS` (0.7 · cv + 0.3) |
-| yes | no — a genuine disagreement | `filename_contested` | `0.30`. **⚠ Not yet a guarantee:** it is below the 0.6 bar `_parking_summary` applies, but that bar does not gate every route — `amenity_counts` → `synthesis` → the literal tag `"parking"` → `engine.py:83` reads membership, not confidence, so a contested claim can still select an income rule (**G2-N1**, Gate 3 exit criterion). |
+| yes | no — a genuine disagreement | `filename_contested` | `0.30` |
 | no — nothing could look | n/a | `filename_unconfirmed` | **none at all** |
 
-The two weights are a tunable split summing to 1.0 (`runner.CV_CONFIRMATION_WEIGHT` / `FILENAME_CORROBORATION_BONUS`); the 0.30 is a flat corroboration credit for a *binary* filename match, not "we are 30% sure". An **unconfirmed** hint is kept out of `ListingInsights.amenities/condition_tags/defects` — the three lists `finance/engine._apply_insight_modifiers` reads — and is surfaced to the reader through `ListingInsights.notes` and `PhotoInsights.unconfirmed_hint_counts` instead. Registering a provider that declares the label moves it from unconfirmed to contested with no code change.
+The two weights are a tunable split summing to 1.0 (`runner.CV_CONFIRMATION_WEIGHT` / `FILENAME_CORROBORATION_BONUS`); the 0.30 is a flat corroboration credit for a *binary* filename match, not "we are 30% sure". Registering a provider that declares the label moves it from unconfirmed to contested with no code change.
+
+**Neither an unconfirmed nor a contested claim may reach a number.** Both are kept out of `ListingInsights.amenities/condition_tags/defects` — the three lists `finance/engine._apply_insight_modifiers` reads — and surfaced to the reader through `ListingInsights.notes` plus `PhotoInsights.unconfirmed_hint_counts` / `contested_hint_counts` instead.
+
+The **0.30 is not what makes the contested case safe**, and an earlier version of this table said it was, on the grounds that it sits below the 0.6 bar `_parking_summary` applies. That bar does not gate every route: `amenity_counts` → `synthesis` → the literal tag `"parking"` → `_apply_insight_modifiers` reads **membership, not confidence**, so a blank grey `garage.jpg` with a detector that covers `parking_garage` and reported nothing moved Y1 cash flow by $1,105.80 (G2-N1). What makes it safe is that the tag never arrives, enforced in two independent places:
+
+* `photo_insights._split_measured_and_hints` keeps contested entries out of `amenity_counts` / `defect_counts` / `image_detections`, so `image_detections` means exactly "what a detector reported";
+* `synthesis._amenities_from` refuses to ship an amenity tag whose only support is a claim a covering detector rejected — the guard that still holds if a *different* producer builds `PhotoInsights` without filtering.
+
+The marker itself now survives validation: `DetectedLabelModel.source` (see `schemas.models.DetectionSource`) is a declared field. It previously was not, and `extra="ignore"` deleted it at the boundary, which is why `synthesis` stamped contested records `origin="cv_provider", provider_kind="model"` — crediting a detector with a finding it had explicitly rejected (G2-N2). A consumer cannot decline to vouch for evidence it was never handed.
 
 ### Media & Fetch
 

@@ -7,9 +7,9 @@ from collections.abc import Callable, Mapping, Sequence
 from hashlib import sha256
 from pathlib import Path
 from statistics import mean
-from typing import Any, cast
+from typing import Any, NamedTuple, cast
 
-from src.core.cv.amenities_defects import ProviderName, is_unconfirmed_hint, provider_kind
+from src.core.cv.amenities_defects import ProviderName, is_contested_hint, is_unconfirmed_hint, provider_kind
 from src.core.cv.runner import tag_amenities_and_defects, tag_images
 
 # Centralized labels/enums + helpers
@@ -75,35 +75,63 @@ _QUALITY_PREDICATES: dict[str, Callable[[dict[str, Any]], bool]] = {
 }
 
 
-def _split_measured_and_hints(
-    dets_per_sha: Mapping[str, list[Mapping[str, Any]]],
-) -> tuple[dict[str, list[Mapping[str, Any]]], dict[str, int]]:
-    """Separate entries something measured from entries nothing was able to look for.
+class _SplitDetections(NamedTuple):
+    """The three streams :func:`_split_measured_and_hints` produces. See its docstring."""
+
+    measured: dict[str, list[Mapping[str, Any]]]
+    unconfirmed_counts: dict[str, int]
+    contested_counts: dict[str, int]
+
+
+def _split_measured_and_hints(dets_per_sha: Mapping[str, list[Mapping[str, Any]]]) -> _SplitDetections:
+    """Separate what a detector reported from what only a file name claims.
 
     Everything downstream of this split -- roll-ups, quality scores, the parking summary, the
     amenity booleans -- is a claim about the property, and several of them reach the deterministic
-    finance rules through ``ListingInsights``. A ``filename_unconfirmed`` entry has no confidence
-    (nothing produced one), so letting it through would either crash the count-based consumers or,
-    worse, silently score it 0.0 and drag an average down with a measurement that never happened.
+    finance rules through ``ListingInsights``. So ``measured`` must mean exactly one thing: **a
+    provider emitted this label from the pixels.** Two filename states fail that test and are
+    routed out of it:
 
-    Returns ``(measured_per_sha, hint_counts)``: the detections to keep processing, and one count
-    per hint label across images -- the same "images exhibiting this" convention as the roll-ups.
+    ``filename_unconfirmed``
+        Nothing was ABLE to look. The entry has no confidence (nothing produced one), so letting it
+        through would either crash the count-based consumers or, worse, silently score it 0.0 and
+        drag an average down with a measurement that never happened.
+
+    ``filename_contested``
+        A detector that CAN see the label looked and did not report it. It does carry a score, and
+        that score is what used to make it look safe -- but `_apply_insight_modifiers` selects OPEX
+        and income rules by MEMBERSHIP in ``amenities``/``defects`` and never reads a confidence, so
+        a contested ``parking_garage`` in ``amenity_counts`` became the tag ``"parking"`` and moved
+        Y1 cash flow by $1,105.80 (G2-N1). A claim a detector contradicted is a *weaker* basis for
+        moving a number than one nothing could check, not a stronger one.
+
+    ``filename_confirmed`` stays in ``measured``: there, the detector did emit the label and the
+    file name merely agreed.
+
+    Counts use the same "images exhibiting this" convention as the roll-ups.
     """
     measured: dict[str, list[Mapping[str, Any]]] = {}
-    hint_counts: dict[str, int] = {}
+    unconfirmed_counts: dict[str, int] = {}
+    contested_counts: dict[str, int] = {}
     for sha, dets in dets_per_sha.items():
         kept: list[Mapping[str, Any]] = []
-        seen: set[str] = set()
+        seen_unconfirmed: set[str] = set()
+        seen_contested: set[str] = set()
         for det in dets or []:
-            if not is_unconfirmed_hint(det):
-                kept.append(det)
-                continue
             name = str(det.get("name", "")).lower()
-            if name and name not in seen:
-                seen.add(name)
-                hint_counts[name] = hint_counts.get(name, 0) + 1
+            if is_unconfirmed_hint(det):
+                if name and name not in seen_unconfirmed:
+                    seen_unconfirmed.add(name)
+                    unconfirmed_counts[name] = unconfirmed_counts.get(name, 0) + 1
+                continue
+            if is_contested_hint(det):
+                if name and name not in seen_contested:
+                    seen_contested.add(name)
+                    contested_counts[name] = contested_counts.get(name, 0) + 1
+                continue
+            kept.append(det)
         measured[sha] = kept
-    return measured, hint_counts
+    return _SplitDetections(measured, unconfirmed_counts, contested_counts)
 
 
 def _parking_summary(dets_per_sha: Mapping[str, list[Mapping[str, Any]]]) -> dict[str, Any]:
@@ -338,10 +366,11 @@ def build_photo_insights(photo_dir: Path, *, use_ai: bool = False) -> PhotoInsig
 
     # 2) Closed-set detections (for rollups and quality)
     raw_dets = tag_amenities_and_defects(cast(Sequence[AssetLike], paths), provider=provider, use_cache=True)
-    # Unconfirmed filename hints are pulled out here, once, before anything derives a number from
-    # them. `dets` from this point on is exactly "what a detector reported".
-    measured, unconfirmed_hint_counts = _split_measured_and_hints(cast(Mapping[str, list[Mapping[str, Any]]], raw_dets))
-    dets = {sha: cast(list[Any], entries) for sha, entries in measured.items()}
+    # Filename claims no detector emitted -- both the unmeasured and the contradicted kind -- are
+    # pulled out here, once, before anything derives a number from them. `dets` from this point on
+    # is exactly "what a detector reported".
+    split = _split_measured_and_hints(cast(Mapping[str, list[Mapping[str, Any]]], raw_dets))
+    dets = {sha: cast(list[Any], entries) for sha, entries in split.measured.items()}
 
     # 3) Room counts — RoomType → PhotoInsights key via ROOM_COUNT_CANONICAL
     room_counts: dict[str, int] = {}
@@ -386,7 +415,8 @@ def build_photo_insights(photo_dir: Path, *, use_ai: bool = False) -> PhotoInsig
         image_detections=dets,
         amenity_counts=amenity_counts,
         defect_counts=defect_counts,
-        unconfirmed_hint_counts=unconfirmed_hint_counts,
+        unconfirmed_hint_counts=split.unconfirmed_counts,
+        contested_hint_counts=split.contested_counts,
         parking=parking,
         ontology_version="amenities_defects_v1",
         images_total=len(paths),

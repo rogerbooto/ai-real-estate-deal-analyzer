@@ -81,57 +81,18 @@ _EXCLUDED: dict[tuple[str, str], str] = {
     # (No per-field entries for ObservationProvenance itself: `_walk` skips the excluded parent
     # before recursing into it, so child entries would be unreachable dead rows in this table.)
     # --- Known findings, already in the Mission 2 charter (T5 class) ---
-    ("YearBreakdown", "cap_rate_applied"): (
-        "T5 (charter): generator.py recomputes a drifting cap per row (_render_valuation_table_noi) "
-        "instead of reading the stored per-year value. Scheduled for Wave 3 (OPD-4); not fixed here "
-        "(zero src/ diff is binding for this task)."
-    ),
-    ("YearBreakdown", "est_value"): (
-        "T5 (charter, explicitly named): generator.py:592-596 recomputes estimated value per "
-        "valuation table instead of rendering the stored YearBreakdown.est_value. Wave 3 (OPD-4)."
-    ),
-    ("YearBreakdown", "ltv_pct"): (
-        "T5 (charter, explicitly named): recomputed in the valuation tables instead of rendered " "from the stored field. Wave 3 (OPD-4)."
-    ),
-    ("YearBreakdown", "available_equity"): (
-        "T5 (charter, explicitly named): recomputed in the valuation tables instead of rendered " "from the stored field. Wave 3 (OPD-4)."
-    ),
-    ("YearBreakdown", "principal_paid"): (
-        "T5-class (NOT individually named in the charter's excerpt, but the same defect: "
-        "principal_paid is computed by the engine and never referenced anywhere in generator.py). "
-        "Discovered while building this guard; reported to Roger, not fixed (out of Wave 1 scope)."
-    ),
-    ("YearBreakdown", "interest_paid"): (
-        "T5-class extension (same as principal_paid above): computed by the engine, never "
-        "referenced in generator.py. Discovered while building this guard; reported, not fixed."
-    ),
-    ("MarketSnapshot", "notes"): (
-        "T5 (charter, explicitly named): MarketSnapshot.notes is never rendered by "
-        "_render_market_scenarios (only snapshot.region is). Wave 3 (OPD-4)."
-    ),
-    # --- MarketSnapshot's other raw fields: same shape as the .notes finding above, not
-    # individually named in the charter but discovered alongside it. The per-scenario
-    # *applied* deltas (ScenarioOutcome.rent_growth_applied etc.) DO render, which is a
-    # defensible reason this was never flagged as urgent — but the snapshot's own baseline
-    # figures are still never restated anywhere in the Market Scenarios section.
-    ("MarketSnapshot", "vacancy_rate"): "NEW FINDING (see MarketSnapshot.notes entry above for context); not fixed here.",
-    ("MarketSnapshot", "cap_rate"): "NEW FINDING (see MarketSnapshot.notes entry above for context); not fixed here.",
-    ("MarketSnapshot", "rent_growth"): "NEW FINDING (see MarketSnapshot.notes entry above for context); not fixed here.",
-    ("MarketSnapshot", "expense_growth"): "NEW FINDING (see MarketSnapshot.notes entry above for context); not fixed here.",
-    ("MarketSnapshot", "interest_rate"): "NEW FINDING (see MarketSnapshot.notes entry above for context); not fixed here.",
-    # --- NEW findings discovered while building this guard (not in the charter's F1-F20/T4/T5 list) ---
-    ("ScenarioAnalysis", "prior_sum"): (
-        "NEW FINDING: computed by src/market/scenario_runner.py (sum of accepted priors, ~1.0) but "
-        "never referenced anywhere in generator.py — silently dropped from the Market Scenarios "
-        "section today. Reported to Roger, not fixed here (zero src/ diff binding constraint; "
-        "out of this task's Wave 1 scope)."
-    ),
+    # (The charter's whole T5 YearBreakdown/MarketSnapshot set was rendered by Mission 2 task 3.2;
+    # those entries are GONE from this table rather than reworded, which is the point of it.)
     ("ScenarioAnalysis", "notes"): (
-        "NEW FINDING: _render_market_scenarios only renders analysis.notes on the n_accepted==0 "
-        "branch. src/market/rejector.py sets notes to 'Rejector: in=X, kept=Y' unconditionally "
-        "(scenario_runner.py:run_scenarios passes notes=accepted.notes on BOTH branches), so with "
-        "accepted scenarios present (as in this sentinel fixture) that note is silently dropped "
-        "every time. Reported to Roger, not fixed here."
+        "DELIBERATELY NOT RENDERED — redundant, not dropped. src/market/rejector.py:173 sets this "
+        "to f'Rejector: in={len(hset.items)}, kept={len(ordered)}' and _render_market_scenarios "
+        "already prints those same two numbers in its header line ('N of M scenarios admitted "
+        "under guardrails', where M == in and N == kept, see scenario_runner.py:147,196). An "
+        "earlier revision of this entry called it a silent drop; that was an overstatement, "
+        "withdrawn by the guardian (M9) and re-verified in task 3.2 before this entry was "
+        "rewritten. It IS rendered on the n_accepted == 0 branch, where 'no admissible scenarios' "
+        "is the only thing the reader has. If rejector.py ever puts a FACT in this string that "
+        "the header does not carry, delete this entry and render it."
     ),
     ("ScenarioAnalysis", "io_years"): (
         "Not printed as a literal value; only gates the `io_years > 0` IO caveat sentence in "
@@ -149,11 +110,7 @@ _EXCLUDED: dict[tuple[str, str], str] = {
         "'STR viability flagged in K of N...'). Asserted via a dedicated behavioral check "
         "(test_str_viability_gates_the_narrative_flag below)."
     ),
-    # --- MediaInsights: one confirmed NEW finding, two fields checked by count instead of content ---
-    ("MediaInsights", "image_quality"): (
-        "NEW FINDING: per-image sharpness/brightness/contrast metrics computed by the media "
-        "pipeline but never referenced in _render_media_overview. Reported to Roger, not fixed here."
-    ),
+    # --- MediaInsights: two fields checked by count instead of content ---
     ("MediaInsights", "duplicate_hashes"): (
         "Surfaced as a COUNT ('N exact'), not literal hash content — see "
         "test_media_insights_duplicate_counts_reach_the_report below, not a silent skip."
@@ -162,28 +119,16 @@ _EXCLUDED: dict[tuple[str, str], str] = {
         "Surfaced as a COUNT ('N similar clusters'), not literal cluster content — see "
         "test_media_insights_duplicate_counts_reach_the_report below, not a silent skip."
     ),
-    # --- MediaReport: only 4 of 13 fields reach _render_photo_coverage today ---
-    ("MediaReport", "report_version"): "Internal schema version tag, not narrative content — not meant to render.",
-    ("MediaReport", "ontology_version"): "Internal CV-ontology version tag, not narrative content — not meant to render.",
-    ("MediaReport", "provenance"): "Internal provider/cache metadata, not narrative content — not meant to render.",
+    # --- MediaReport ---
+    # report_version / ontology_version / provenance were excluded here as "internal, not
+    # narrative content" with no cited source. Mission 2 task 3.2 re-adjudicated that (guardian
+    # M11) and OVERTURNED it: all three now render in the Run Provenance appendix, which is where
+    # metadata about who produced a claim belongs. The deciding fact is reproducible on the demo
+    # bundle — `provenance.provider_kind` is "heuristic_stub" while Photo Coverage prints
+    # "provider `cv_v2`", and those photo observations reach the engine's OPEX/income rules.
     ("MediaReport", "images"): (
         "Documented in MediaReport's own docstring as optional/hide-by-default ('renderers may hide "
         "this by default'). Legitimate design, not a drop."
-    ),
-    ("MediaReport", "listing_title"): (
-        "NEW FINDING: _render_photo_coverage only reads coverage/room_counts/amenities/warnings off "
-        "MediaReport; listing_title is silently never surfaced. Reported to Roger, not fixed here."
-    ),
-    ("MediaReport", "source_url"): "NEW FINDING (see MediaReport.listing_title entry above); not fixed here.",
-    ("MediaReport", "address"): "NEW FINDING (see MediaReport.listing_title entry above); not fixed here.",
-    ("MediaReport", "defects"): "NEW FINDING (see MediaReport.listing_title entry above); not fixed here.",
-    ("MediaReport", "quality_flags"): "NEW FINDING (see MediaReport.listing_title entry above); not fixed here.",
-    ("MediaReport", "parking"): "NEW FINDING (see MediaReport.listing_title entry above); not fixed here.",
-    # --- MediaCoverage (report_models.py DTO nested under MediaReport.coverage) ---
-    ("MediaCoverage", "version"): (
-        "NEW FINDING: _render_photo_coverage prints cov.provider but never cov.version, unlike "
-        "the sibling Media Overview section which prints both provider and version. Reported to "
-        "Roger, not fixed here."
     ),
 }
 
@@ -195,6 +140,11 @@ _EXCLUDED: dict[tuple[str, str], str] = {
 _DICT_KEYS_NOT_RENDERED: frozenset[tuple[str, str]] = frozenset(
     {
         ("MediaInsights", "palettes"),
+        # image_quality is keyed by sha256 with a metric dict per image. _render_media_overview
+        # summarizes each metric as a range across the whole set (Mission 2 task 3.2): a
+        # 40-photo listing would otherwise add 40 rows of hashes nobody reads. The metric NAMES
+        # and their values do render, so a metric added upstream still has to reach the page.
+        ("MediaInsights", "image_quality"),
     }
 )
 
@@ -225,6 +175,7 @@ _BOOL_FIELDS_WITH_DEDICATED_TESTS: dict[tuple[str, str], str] = {
     ("RunProvenance", "scenarios_enabled"): "asserted as an on/off row by test_run_provenance_bool_fields_render_their_on_off_row",
     ("RunProvenance", "vision_enabled"): "asserted as an on/off row by test_run_provenance_bool_fields_render_their_on_off_row",
     ("RunProvenance", "llm_mode_enabled"): "asserted as an on/off row by test_run_provenance_bool_fields_render_their_on_off_row",
+    ("ParkingSummary", "ev_charging"): "asserted in both directions by test_parking_summary_states_ev_charging_either_way",
 }
 
 
