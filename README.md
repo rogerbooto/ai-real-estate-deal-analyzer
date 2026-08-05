@@ -28,7 +28,7 @@ Report written to investment_analysis.md
 Thesis verdict: DECLINE
 ```
 
-> With no arguments, `main.py` underwrites the committed sample bundle at `data/sample_listings/36_kelly_moncton/` — a $399,900 legal up/down duplex in Moncton, NB. The bundle holds `listing.txt`, `photos/`, and `inputs.json` (financing, per-unit income, opex), so the listing, the photos, and the financials all describe the same deal. Pass `--config`, `--listing`, or `--photos` to point at your own.
+> With no arguments, `main.py` underwrites the committed sample bundle at `data/sample_listings/36_kelly_moncton/` — a $399,900 legal up/down duplex in Moncton, NB. The bundle holds `listing.txt`, `photos/`, and `inputs.json` (financing, per-unit income, opex), so the listing, the photos, and the financials all describe the same deal. To analyse your own, pass `--config` — and pass it *with* `--listing`/`--photos`, never instead of them: an asset flag on its own would be underwritten against the demo deal's price and rent roll, so the run refuses with an error rather than reporting your address above someone else's numbers.
 
 ### Demo Artifacts
 
@@ -43,8 +43,12 @@ Thesis verdict: DECLINE
 Beyond `main.py`, three CLIs cover ingestion, reporting, and multi-deal advising (run as modules; see note on packaging below):
 
 ```bash
-# Ingest a listing (file or URL) with optional media download & media intelligence
-python -m src.cli.ingest_cli --file listing.html --photos ./photos --media-intel 1
+# Ingest a listing (file or URL): prints synthesized listing insights + photo insights, and a
+# media summary. Media discovery/download/intelligence flags (--download-media/--media-intel/
+# --media-kinds) only take effect with --url (an HTML source to scan for media links); --file
+# input alone still gets photo insights via --photos, and prints a note on stderr explaining why
+# those media flags are ignored in that mode. See src/cli/README.md for the full flag reference.
+python -m src.cli.ingest_cli --file listing.html --photos ./photos
 
 # Render a Markdown investment report from JSON artifacts
 python -m src.cli.report_cli --forecast forecast.json --insights insights.json --out report.md
@@ -99,7 +103,7 @@ The system's unique value is its **opinionated financial model**, which implemen
 
 ## High-Level Architecture
 
-At a glance, the system is a multi-agent pipeline with a **deterministic orchestrator by default** and a **CrewAI seam** for optional LLM-backed runs (`--engine crewai`; currently a parity shell that validates the environment and delegates to the same deterministic math). Each agent specializes in one domain, and the Chief Strategist synthesizes all findings into a final investment thesis.
+At a glance, the system is a multi-agent pipeline with a **deterministic orchestrator by default** and a **CrewAI seam** for optional LLM-backed runs (`--engine crewai`). With `AIREAL_LLM_MODE` unset (the default), the seam is a parity shell that validates the environment and delegates to the same deterministic math. With `AIREAL_LLM_MODE` set **and** a provider key present, the Listing Analyst's `crew.kickoff()` does run — an LLM authors *observations* (condition tags, defects, amenities) that flow into the forecast through the deterministic insight modifiers. **The verdict never goes through a model, in any mode:** the Chief Strategist always synthesizes the final BUY/CONDITIONAL/DECLINE thesis from the same deterministic rule engine (`chief_strategist.synthesize_thesis`), so an AI-influenced deal still gets its judgment from the identical rules every other deal goes through.
 
 ```mermaid
 flowchart LR
@@ -138,13 +142,13 @@ flowchart LR
 
 ## Technical Architecture
 
-The system is built as a **multi-agent pipeline** with clear separation of concerns, where each agent is an expert in its domain. Orchestration is deterministic by default; a CrewAI-based engine is available as a seam for future LLM reasoning.
+The system is built as a **multi-agent pipeline** with clear separation of concerns, where each agent is an expert in its domain. Orchestration is deterministic by default; a CrewAI-based engine is available as a seam for opt-in LLM-authored *observations* (`AIREAL_LLM_MODE`, Listing Analyst only) — the verdict stays rule-based in every mode.
 
 The primary agents are:
 
 * **Listing Analyst:** Analyzes property photos (deterministic CV tagging, with provider seams for AI vision) and listing text to extract key features and data points.
 * **Financial Forecaster:** A financial modeling expert that implements the core investment spreadsheet logic, calculating NOI, cash flow, and return metrics.
-* **Chief Strategist:** The final decision-maker that synthesizes all data into a clear, human-readable investment thesis (rule-based today).
+* **Chief Strategist:** The final decision-maker that synthesizes all data into a clear, human-readable investment thesis (rule-based always — `ChiefStrategistAgent.run` never routes the verdict through an LLM, in any mode).
 
 *(Note: live market research is out of scope; financial inputs are provided locally. Listing ingestion supports local files and — behind an explicit opt-in fetch policy with robots.txt respect — remote URLs.)*
 
@@ -262,7 +266,7 @@ You can run the full pipeline (Listing Analyst → Financial Forecaster → Chie
 # Run demo analysis
 python main.py
 
-# Or with explicit config/assets
+# Or with explicit config/assets (--listing/--photos require --config for the same property)
 python main.py --config data/sample_listings/36_kelly_moncton/inputs.json --out out.md --horizon 10 \
                --listing data/sample_listings/36_kelly_moncton/listing.txt --photos data/sample_listings/36_kelly_moncton/photos
 
@@ -346,6 +350,29 @@ pip install -r requirements.txt -r requirements-dev.txt
 
 > Note: `pip install -e .` is supported and installs the `ingest-listing`, `deal-report`, and `deal-advisor` console scripts. Runtime dependencies still come from the requirements files (this matches CI), so install those first, then `pip install -e .` for the entry points.
 
+### Optional Dependencies
+
+**ONNX Runtime** (for custom computer-vision models)
+
+If you want to bring your own trained ONNX image classification model to detect amenities and defects, install `onnxruntime`:
+
+```bash
+pip install onnxruntime
+```
+
+Then register your model in Python before running your analysis:
+
+```python
+from src.core.cv import register_onnx_provider
+
+register_onnx_provider(
+    model_path="path/to/your_model.onnx",
+    labels_path="path/to/labels.json"
+)
+```
+
+This is a **Python-API-only feature** — no CLI command automatically loads ONNX models. The ONNX provider is lazy-loaded and optional; if not installed, the default providers (`local` heuristics, `vision`/`llm` stubs) continue to work. See [`src/core/README.md`](src/core/README.md#dependencies--optional-providers) for details.
+
 ---
 
 ## Testing & Validation
@@ -412,11 +439,11 @@ testpaths = tests
 
 * **V4 (Planned / Not yet implemented)**
 
-  * Real LLM/vision provider integration behind the existing seams (CrewAI kickoff, AI photo tagging beyond deterministic stubs)
+  * A real vision-model provider behind the `--ai` seam — today `--ai` selects a labelled heuristic (`version="vision-stub-v1"`, `provenance["provider_kind"]="heuristic_stub"`), not a model. Note the *other* half of "V4" already shipped: `ListingAnalystAgent` runs a real `crew.kickoff()` today, opt-in via `AIREAL_LLM_MODE` + a provider key (see High-Level Architecture, above) — but only for text/photo *observations*; the verdict is never LLM-authored, in any version.
   * Live market data ingestion (regional income, cap-rate drift, comps) — scenarios currently run on user-supplied snapshot only
   * Streamlit or web UI for interactive scenario exploration and parameter sensitivity
   * Expanded scenario reporting and stress-test visualizations
 
 ---
 
-_Last reconciled: 2026-07-24 against main @ e4716df (post-Wave-2 Market Scenarios implementation)._
+_Last reconciled: 2026-08-04 against mission/2-wiring-gaps @ d18ee1a (Gate 2 VETO remediation: corrected the High-Level Architecture / Technical Architecture / V4-roadmap claims that `crew.kickoff()` is not yet called — it is, opt-in, for the Listing Analyst's observations only; the verdict is always deterministic, in every mode. Earlier note: 2026-08-03 @ 74c985c, ingest CLI example corrected to reflect F10/F11 media-flag reachability)._

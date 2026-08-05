@@ -13,9 +13,37 @@
   * **media/**: media discovery, filtered download, bundle manifests, and media intelligence (phash/quality/palette/hero).
   * **fetch/**: HTML fetching, robots.txt policy, caching, typed errors.
   * **insights/**: synthesis of listing + photo insights into `ListingInsights`.
-  * **intelligence/**: deal fusion, composite scoring, narrative + report builders (`DealIntelligence`).
-  * **advisor/**: multi-deal ranking, portfolio summary, risk flags, scenario what-ifs.
-  * **strategy/**: rule-based thesis formation.
+  * **intelligence/**: deal fusion, composite scoring (`DealIntelligence`). Task 3.1b (2026-08-05)
+    wired `narrative_builder.py` (`build_narrative_md`) and `report_builder.py`
+    (`write_markdown_report`) into a new `deal-advisor --narrative` flag; the founder-proxy blocked
+    that wiring at Gate 3 the same day because the resulting report duplicated `deal-report`'s
+    output with strictly less information and printed raw-fraction IRR (`0.12`) where every other
+    surface renders a percentage. Both files, and the flag, were deleted at Gate 3 remediation — see
+    `CHANGELOG.md` "Removed". `intelligence/` now holds only `deal_fusion.py`, `scoring.py`,
+    `types.py`.
+  * **advisor/**: multi-deal ranking, portfolio summary, risk flags. Task 3.1b also wired
+    `advisor/scenarios.py` ("scenario what-ifs", `summarize_scenarios`) into a `deal-advisor
+    --what-if` flag; blocked at the same Gate 3 review because `summarize_scenarios` rendered a
+    fabricated `irr_est` (base IRR plus a clamped ±10pp proxy from invented, uncited coefficients,
+    no amortization anywhere) whose own returned disclaimer ("Approximate scenario; does not re-run
+    engine.") never reached the rendered page, computed against a down-payment-rate fallback that
+    did not match the sample deal's real rate. Deleted at Gate 3 remediation — see `CHANGELOG.md`
+    "Removed". An engine-backed what-if belongs behind `src/market/scenario_runner.py` (perturbs
+    `FinancialInputs`, re-runs `run_financial_model`) — see `src/market/README.md` — not a
+    standalone approximation. `advisor/` now holds `portfolio.py`, `recommender.py`, `risk.py`.
+  * *(**strategy/** is gone. It held one function, `form_thesis` — a second rule-based
+    thesis-formation implementation that no production code ever called. Mission 2 task 3.1a
+    reconciled it into the live path and deleted it, per OPD-1's binding reconcile→review→delete
+    sequence. Both of its guardrails that the live strategist lacked now live in
+    `agents/chief_strategist.py`: judging the cap-rate spread against the user's
+    `market.cap_rate_spread_target` instead of a hardcoded constant (`synthesize_thesis` takes an
+    optional `market=` for exactly that), and the `coc < 0.03` Year-1 cash-on-cash floor, now
+    `MIN_COC_Y1`. Its remaining rules were already present and stricter in the live module — which
+    also has an IRR floor `form_thesis` never had — and its `coc < 0 AND dscr < 1.0` DECLINE
+    shortcut is subsumed by `num_fails >= 3` once the CoC floor is live. The architecture ruling
+    behind the deletion is in `docs/plans/ROADMAP_TRACKER.md` §3b: an agent exists only where a
+    model might one day enter; everything deterministic is called directly in `core/`. Verdict
+    formation is a judgment with an LLM-shaped seam, so it belongs to the agent.)*
   * **reports/**: Markdown report generation (see [`reports/README.md`](reports/README.md)).
   * **utils/**: markdown/serialization helpers.
 
@@ -46,18 +74,20 @@
   from src.core.media.insights import analyze_media, enrich_with_intelligence
   from src.core.media.intelligence import compute_phash, compute_quality, extract_palette, rank_hero
 
-  # Insights, Intelligence, Advisor, Strategy
+  # Insights, Intelligence, Advisor
   from src.core.insights.synthesis import synthesize_listing_insights
+  from src.core.insights.provenance import attach, text_observation, detection_observation
   from src.core.intelligence.deal_fusion import fuse_deal_intelligence, DealIntelligence
   from src.core.intelligence.scoring import compute_composite_score
-  from src.core.advisor import rank_deals, portfolio_summary, compute_risk_flags
-  from src.core.strategy.strategist import form_thesis
+  from src.core.advisor.recommender import rank_deals
+  from src.core.advisor.portfolio import portfolio_summary
+  from src.core.advisor.risk import compute_risk_flags
   ```
 
 ### Finance
 
 * `run_financial_model(fi: FinancialInputs, *, horizon_years: int = 10, insights: ListingInsights | None = None) -> FinancialForecast`
-  Main underwriting entrypoint; returns forecast with `YearBreakdown[]`, `PurchaseMetrics`, optional `RefiEvent`, and warnings. Insight-aware modifiers only adjust income when `income_is_estimated` is set.
+  Main underwriting entrypoint; returns forecast with `YearBreakdown[]`, `PurchaseMetrics`, optional `RefiEvent`, and warnings. Insight-aware **income** modifiers only fire when `income_is_estimated` is set (read at `engine.py:98`). Insight-aware **OPEX** modifiers (`"old roof"` → +$300/yr reserves, `"water stain"` → +$200/yr repairs & maintenance, `_apply_insight_modifiers` in `engine.py:64-70`) are unconditional in code but **unreachable from the deterministic pipeline**: on the text-ingestion path, condition tags come from `_CONDITION_KEYWORDS`'s free-string list (`src/core/ingest/listing_parser.py:37-45`, which has `"new roof"`, not `"old roof"`), and defects come from the closed `ConditionTag`/`DefectLabel` enums (`src/schemas/labels.py`), where `"water stain"` is normalized to `DefectLabel.water_leak_suspected` before the engine's literal string check ever sees it (`labels.py:241`). **They are reachable via `--engine crewai` with `AIREAL_LLM_MODE=1`**: `ListingAnalystAgent`'s LLM-authored `ListingInsights` (`src/agents/crewai_components.py`) are parsed straight from model JSON with no normalization pass, so an LLM that writes the literal strings reaches the engine unnormalized. They also fire if a caller hand-constructs a `ListingInsights` with those exact strings directly (e.g. a unit test). See `docs/plans/MISSION_2_SPRINT_TRACKER.md` (Gate 2 record, findings V2/C2) and `core/reports/README.md`'s "Adjustments Applied" section, which the same mechanism affects.
 * `amortization_schedule(principal, rate, amort_years, *, io_years=0, horizon_years) -> list[YearDebt]`
   Deterministic annual schedule; interest-only years precede amortization; padded to horizon.
 * `irr(cash_flows, *, max_iter=100, tol=1e-6) -> float | None`
@@ -77,7 +107,39 @@
 * `tag_images(paths, *, use_ai=None, return_schema=False) -> dict`
   Deterministic generic room/material tagging keyed by image sha256.
 * `tag_amenities_and_defects(assets, *, provider, use_cache=True) -> dict[str, list[DetectedLabel]]`
-  Closed-set amenities/defects detection with per-provider JSON cache (`.cache/cv/providers/<provider>/<sha>.json`). Providers: `local` (heuristics), `vision` / `llm` (deterministic stubs), `onnx` (user-registered local model via `register_onnx_provider`).
+  Closed-set amenities/defects detection with per-provider JSON cache (`.cache/cv/providers/<provider>/<behaviour>-<capability-digest>/<sha>.json`). Providers: `local` (heuristics), `vision` / `llm` (deterministic stubs), `onnx` (user-registered local model via `register_onnx_provider`). The cache path carries the provider's declared capabilities as well as `_CACHE_BEHAVIOUR_VERSION`, so registering a different detector cannot be served a pre-registration answer.
+* `register_provider(name, fn, *, detects)` / `provider_capabilities(name) -> frozenset[str]`
+  A provider **declares the label vocabulary it can emit**. `register_onnx_provider`'s `labels_path` is that declaration for a real model. Declarations are keyed by the function object, not the slot name, so a slot rebound at runtime reports the new function's vocabulary with no table to update — the same identity rule `provider_kind` uses. An undeclared provider covers **nothing** (silence is not evidence that something looked).
+
+#### Filename suggestions: SUGGEST vs CONFIRM
+
+A file name may **suggest** a label; only a detector that actually looked may **confirm** it. `runner._augment_from_filename` classifies each match against `provider_capabilities`, producing one of three `DetectedLabel.source` values (see `amenities_defects.DetectionSource`):
+
+| provider covers the label? | provider reported it? | `source` | confidence |
+| --- | --- | --- | --- |
+| yes | yes | `filename_confirmed` | `CV_CONFIRMATION_WEIGHT × cv + FILENAME_CORROBORATION_BONUS` (0.7 · cv + 0.3) |
+| yes | no — a genuine disagreement | `filename_contested` | `0.30` |
+| no — nothing could look | n/a | `filename_unconfirmed` | **none at all** |
+
+The two weights are a tunable split summing to 1.0 (`runner.CV_CONFIRMATION_WEIGHT` / `FILENAME_CORROBORATION_BONUS`); the 0.30 is a flat corroboration credit for a *binary* filename match, not "we are 30% sure". Registering a provider that declares the label moves it from unconfirmed to contested with no code change.
+
+**Neither an unconfirmed nor a contested claim may reach a number.** Both are kept out of `ListingInsights.amenities/condition_tags/defects` — the three lists `finance/engine._apply_insight_modifiers` reads — and surfaced to the reader through `ListingInsights.notes` plus `PhotoInsights.unconfirmed_hint_counts` / `contested_hint_counts` instead.
+
+The **0.30 is not what makes the contested case safe**, and an earlier version of this table said it was, on the grounds that it sits below the 0.6 bar `_parking_summary` applies. That bar does not gate every route: `amenity_counts` → `synthesis` → the literal tag `"parking"` → `_apply_insight_modifiers` reads **membership, not confidence**, so a blank grey `garage.jpg` with a detector that covers `parking_garage` and reported nothing moved Y1 cash flow by $1,105.80 (G2-N1). What makes it safe is that the tag never arrives, enforced in **three** independent places — all
+three now call the single predicate `amenities_defects.is_uncorroborated_filename_claim` rather than
+keeping their own copy of the rule, because a second copy is exactly how the third one came to leak:
+
+* `photo_insights._split_measured_and_hints` keeps contested entries out of `amenity_counts` / `defect_counts` / `image_detections`, so `image_detections` means exactly "what a detector reported";
+* `synthesis._amenities_from` refuses to ship an amenity tag whose only support is a claim a covering detector rejected — the guard that still holds if a *different* producer builds `PhotoInsights` without filtering;
+* `orchestrators/cv_tagging_orchestrator` — the **sibling producer**, and the one that leaked. It reached `ListingInsights.amenities` by a different route (`agents/listing_analyst`) and shipped contested claims until `06da901`; it moved no money only because the engine matches the literal `"parking"` while that route emits the ontology name `"parking_garage"`. Safe by accident is not safe.
+
+That predicate is an **allow-list** (`{"pixels", "filename_confirmed"}`), not a deny-list. It was a
+deny-list until Gate 3, and the difference is the whole property: a `source` value nobody has thought
+of yet is withheld by default rather than trusted by default. An earlier version of this file, the
+predicate's own docstring, and a commit message all claimed the deny-list already had that property.
+None of them had tested it. It did not.
+
+The marker itself now survives validation: `DetectedLabelModel.source` (see `schemas.models.DetectionSource`) is a declared field. It previously was not, and `extra="ignore"` deleted it at the boundary, which is why `synthesis` stamped contested records `origin="cv_provider", provider_kind="model"` — crediting a detector with a finding it had explicitly rejected (G2-N2). A consumer cannot decline to vouch for evidence it was never handed.
 
 ### Media & Fetch
 
@@ -90,16 +152,27 @@
 * `enrich_with_intelligence(bundle, insights, enable=False)`
   Opt-in perceptual-hash near-duplicate detection, quality scoring, palette extraction, and hero ranking.
 
-### Insights, Intelligence, Advisor, Strategy
+### Insights, Intelligence, Advisor
 
 * `synthesize_listing_insights(listing: ListingNormalized, photos: PhotoInsights) -> ListingInsights`
-  Deterministically combines textual and visual cues (address resolution, amenities, condition tags, notes).
+  Deterministically combines textual and visual cues (address resolution, amenities, condition tags, notes), and
+  populates `ListingInsights.observations` with per-tag provenance.
+* `core.insights.provenance` — builders for that ledger: `text_observation` / `filename_observation` /
+  `detection_observation` / `derived_observation` / `unattributed_observation`, plus `attach`,
+  `dedupe_and_sort`, `retain_recorded_tags`, `stamp_uniform_origin`. Pure and deterministic; they never
+  *infer* an origin — a producer that cannot attribute a tag records `origin="unknown"` rather than guessing,
+  and a keyword match is never given a fabricated confidence.
 * `fuse_deal_intelligence(...) -> DealIntelligence`
   Fuses listing, finance summary, media, and photo insights into a scored deal object.
 * `compute_composite_score(...)` — weighted scoring components (see `intelligence/types.py`).
-* `rank_deals(deals)` / `portfolio_summary(deals)` / `compute_risk_flags(...)` — advisor layer used by the `deal-advisor` CLI.
-* `form_thesis(ff: FinancialForecast, mkt: MarketAssumptions) -> InvestmentThesis`
-  Rule-based thesis used by the Chief Strategist.
+* `rank_deals(deals)` (`core.advisor.recommender`) / `portfolio_summary(deals)` (`core.advisor.portfolio`) /
+  `compute_risk_flags(...)` (`core.advisor.risk`) — advisor layer used by the `deal-advisor` CLI and
+  `core.intelligence.deal_fusion`. Import the submodules directly; `core.advisor.__init__` is a bare
+  package marker (Mission 2 Wave 3 removed its dead lazy-wrapper re-exports — every caller already
+  imported the submodules, so the facade had zero callers).
+* Thesis formation lives **outside** `core/`, at `agents.chief_strategist.synthesize_thesis`. There is
+  no second implementation: `core/strategy/form_thesis` was deleted in Mission 2 task 3.1a after its
+  guardrails were reconciled into that function (see the `strategy/` note under Structure above).
 
 ## Design Notes / Invariants
 
@@ -114,6 +187,14 @@
 
 * Consumes types from [`../schemas/README.md`](../schemas/README.md).
 * AI vision/LLM providers are seams — deterministic stubs unless a user registers an ONNX model.
+
+  **ONNX provider (optional):** The `register_onnx_provider()` function allows you to bring your own trained ONNX classification model to the amenities/defects detector. This is a **Python-API-only, opt-in feature** — it is never invoked by any CLI command, only through direct Python code. To use it:
+  1. Install `onnxruntime` separately: `pip install onnxruntime`
+  2. Call `register_onnx_provider(model_path, labels_path)` once during your app initialization (not built into the default pipeline)
+  3. Pass `provider="onnx"` to `tag_amenities_and_defects()` or `detect_from_image()`
+
+  If `onnxruntime` is not installed, calling `register_onnx_provider()` raises a clear error message. The package is intentionally not declared in `requirements.txt` because it is an opt-in dependency for advanced users only.
+
 * Network/FS access is isolated in `fetch/` and `media/` for mocking in tests.
 
 ## Test Strategy
@@ -123,8 +204,12 @@
 * Run:
 
   ```bash
-  pytest -q tests/core
+  pytest -q --no-cov tests/core
   ```
+
+  `--no-cov` disables coverage for this subset run only; the project's ≥80% coverage gate
+  (`pytest.ini`, `--cov-fail-under=80`) is enforced against the **full** `pytest` suite, not any
+  one subset command.
 
 ## Cross-links
 
@@ -138,4 +223,18 @@
 
 ---
 
-_Last reconciled: 2026-07-23 against main @ e4716df (including uncommitted working-tree refactors of `media/insights.py` and `media/intelligence.py`)._
+_Last reconciled: 2026-08-05 against mission/2-wiring-gaps (Gate 3 remediation): the
+`narrative_builder.py`/`report_builder.py` and `advisor/scenarios.py` bullets above now describe
+their deletion, not their wiring — the founder-proxy blocked both at Gate 3 for printing figures
+the finance engine never computed, and the task-3.1b stamp this note supersedes (below) described
+them as live. See `CHANGELOG.md` "Removed" for the full record. Earlier note: 2026-08-05 against
+mission/2-wiring-gaps (task 3.1b, the wiring half): the
+`narrative_builder.py`/`report_builder.py` and `advisor/scenarios.py` bullets above now describe
+the live `deal-advisor --narrative`/`--what-if` callers instead of "no production caller" — see
+`src/cli/README.md` for the flags and `docs/plans/MISSION_2_SPRINT_TRACKER.md` row 3.1b for the
+RED-on-revert proof. Earlier note: 2026-08-05 against mission/2-wiring-gaps @ 8f31eaa + uncommitted
+Wave 3 work. **Task 3.1a** (that stamp's author): `core/strategy/` deleted after its guardrails
+were reconciled into `agents/chief_strategist`; `form_thesis` removed from Structure, the import
+block and the API list. The same working tree also carries **task 3.1b**'s `core/advisor/__init__.py`
+facade removal, reflected in the advisor bullets above but stamped by that task, not this one — two
+tasks edited this file concurrently and neither stamp covers the other's hunks. Earlier note: 2026-08-05 @ 615aaaf (corrected — the previous stamp cited `a626e9d`, a tree that does not contain the per-tag provenance content it claimed to have reconciled: `ObservationProvenance` appears 0 times there and 6 times at HEAD. A provenance stamp that names the wrong tree is the defect this file documents, applied to itself. Guardian M21.) (documented the new `core/insights/provenance` builders and `synthesize_listing_insights`' provenance output). Earlier note: 2026-08-04 @ d18ee1a (Gate 2 VETO remediation: narrowed the OPEX-modifier honesty note — unreachable from the deterministic pipeline (text-path condition tags come from the free-string `_CONDITION_KEYWORDS` list, not only the closed enum) but reachable via `--engine crewai` with `AIREAL_LLM_MODE=1`; dropped the dangling "charter finding M10" citation. Earlier note: 2026-08-03 @ 74c985c, corrected the claim that insight-aware OPEX modifiers work on real data; clarified `strategist.py`/`form_thesis`, `narrative_builder.py`/`report_builder.py`, and `advisor/scenarios.py` are dead code with no production caller today, pending Mission 2 Wave 3 disposition)._

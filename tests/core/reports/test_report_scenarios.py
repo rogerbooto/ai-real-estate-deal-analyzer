@@ -188,3 +188,44 @@ def test_empty_set_renders_no_admissible_copy() -> None:
     # No bands / grid tables fabricated.
     assert "downside (p25)" not in md
     assert "Scenario grid" not in md
+
+
+# ---------------------------------------------------------------------------
+# Mission 2 / task 3.2 (OPD-4): the snapshot the grid perturbs, and the prior mass
+# behind the bands, both used to be computed and then dropped.
+# ---------------------------------------------------------------------------
+
+
+def test_market_snapshot_baseline_figures_reach_the_section() -> None:
+    """Every delta below is quoted against these; only the region used to be shown."""
+    analysis = _analysis()
+    snapshot = analysis.snapshot
+    md = generate_report(make_listing_insights(), make_minimal_forecast(), None, scenarios=analysis)
+
+    assert "**Market snapshot** _(the baseline every scenario perturbs)._" in md
+    assert "| Vacancy | Cap rate | Rent growth | Opex growth | Interest rate |" in md
+    assert (
+        f"| {snapshot.vacancy_rate * 100:.2f}% | {snapshot.cap_rate * 100:.2f}% | {snapshot.rent_growth * 100:.2f}% "
+        f"| {snapshot.expense_growth * 100:.2f}% | {snapshot.interest_rate * 100:.2f}% |"
+    ) in md
+
+
+def test_snapshot_notes_reach_the_section_when_present() -> None:
+    """Where the snapshot's numbers came from — the demo bundle says 'not external market data'."""
+    analysis = _analysis().model_copy(update={"snapshot": make_snapshot(region="Moncton, NB", notes="Derived from the inputs file.")})
+    md = generate_report(make_listing_insights(), make_minimal_forecast(), None, scenarios=analysis)
+
+    assert "_Snapshot notes: Derived from the inputs file._" in md
+
+
+def test_snapshot_notes_line_is_absent_when_there_are_none() -> None:
+    md = generate_report(make_listing_insights(), make_minimal_forecast(), None, scenarios=_analysis())
+    assert "Snapshot notes" not in md
+
+
+def test_prior_sum_reaches_the_section() -> None:
+    """The bands are prior-weighted; how much prior mass is behind them is part of reading them."""
+    analysis = _analysis()
+    md = generate_report(make_listing_insights(), make_minimal_forecast(), None, scenarios=analysis)
+
+    assert f"admitted priors sum to {analysis.prior_sum:.2f}._" in md

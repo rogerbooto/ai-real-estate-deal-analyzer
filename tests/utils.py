@@ -6,20 +6,25 @@ Update values here to cascade across the test suite.
 
 from __future__ import annotations
 
+import enum
 import os
 import runpy
 import subprocess
 import sys
+import types
+import typing
 from collections.abc import Iterable
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from hashlib import sha256
 from io import BytesIO
 from pathlib import Path
-from typing import Any
+from typing import Any, Union, get_args, get_origin
 
 import numpy as np
 from PIL import Image
+from pydantic import BaseModel
+from pydantic.fields import FieldInfo
 
 # Project models
 from src.core.finance.adapters import FinanceSummary
@@ -648,3 +653,156 @@ def make_finance_summary_safe() -> FinanceSummary:
 
 def make_finance_summary_risky() -> FinanceSummary:
     return make_finance_summary(area_safety_index=0.4)
+
+
+# =====================================================================================
+# Generic sentinel-model builder (Mission 2, Wave 1 — anti-regression transform guard)
+# =====================================================================================
+#
+# Root cause 2 (see docs/plans/MISSION_2_wiring_gaps.md): transforms in this codebase
+# rebuild models field-by-field, so any field added to a schema later is silently dropped
+# on the way to a report. The guard tests under tests/*/test_*_field_guard.py construct a
+# source model with every field populated by a non-default, type-appropriate value (a
+# "sentinel"), push it through a transform, and assert nothing reverted to a default.
+#
+# `build_sentinel_model` enumerates `ModelCls.model_fields` DYNAMICALLY — it never hand-
+# lists field names — so a field added to a schema after this helper was written is picked
+# up automatically and gets its own sentinel, without editing this file. That is the whole
+# point: a guard that hand-lists fields has the identical defect it's meant to catch.
+#
+# Handles: str, int, float, bool, Literal, Enum, Optional/`X | None`, list/set/tuple/dict
+# containers (incl. variadic tuples), nested pydantic models (recursive), Path, datetime,
+# and `Any`. Field-level `ge`/`gt`/`le`/`lt` constraints (as emitted by pydantic v2 into
+# `FieldInfo.metadata`) are respected so constrained fields still validate.
+#
+# What it CANNOT discover generically: constraints enforced by a custom `@field_validator`
+# (not visible as `FieldInfo.metadata`) — e.g. `PhotoInsights.quality_flags` values must be
+# in [0, 1] via a hand-written validator, not a `Field(ge=..., le=...)` on the dict itself.
+# For those, callers pass a narrow `overrides={"field_name": <valid-but-non-default-value>}`
+# — an explicit, visible override, not a silent one.
+
+_NoneType = type(None)
+_UNION_ORIGINS: tuple[Any, ...] = (Union, types.UnionType)
+_sentinel_counter = {"n": 0}
+
+
+def _next_sentinel_n() -> int:
+    _sentinel_counter["n"] += 1
+    return _sentinel_counter["n"]
+
+
+def _unwrap_optional(tp: Any) -> Any:
+    """Strip `Optional[X]` / `X | None` down to `X` (never returns NoneType)."""
+    origin = get_origin(tp)
+    if origin in _UNION_ORIGINS:
+        args = [a for a in get_args(tp) if a is not _NoneType]
+        if args:
+            return args[0]
+    return tp
+
+
+def _field_constraints(field: FieldInfo) -> dict[str, float]:
+    """Extract ge/gt/le/lt numeric bounds from a pydantic v2 FieldInfo, if present."""
+    out: dict[str, float] = {}
+    for m in field.metadata:
+        for attr in ("ge", "gt", "le", "lt"):
+            if hasattr(m, attr):
+                out[attr] = getattr(m, attr)
+    return out
+
+
+def _numeric_sentinel(base: float, constraints: dict[str, float], *, as_int: bool) -> float | int:
+    lo = constraints.get("ge")
+    if "gt" in constraints:
+        lo = constraints["gt"] + (1 if as_int else 1e-3)
+    hi = constraints.get("le")
+    if "lt" in constraints:
+        hi = constraints["lt"] - (1 if as_int else 1e-3)
+
+    val = base
+    if lo is not None and val <= lo:
+        val = lo + (1 if as_int else 0.5)
+    if hi is not None and val >= hi:
+        val = hi - (1 if as_int else 0.5)
+    if lo is not None and hi is not None and lo > hi:
+        val = lo
+    return int(val) if as_int else round(float(val), 4)
+
+
+def sentinel_for_type(name: str, tp: Any, *, constraints: dict[str, float] | None = None, tag: str = "") -> Any:
+    """
+    Produce a single non-default, type-appropriate sentinel value for a field named `name`
+    with (resolved) annotation `tp`. `tag` namespaces nested-model field names so a failure
+    message can point at e.g. "purchase.cap_rate" rather than just "cap_rate".
+    """
+    constraints = constraints or {}
+    tp = _unwrap_optional(tp)
+    origin = get_origin(tp)
+    tagged_name = f"{tag}{name}" if tag else name
+
+    if origin is typing.Literal:
+        options = get_args(tp)
+        return options[-1] if len(options) > 1 else options[0]
+
+    if isinstance(tp, type) and issubclass(tp, enum.Enum):
+        return list(tp)[-1]
+
+    if isinstance(tp, type) and issubclass(tp, BaseModel):
+        return build_sentinel_model(tp, tag=f"{tagged_name}.")
+
+    if origin in (list, typing.List):  # noqa: UP006 (comparing against typing alias, not annotating)
+        (inner,) = get_args(tp) or (str,)
+        return [
+            sentinel_for_type(name, inner, tag=tag),
+            sentinel_for_type(f"{name}_2", inner, tag=tag),
+        ]
+    if origin in (set, typing.Set):  # noqa: UP006
+        (inner,) = get_args(tp) or (str,)
+        return {sentinel_for_type(name, inner, tag=tag)}
+    if origin in (tuple, typing.Tuple):  # noqa: UP006
+        args = get_args(tp)
+        if len(args) == 2 and args[1] is Ellipsis:
+            return (sentinel_for_type(name, args[0], tag=tag),)
+        if args:
+            return tuple(sentinel_for_type(f"{name}_{i}", a, tag=tag) for i, a in enumerate(args))
+        return (sentinel_for_type(name, str, tag=tag),)
+    if origin in (dict, typing.Dict):  # noqa: UP006
+        kt, vt = get_args(tp) if get_args(tp) else (str, str)
+        return {sentinel_for_type(f"{name}_key", kt, tag=tag): sentinel_for_type(f"{name}_val", vt, tag=tag)}
+
+    if tp is bool:
+        return True
+    if tp is int:
+        return _numeric_sentinel(9_000 + _next_sentinel_n(), constraints, as_int=True)
+    if tp is float:
+        return _numeric_sentinel(12_345.6789 + _next_sentinel_n(), constraints, as_int=False)
+    if tp is str:
+        return f"SENTINEL::{tagged_name}"
+    if tp is Path:
+        return Path(f"/sentinel/{tagged_name}")
+    if tp is datetime:
+        return datetime(2001, 2, 3, tzinfo=timezone.utc)
+    if tp is Any or tp is object:
+        return f"SENTINEL::{tagged_name}"
+
+    raise TypeError(f"sentinel_for_type: no handler for field {name!r} (tagged {tagged_name!r}) of type {tp!r}")
+
+
+def build_sentinel_model(model_cls: type[BaseModel], *, tag: str = "", overrides: dict[str, Any] | None = None) -> Any:
+    """
+    Construct `model_cls` with EVERY declared field set to a non-default, type-appropriate
+    sentinel value, enumerated dynamically from `model_cls.model_fields` (never hand-listed).
+
+    `overrides` supplies an explicit, visible value for fields whose validity constraints
+    can't be discovered generically (custom `@field_validator`s) — see module docstring.
+    """
+    overrides = overrides or {}
+    hints = typing.get_type_hints(model_cls)
+    kwargs: dict[str, Any] = {}
+    for fname, finfo in model_cls.model_fields.items():
+        if fname in overrides:
+            kwargs[fname] = overrides[fname]
+            continue
+        tp = hints.get(fname, finfo.annotation)
+        kwargs[fname] = sentinel_for_type(fname, tp, constraints=_field_constraints(finfo), tag=tag)
+    return model_cls(**kwargs)

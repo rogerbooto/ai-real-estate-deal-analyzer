@@ -1,8 +1,10 @@
 from pathlib import Path
 
 import pytest
+from PIL import Image
 
 from src.core.reports.generator import write_report
+from src.orchestrators.crew import run_orchestration as run_deterministic
 from src.orchestrators.crewai_runner import run_orchestration as run_crewai
 from src.schemas.models import (
     FinancialInputs,
@@ -96,6 +98,58 @@ def test_crewai_orchestrator_runs_offline(monkeypatch, tmp_path):
     write_report(str(out_file), result.insights, result.forecast, result.thesis)
     assert out_file.exists()
     assert "# Investment Analysis" in out_file.read_text(encoding="utf-8")
+
+
+def _sample_assets_with_real_photos(tmp_path: Path) -> tuple[str, str]:
+    """Like ``_sample_assets`` but with decodable images, so ``collect_local_assets``
+    and ``build_photo_insights`` have something real to analyze (the zero-byte fixture
+    used elsewhere is fine for structure-only checks, but ``collect_local_assets``
+    filters out unreadable files, which would make media_insights spuriously None on
+    both engines and defeat the parity assertion below).
+    """
+    listing_txt = tmp_path / "listing.txt"
+    listing_txt.write_text("Charming triplex at 123 Main St. Parking and laundry.", encoding="utf-8")
+    photos_dir = tmp_path / "photos"
+    photos_dir.mkdir()
+    for name in ("kitchen.jpg", "bathroom.jpg"):
+        Image.new("RGB", (800, 600), "white").save(photos_dir / name)
+    return str(listing_txt), str(photos_dir)
+
+
+def test_crewai_media_fields_reach_parity_with_deterministic(monkeypatch, tmp_path):
+    """F5: --engine crewai must populate media_insights/media_report like --engine
+    deterministic, or the report silently loses its Media Overview / Photo Coverage
+    sections. This test turns RED if crewai_runner.run_orchestration ever goes back
+    to returning OrchestrationResult(insights, forecast, thesis) with the media
+    fields defaulted away.
+    """
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+
+    inputs = _inputs()
+    listing_txt, photos_dir = _sample_assets_with_real_photos(tmp_path)
+
+    det_result = run_deterministic(
+        inputs=inputs,
+        listing_txt_path=listing_txt,
+        photos_folder=photos_dir,
+        horizon_years=10,
+    )
+    crew_result = run_crewai(
+        inputs=inputs,
+        listing_txt_path=listing_txt,
+        photos_folder=photos_dir,
+        horizon_years=10,
+    )
+
+    # The defect (F5) manifested as both fields silently defaulting to None on the
+    # crewai path even though photos were supplied. Assert they are populated...
+    assert crew_result.media_insights is not None
+    assert crew_result.media_report is not None
+
+    # ...and that they agree with the deterministic engine run over the same inputs
+    # (parity, not just "truthy").
+    assert crew_result.media_insights == det_result.media_insights
+    assert crew_result.media_report == det_result.media_report
 
 
 def test_crewai_missing_env_fails_friendly(monkeypatch, tmp_path):

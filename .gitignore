@@ -119,6 +119,10 @@ Desktop.ini
 data/cache/**
 out/**
 
+# Default `python main.py` output — a generated run artifact, never source. Ignored so a
+# careless `git add -A` cannot commit a stale report asserting claims the code no longer makes.
+investment_analysis.md
+
 # Claude Code local config
 .claude/
 

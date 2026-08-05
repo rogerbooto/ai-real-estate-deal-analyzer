@@ -3,7 +3,7 @@
 import re
 
 from src.core.reports.generator import generate_report, write_report
-from src.schemas.models import MediaInsights
+from src.schemas.models import ListingInsights, MediaInsights
 
 
 def test_generate_report_contains_key_sections(
@@ -167,3 +167,47 @@ def test_generate_report_media_counts_are_reflected(
 
     # Also ensure bytes_total is present as a number (no strict formatting expectations)
     assert re.search(r"\b123456\b", window) is not None
+
+
+def test_year_notes_render_as_adjustments_applied(baseline_forecast, listing_insights_baseline):
+    """
+    F3 (Mission 2 finding #3): the engine stores per-year insight-modifier notes on
+    ``YearBreakdown.notes`` (e.g. "condition: old roof -> reserves +$300/yr") but the report used
+    to never render them, so a reader could see adjusted OPEX/income figures with no traceability
+    back to the condition/defect that caused them. This is the RED-on-revert test: reverting the
+    ``_render_year_adjustments`` wiring in generator.py makes this fail because the note strings,
+    the "Adjustments Applied" heading, and the "Year 1:" attribution all disappear from the report.
+    """
+    insights = ListingInsights(
+        address="123 Test St",
+        condition_tags=["old roof"],
+        defects=["water stain"],
+    )
+    forecast = baseline_forecast(insights=insights)
+
+    # Sanity: the engine really did compute Year 1 notes for this fixture (fails loudly, not
+    # silently, if the engine's insight-modifier behavior ever changes underneath this test).
+    assert forecast.years[0].notes, "fixture no longer trips the insight modifiers - update the test"
+
+    md = generate_report(listing_insights_baseline, forecast)
+
+    assert "Adjustments Applied" in md
+    assert "condition: old roof → reserves +$300/yr" in md
+    assert "defect: water stain → R&M +$200/yr" in md
+    # Attributed to the year that carries them, not left as an orphan line.
+    assert "Year 1: condition: old roof" in md
+
+
+def test_no_year_notes_omits_adjustments_section(baseline_forecast, listing_insights_baseline):
+    """
+    Empty state: a forecast with no listing insights (the common case) computes empty
+    ``YearBreakdown.notes`` for every year. The report must degrade to nothing here - no stray
+    "Adjustments Applied" heading with an empty body.
+    """
+    forecast = baseline_forecast()  # insights=None by default
+
+    assert all(not y.notes for y in forecast.years)
+
+    md = generate_report(listing_insights_baseline, forecast)
+
+    assert "Adjustments Applied" not in md

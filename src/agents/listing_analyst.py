@@ -13,7 +13,6 @@ Design
 ------
 - Pure Python, no network assumptions in this module.
 - Uses the new CV Tagging Orchestrator which honors feature flags:
-    * AIREAL_PHOTO_AGENT=1 → PhotoTaggerAgent (delegates to batch-aware cv_tagging)
     * AIREAL_USE_VISION=1  → AI path enabled (provider chosen by AIREAL_VISION_PROVIDER)
 - Conservative merge: text-derived condition/defect tags remain optional; we map
   **photo-derived** signals into condition/defects while text contributes address,
@@ -33,9 +32,29 @@ Migration Notes
 
 from __future__ import annotations
 
+from src.core.cv.amenities_defects import contested_hint_note, unconfirmed_hint_note
 from src.core.ingest.listing_parser import parse_listing_string, parse_listing_text
+from src.core.insights.provenance import attach
 from src.orchestrators.cv_tagging_orchestrator import CvTaggingOrchestrator
-from src.schemas.models import ListingInsights
+from src.schemas.models import ListingInsights, ObservationProvenance
+
+
+def _hint_notes(hints: set[str], contested: set[str]) -> list[str]:
+    """Turn unconfirmed and contested filename hints into reader-facing notes.
+
+    ``notes`` is the carrier on purpose. The three tag lists (``amenities``/``condition_tags``/
+    ``defects``) are read by ``finance.engine._apply_insight_modifiers`` to select OPEX and income
+    rules, so a claim nothing measured -- or a claim a covering detector examined the pixels for
+    and did NOT report -- cannot be put there without giving a file name the power to move money.
+    ``notes`` is read by the report and by nothing in the finance core, which is exactly the
+    "shown to the reader, invisible to the arithmetic" property this needs. Keeping the hint out
+    of the money path required no change inside ``src/core/finance/`` at all.
+
+    Two different sentences, not one: "nothing could check this" and "something checked and
+    disagreed" are different facts, and a reader told the second must not come away believing the
+    first (see ``core.cv.amenities_defects.CONTESTED_HINT_NOTE``).
+    """
+    return [unconfirmed_hint_note(label) for label in sorted(hints)] + [contested_hint_note(label) for label in sorted(contested)]
 
 
 def analyze_listing(
@@ -77,6 +96,9 @@ def analyze_listing(
     photo_condition: set[str] = set()
     photo_defects: set[str] = set()
     photo_amenities: set[str] = set()
+    photo_hints: set[str] = set()
+    photo_contested: set[str] = set()
+    photo_observations: list[ObservationProvenance] = []
     try:
         if photos_folder:
             cv = CvTaggingOrchestrator()
@@ -87,11 +109,23 @@ def analyze_listing(
             # The orchestrator computes and promotes amenity labels from image tags; reading
             # only condition/defects threw that work away before it reached the report.
             photo_amenities = set(rollup.get("amenities", []) or [])
+            # Labels a file name suggested that NOTHING was able to look for. Deliberately read
+            # into `notes` and not into the tag lists — see `_hint_notes`.
+            photo_hints = set(rollup.get("unconfirmed_hints", []) or [])
+            # The other half of the same rule: a detector that COULD see the label looked and did
+            # not report it. Same channel as `photo_hints`, different sentence.
+            photo_contested = set(rollup.get("contested_hints", []) or [])
+            # Per-tag provenance for those same photo tags (provider, kind, confidence, evidence).
+            raw_obs = cv_out.get("observations", []) if isinstance(cv_out, dict) else []
+            photo_observations = [o for o in (raw_obs or []) if isinstance(o, ObservationProvenance)]
     except Exception:
         # Defensive: never crash due to image folder issues.
         photo_condition = set()
         photo_defects = set()
         photo_amenities = set()
+        photo_hints = set()
+        photo_contested = set()
+        photo_observations = []
 
     # --- Merge ---
     # Address, title, amenities, notes and facts come from text. Condition and defects are the
@@ -107,7 +141,10 @@ def analyze_listing(
             "amenities": sorted(set(text_insights.amenities) | photo_amenities),
             "condition_tags": sorted(photo_condition | set(text_insights.condition_tags)),
             "defects": sorted(photo_defects | set(text_insights.defects)),
-            "notes": sorted(set(text_insights.notes)),
+            "notes": sorted(set(text_insights.notes) | set(_hint_notes(photo_hints, photo_contested))),
         }
     )
-    return combined
+    # The tag lists are a union, so the ledger is too: a tag both sources saw keeps BOTH records,
+    # which is the only way a reader can tell "the copy claims it" from "a detector saw it" from
+    # "both agree". `attach` drops any record whose tag did not survive the merge.
+    return attach(combined, [*text_insights.observations, *photo_observations])

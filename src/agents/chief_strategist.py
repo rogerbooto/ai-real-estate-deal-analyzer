@@ -29,16 +29,50 @@ This is intentionally simple for V1. In V2+, you can:
 
 from __future__ import annotations
 
-from src.schemas.models import FinancialForecast, InvestmentThesis
+from src.schemas.models import FinancialForecast, InvestmentThesis, MarketAssumptions
 
 # ----------------------------
 # Underwriting guardrails (tunable)
 # ----------------------------
 MIN_DSCR_Y1 = 1.20  # Year 1 DSCR floor
+#: Fallback cap-rate-spread target, used ONLY when the caller supplies no ``MarketAssumptions``.
+#: When they do, the user's own ``market.cap_rate_spread_target`` wins — that is the same number
+#: ``run_financial_model`` tests when it raises "cap-rate spread below target", so the thesis and
+#: the report's Warnings section cannot disagree about whether the spread cleared the bar.
 MIN_SPREAD = 0.015  # Cap rate - interest rate target (150 bps)
 MIN_IRR_10YR = 0.12  # 10-year IRR target (12%)
+#: Year-1 cash-on-cash floor (3%). Cash-on-cash is the standard first-year equity yield,
+#: ``CoC = Year-1 cash flow / total cash invested`` — where the denominator is the acquisition
+#: cash outlay (down payment + closing costs + upfront reserves). The number itself is computed
+#: once, deterministically, by ``run_financial_model`` (``src/core/finance/engine.py``) and lands
+#: on ``PurchaseMetrics.coc``; this module only reads it. DSCR asks whether the *lender* is
+#: covered and Year-1 cash flow asks whether the deal is above water in dollars, but neither asks
+#: what the *buyer's own cash* earns: a deal can clear both on a large down payment and still
+#: return under 3% on the money it consumed.
+MIN_COC_Y1 = 0.03
 REQUIRE_POSITIVE_CF_ALL = False  # If True, require CF >= 0 for all years to be BUY
 REQUIRE_POSITIVE_CF_Y1 = True  # Require CF >= 0 in Year 1 for BUY
+
+
+def spread_target_for(market: MarketAssumptions | None) -> float:
+    """
+    Resolve the cap-rate-spread target this thesis is judged against.
+
+    The engine warns on ``purchase.spread_vs_rate < market.cap_rate_spread_target``
+    (``src/core/finance/engine.py``). The strategist must test the *same* number, or a report can
+    print "cap-rate spread below target" under Warnings while its own Investment Thesis says the
+    spread meets target — and on a deal that otherwise reads BUY the levers list is empty, so the
+    warning is never explained.
+
+    Args:
+        market: The run's market guardrails, or None when the caller has none to give.
+
+    Returns:
+        ``market.cap_rate_spread_target`` when a market block is supplied, else ``MIN_SPREAD``.
+    """
+    if market is None:
+        return MIN_SPREAD
+    return market.cap_rate_spread_target
 
 
 def _flag(condition: bool, msg: str, rationale: list[str]) -> None:
@@ -47,17 +81,22 @@ def _flag(condition: bool, msg: str, rationale: list[str]) -> None:
         rationale.append(msg)
 
 
-def _levers_for(forecast: FinancialForecast) -> list[str]:
+def _levers_for(forecast: FinancialForecast, spread_target: float) -> list[str]:
     """
     Produce actionable (but generic) levers based on observed weaknesses.
     This is V1 and intentionally qualitative.
+
+    Args:
+        forecast: The forecast being judged.
+        spread_target: The cap-rate-spread target in force (see ``spread_target_for``). Quoted in
+            the lever text so the suggested fix names the bar the reader actually configured.
     """
     y1 = forecast.years[0]
     levers: list[str] = []
 
     # If spread below target
-    if forecast.purchase.spread_vs_rate < MIN_SPREAD:
-        levers.append("Negotiate lower price to improve cap-rate spread to ≥ 150 bps.")
+    if forecast.purchase.spread_vs_rate < spread_target:
+        levers.append(f"Negotiate lower price to improve cap-rate spread to ≥ {spread_target * 10_000:.0f} bps.")
         levers.append("Pursue lower interest rate or longer amortization to widen spread.")
 
     # If DSCR weak
@@ -66,6 +105,11 @@ def _levers_for(forecast: FinancialForecast) -> list[str]:
         levers.append("Trim OPEX (e.g., utilities, PM fees) via vendor bids to lift NOI.")
         levers.append("Phase rent increases (e.g., renewal program) to strengthen DSCR.")
 
+    # If Year-1 cash-on-cash below floor
+    if forecast.purchase.coc < MIN_COC_Y1:
+        levers.append(f"Lift Year-1 net cash flow (rents, ancillary income, OPEX bids) to reach cash-on-cash ≥ {MIN_COC_Y1:.0%}.")
+        levers.append("Reduce the cash outlay (seller credits, lower closing costs, smaller upfront reserves) to raise cash-on-cash.")
+
     # If Year 1 cash flow negative
     if y1.cash_flow < 0:
         levers.append("Target rent optimization (ancillary income, fee schedule) to reach breakeven.")
@@ -73,7 +117,7 @@ def _levers_for(forecast: FinancialForecast) -> list[str]:
 
     # If 10-year IRR low
     if forecast.irr_10yr < MIN_IRR_10YR:
-        levers.append("Refine exit assumptions (cap rate, value-add) or hold horizon to reach IRR ≥ 12%.")
+        levers.append(f"Refine exit assumptions (cap rate, value-add) or hold horizon to reach IRR ≥ {MIN_IRR_10YR:.0%}.")
         levers.append("Explore value-add scope (unit upgrades) to raise rents and exit value.")
 
     # Bubble up model-generated warnings as soft levers
@@ -90,14 +134,15 @@ def _levers_for(forecast: FinancialForecast) -> list[str]:
     return deduped
 
 
-def synthesize_thesis(forecast: FinancialForecast) -> InvestmentThesis:
+def synthesize_thesis(forecast: FinancialForecast, *, market: MarketAssumptions | None = None) -> InvestmentThesis:
     """
     Convert a FinancialForecast into an InvestmentThesis via simple guardrails.
 
     Rules for BUY:
       - DSCR (Y1) ≥ MIN_DSCR_Y1
-      - Cap-rate spread ≥ MIN_SPREAD
+      - Cap-rate spread ≥ the configured ``market.cap_rate_spread_target`` (else MIN_SPREAD)
       - IRR_10yr ≥ MIN_IRR_10YR
+      - Year-1 cash-on-cash ≥ MIN_COC_Y1
       - If REQUIRE_POSITIVE_CF_Y1: Year-1 cash flow ≥ 0
       - If REQUIRE_POSITIVE_CF_ALL: All years have cash flow ≥ 0
       - No critical warnings (cap rate below explicit floor)
@@ -105,18 +150,30 @@ def synthesize_thesis(forecast: FinancialForecast) -> InvestmentThesis:
     Else if most but not all pass -> CONDITIONAL with suggested levers.
     Else -> DECLINE with levers.
 
+    Args:
+        forecast: The deterministic forecast to judge. All money numbers come from here; this
+            function computes none of them.
+        market: The run's market guardrails, when the caller has them. Optional and additive so
+            existing callers keep working — but every orchestrator passes ``inputs.market``,
+            because the spread test must use the target the *user* configured, not a constant
+            baked into this module. Omit it and the spread falls back to ``MIN_SPREAD`` and the
+            cap-rate-floor rationale falls back to an unnumbered breach line (see below).
+
     Returns:
         InvestmentThesis with verdict, rationale, and levers.
     """
     y1 = forecast.years[0]
     purchase = forecast.purchase
+    spread_target = spread_target_for(market)
 
     rationale: list[str] = []
 
     # Evaluate guardrails
     dscr_ok = y1.dscr >= MIN_DSCR_Y1
-    spread_ok = purchase.spread_vs_rate >= MIN_SPREAD
+    spread_ok = purchase.spread_vs_rate >= spread_target
     irr_ok = forecast.irr_10yr >= MIN_IRR_10YR
+    # Inclusive at the bar, exactly like every sibling above: a deal landing on 3.00% clears it.
+    coc_ok = purchase.coc >= MIN_COC_Y1
     cf_y1_ok = (y1.cash_flow >= 0.0) if REQUIRE_POSITIVE_CF_Y1 else True
     cf_all_ok = all(y.cash_flow >= 0.0 for y in forecast.years) if REQUIRE_POSITIVE_CF_ALL else True
     no_cap_floor_breach = not any("cap rate" in w.lower() and "below floor" in w.lower() for w in forecast.warnings)
@@ -125,11 +182,14 @@ def synthesize_thesis(forecast: FinancialForecast) -> InvestmentThesis:
     _flag(dscr_ok, f"DSCR (Y1) is healthy at {y1.dscr:.2f} (≥ {MIN_DSCR_Y1:.2f}).", rationale)
     _flag(not dscr_ok, f"DSCR (Y1) is weak at {y1.dscr:.2f} (< {MIN_DSCR_Y1:.2f}).", rationale)
 
-    _flag(spread_ok, f"Cap-rate spread meets target at {purchase.spread_vs_rate:.2%} (≥ {MIN_SPREAD:.2%}).", rationale)
-    _flag(not spread_ok, f"Cap-rate spread is thin at {purchase.spread_vs_rate:.2%} (< {MIN_SPREAD:.2%}).", rationale)
+    _flag(spread_ok, f"Cap-rate spread meets target at {purchase.spread_vs_rate:.2%} (≥ {spread_target:.2%}).", rationale)
+    _flag(not spread_ok, f"Cap-rate spread is thin at {purchase.spread_vs_rate:.2%} (< {spread_target:.2%}).", rationale)
 
     _flag(irr_ok, f"Projected IRR (10y) is {forecast.irr_10yr:.2%} (≥ {MIN_IRR_10YR:.2%}).", rationale)
     _flag(not irr_ok, f"Projected IRR (10y) is {forecast.irr_10yr:.2%} (< {MIN_IRR_10YR:.2%}).", rationale)
+
+    _flag(coc_ok, f"Cash-on-cash (Y1) is healthy at {purchase.coc:.2%} (≥ {MIN_COC_Y1:.2%}).", rationale)
+    _flag(not coc_ok, f"Cash-on-cash (Y1) is weak at {purchase.coc:.2%} (< {MIN_COC_Y1:.2%}).", rationale)
 
     if REQUIRE_POSITIVE_CF_Y1:
         _flag(cf_y1_ok, f"Year-1 cash flow is positive at ${y1.cash_flow:,.0f}.", rationale)
@@ -139,14 +199,36 @@ def synthesize_thesis(forecast: FinancialForecast) -> InvestmentThesis:
         _flag(cf_all_ok, "Cash flow is non-negative across the hold period.", rationale)
         _flag(not cf_all_ok, "Cash flow turns negative in some years.", rationale)
 
-    _flag(no_cap_floor_breach, "Purchase cap rate respects the floor policy.", rationale)
-    _flag(not no_cap_floor_breach, "Purchase cap rate breaches the configured floor.", rationale)
+    # Cap-rate floor. `no_cap_floor_breach` is inferred from the *absence* of the engine's
+    # warning, which is equally true when no floor was configured at all (`cap_rate_floor`
+    # defaults to None). The floor VALUE is what tells those two cases apart, so the claim this
+    # module can honestly make depends on whether the caller handed over a market block:
+    #
+    #   floor known      -> name both numbers, in either direction, like every sibling line above.
+    #   floor unknown,
+    #     engine warned  -> the breach is still certain (the engine only warns on a real floor),
+    #                       but this module cannot name the number it breached.
+    #   floor unknown,
+    #     no warning     -> SILENCE. "Respects the floor policy" would assert compliance with a
+    #                       policy that may not exist (Gate 0 / B1; pinned by
+    #                       test_no_floor_policy_makes_no_floor_claim).
+    #
+    # The breach/clear decision always comes from the engine's warning, never from a comparison
+    # re-done here: the money numbers and the guardrail test belong to run_financial_model.
+    cap_floor = market.cap_rate_floor if market is not None else None
+    if cap_floor is not None:
+        cap = purchase.cap_rate
+        _flag(no_cap_floor_breach, f"Purchase cap rate is {cap:.2%} (≥ the {cap_floor:.2%} floor you set).", rationale)
+        _flag(not no_cap_floor_breach, f"Purchase cap rate is {cap:.2%} (< the {cap_floor:.2%} floor you set).", rationale)
+    else:
+        _flag(not no_cap_floor_breach, "Purchase cap rate breaches the configured floor.", rationale)
 
     # Verdict logic (critical fail threshold)
     fails = [
         (not dscr_ok),  # DSCR below floor
         (not spread_ok),  # spread below target
         (not irr_ok),  # IRR below target
+        (not coc_ok),  # Year-1 cash-on-cash below floor
         (not cf_y1_ok),  # negative Y1 CF (if enforced)
         (not cf_all_ok),  # negative CF in hold (if enforced)
         (not no_cap_floor_breach),  # explicit cap floor breach
@@ -162,9 +244,9 @@ def synthesize_thesis(forecast: FinancialForecast) -> InvestmentThesis:
         levers: list[str] = []
     elif pass_condition:  # many critical fails
         verdict = "DECLINE"
-        levers = _levers_for(forecast)
+        levers = _levers_for(forecast, spread_target)
     else:  # some fail, some pass
         verdict = "CONDITIONAL"
-        levers = _levers_for(forecast)
+        levers = _levers_for(forecast, spread_target)
 
     return InvestmentThesis(verdict=verdict, rationale=rationale, levers=levers)

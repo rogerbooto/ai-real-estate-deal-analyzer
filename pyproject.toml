@@ -22,6 +22,12 @@ classifiers = [
 
 [project.optional-dependencies]
 openai = ["openai>=1.0.0"]
+# Optional JS-render path (`FetchPolicy.render_js` / `--render`): not required for
+# the default offline-first / raw-HTML fetch. Install with `pip install .[render]`
+# then `playwright install chromium`. Missing/failed render now degrades with a
+# visible warning (see src/core/fetch/html_fetcher.py) rather than a hard failure,
+# so this stays optional by design.
+render = ["playwright>=1.40.0"]
 
 [project.scripts]
 ingest-listing = "src.cli.ingest_cli:main"

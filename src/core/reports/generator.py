@@ -4,11 +4,17 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Any, cast, get_args
 
+from src.core.cv.amenities_defects import ProviderName, provider_covers
+from src.core.cv.ontology import AMENITIES_DEFECTS_V1
+from src.core.finance.engine import EQUITY_LTV
+from src.schemas.labels import AmenityLabel, ParkingType
 from src.schemas.models import (
     FinancialForecast,
     InvestmentThesis,
     ListingInsights,
+    MarketAssumptions,
     MediaInsights,
     PurchaseMetrics,
     RefiEvent,
@@ -19,6 +25,7 @@ from src.schemas.models import (
     YearBreakdown,
 )
 
+from .baseline import BaselineOutlook
 from .report_models import MediaReport
 
 
@@ -57,6 +64,51 @@ def _fmt_delta_pct(x: float) -> str:
         0.0  -> 0.00%
     """
     return f"{'+' if x > 0 else ''}{x * 100:.2f}%"
+
+
+def _fmt_delta_currency(x: float) -> str:
+    """
+    Format a currency delta with an explicit sign, at the report's 2dp dollar precision.
+
+    A delta that rounds to zero at that precision renders unsigned ("$0.00"), so a float
+    artifact never shows up as a misleading "-$0.00".
+
+    Example:
+        500.0 -> +$500.00
+        -500.0 -> -$500.00
+        -0.0001 -> $0.00
+    """
+    body = f"${abs(x):,.2f}"
+    if round(x, 2) == 0:
+        return body
+    return f"{'+' if x > 0 else '-'}{body}"
+
+
+def _fmt_delta_ratio(x: float) -> str:
+    """
+    Format a bare-ratio delta (DSCR, equity multiple) with an explicit sign at 2dp.
+
+    Same zero rule as :func:`_fmt_delta_currency`.
+
+    Example:
+        -0.02 -> -0.02
+        0.0   -> 0.00
+    """
+    body = f"{abs(x):.2f}"
+    if round(x, 2) == 0:
+        return body
+    return f"{'+' if x > 0 else '-'}{body}"
+
+
+def _fmt_delta_rate(x: float) -> str:
+    """
+    Format a rate delta (cap rate, CoC) as a signed percentage at 2dp.
+
+    Wraps :func:`_fmt_delta_pct` with the same round-to-zero rule as the other delta
+    formatters: a delta smaller than half of the last displayed digit is snapped to exact
+    zero first, so it renders "0.00%" rather than "-0.00%".
+    """
+    return _fmt_delta_pct(0.0 if round(x * 100, 2) == 0 else x)
 
 
 def _section(title: str) -> str:
@@ -205,7 +257,7 @@ def _render_methodology() -> str:
         "",
         "$$Value_t = PurchasePrice \\times (1 + g)^t$$",
         "$$LTV_t = \\frac{MortgageBalance_t}{Value_t}$$",
-        "$$Equity_t^{(80\\%)} = 0.80 \\times Value_t - MortgageBalance_t$$",
+        "$$Equity_t^{(80\\%)} = \\max(0,\\ 0.80 \\times Value_t - MortgageBalance_t)$$",
         "",
         "**2) Stress-Test (Rate-Anchored, Conservative)**",
         "",
@@ -214,7 +266,7 @@ def _render_methodology() -> str:
         "",
         "$$StressValue_t = (PurchasePrice - Adj) \\times (1 + \\tfrac{r}{3})^t$$",
         "$$LTV_t = \\frac{MortgageBalance_t}{StressValue_t}$$",
-        "$$Equity_t^{(80\\%)} = 0.80 \\times StressValue_t - MortgageBalance_t$$",
+        "$$Equity_t^{(80\\%)} = \\max(0,\\ 0.80 \\times StressValue_t - MortgageBalance_t)$$",
         "",
         "**3) NOI-Based (Market-Income Approach with Cap Rate Drift)**",
         "",
@@ -223,13 +275,17 @@ def _render_methodology() -> str:
         "$$CapRate_t = CapRate_0 + (drift_{per\\_year} \\times t)$$",
         "$$NOIValue_t = \\frac{NOI_t}{CapRate_t}$$",
         "$$LTV_t = \\frac{MortgageBalance_t}{NOIValue_t}$$",
-        "$$Equity_t^{(80\\%)} = 0.80 \\times NOIValue_t - MortgageBalance_t$$",
+        "$$Equity_t^{(80\\%)} = \\max(0,\\ 0.80 \\times NOIValue_t - MortgageBalance_t)$$",
         "",
         "**Notes**",
         "- *Seasoning*: refi checks typically begin at Year 1 or later (configurable).",
         "- We use end-of-year balances and values for consistency.",
         "- LTV comparisons use a small epsilon to avoid floating-point edge cases.",
         "- This report shows the full horizon; refi years are marked when available.",
+        "- Track 3 is the engine's own valuation, read from the forecast. Tracks 1 and 2 are "
+        "report-side sensitivities computed from the same forecast figures.",
+        "- *Available Equity @80%* is floored at $0.00 — below the 80% mark there is nothing to "
+        "draw. The LTV column beside it shows how far above the mark the loan still sits.",
     ]
     return "\n".join(lines) + "\n"
 
@@ -276,6 +332,22 @@ def _render_media_overview(mi: MediaInsights | None) -> str:
         if dup_clusters:
             bits.append(f"{dup_clusters} similar clusters")
         lines.append(f"- **Duplicates:** {', '.join(bits)}")
+
+    # Per-image quality metrics, summarized as a range per metric.
+    #
+    # Rendered as ranges rather than one row per image: the map is keyed by sha256 and holds a
+    # metric dict per image, so a 40-photo listing would add 40 unreadable rows of hashes. What
+    # an underwriter acts on is whether the SET is sharp and well-lit — a dark or soft range is
+    # the signal that the photos may be hiding condition. Metric names are read off the data, so
+    # a metric added upstream flows through without touching this function.
+    if mi.image_quality:
+        metrics: dict[str, list[float]] = {}
+        for per_image in mi.image_quality.values():
+            for metric, value in per_image.items():
+                metrics.setdefault(metric, []).append(value)
+        bits = [f"{metric} {min(values):.2f}–{max(values):.2f}" for metric, values in sorted(metrics.items())]
+        if bits:
+            lines.append(f"- **Image Quality:** {', '.join(bits)} _(range across {len(mi.image_quality)} images)_")
 
     # Hero
     if mi.hero_sha256:
@@ -407,7 +479,52 @@ def _glossary_link(anchor: str, text: str) -> str:
     return f"[{text}](#g-{anchor})"
 
 
-def _render_provenance(pipeline: RunProvenance | None) -> str:
+def _applied_cap_drift(years: list[YearBreakdown]) -> float | None:
+    """
+    The cap-rate drift per year actually applied to the rendered NOI table, or None when that
+    table fell back to the env-driven recomputation.
+
+    Read off the engine's own cap path rather than from an input, so the provenance row cannot
+    claim a drift the table did not apply. A single-year forecast reports 0.0: drift multiplies
+    ``(t - 1)``, so no drift can have been applied to the only row on the page.
+    """
+    if not _forecast_carries_valuation(years):
+        return None
+    if len(years) < 2:
+        return 0.0
+    first, second = years[0].cap_rate_applied, years[1].cap_rate_applied
+    assert first is not None and second is not None  # narrowed by _forecast_carries_valuation
+    return second - first
+
+
+def _flatten_provenance(prefix: str, value: Any) -> list[tuple[str, str]]:
+    """
+    Flatten a nested provenance mapping into ``(dotted label, printable value)`` rows.
+
+    Generic on purpose: the CV layer owns the shape of ``MediaReport.provenance`` and adds keys
+    to it over time. Hand-picking "interesting" keys here would re-create the drop-a-field-at-
+    the-boundary defect this mission exists to close, one curation decision later.
+    """
+    if isinstance(value, dict):
+        rows: list[tuple[str, str]] = []
+        for key, sub in value.items():
+            rows.extend(_flatten_provenance(f"{prefix}.{key}" if prefix else str(key), sub))
+        return rows
+    if isinstance(value, list | tuple):
+        printable = ", ".join(str(v) for v in value) if value else "(none)"
+        return [(prefix, printable)]
+    if value is None:
+        return [(prefix, "(none)")]
+    return [(prefix, str(value))]
+
+
+def _render_provenance(
+    pipeline: RunProvenance | None,
+    *,
+    market: MarketAssumptions | None = None,
+    media_report: MediaReport | None = None,
+    applied_cap_drift: float | None = None,
+) -> str:
     """
     Record the settings that shaped the numbers above.
 
@@ -415,24 +532,64 @@ def _render_provenance(pipeline: RunProvenance | None) -> str:
     runs of the same command on the same inputs could disagree with nothing in either report
     explaining why. A reader comparing two reports can now diff this block first.
 
-    The three valuation knobs are read from the SAME accessors that produced the valuation
-    tables, so this block cannot drift out of sync with the figures it describes. Everything the
-    generator cannot observe for itself arrives via ``pipeline``.
+    The valuation knobs are read from the SAME source that produced the valuation tables — the
+    forecast's own cap path when the NOI table renders the engine's track, the env accessors
+    when it falls back to recomputing — so this block cannot drift out of sync with the figures
+    it describes. Everything the generator cannot observe for itself arrives via ``pipeline``,
+    ``market`` and ``media_report``.
+
+    ``market`` carries the underwriting guardrails the verdict was judged against. The cap-rate
+    floor in particular decided a rationale line and a DECLINE input, and until Mission 2 it
+    appeared nowhere in the document — a reader could not tell a cleared floor from an absent
+    one. It is stated here as well as in the thesis because ``deal-report`` can render a report
+    with no thesis at all.
+
+    ``media_report``'s three version/provenance fields are recorded here rather than in the
+    narrative. They are metadata — but they are metadata about *who made the photo claims*, and
+    the Photo Coverage section above prints observations that reach the engine's OPEX/income
+    rules. "Provider `cv_v2`" reads like a model; ``provenance.provider_kind`` is what says
+    whether it was one, and dropping it while printing its output is precisely the over-claim
+    this mission removes.
     """
-    drift_bps = round(_cap_drift_per_year() * 10_000)
+    if applied_cap_drift is not None:
+        drift_value, drift_source = f"{round(applied_cap_drift * 10_000)} bps/yr", "market.cap_rate_drift"
+    else:
+        drift_value, drift_source = f"{round(_cap_drift_per_year() * 10_000)} bps/yr", "AIREAL_CAP_DRIFT_BPS"
     rows: list[tuple[str, str, str]] = [
-        ("Cap-rate drift", f"{drift_bps} bps/yr", "AIREAL_CAP_DRIFT_BPS"),
+        ("Cap-rate drift", drift_value, drift_source),
         ("Baseline appreciation", _fmt_pct(_appreciation_rate()), "AIREAL_APPRECIATION_PCT"),
         ("Stress basis adjustment", _fmt_currency(_stress_adj()), "AIREAL_STRESS_ADJ"),
     ]
+    if market is not None:
+        rows.extend(
+            [
+                (
+                    "Cap-rate floor",
+                    _fmt_pct(market.cap_rate_floor) if market.cap_rate_floor is not None else "(no floor policy set)",
+                    "market.cap_rate_floor",
+                ),
+                ("Cap-rate spread target", _fmt_pct(market.cap_rate_spread_target), "market.cap_rate_spread_target"),
+            ]
+        )
     if pipeline is not None:
         rows.extend(
             [
                 ("Orchestration engine", pipeline.engine, "AIREAL_ENGINE / --engine"),
                 ("Market Scenarios", "on" if pipeline.scenarios_enabled else "off", "AIREAL_SCENARIOS / --scenarios"),
                 ("AI photo tagging", "on" if pipeline.vision_enabled else "off", "AIREAL_USE_VISION"),
+                # Without this row, an --engine crewai + AIREAL_LLM_MODE run where a model authored
+                # every observation showed "AI photo tagging: off" as its ONLY AI fact -- under a
+                # heading promising this table is enough to reproduce the run.
+                ("LLM-authored observations", "on" if pipeline.llm_mode_enabled else "off", "AIREAL_LLM_MODE"),
                 ("Inputs file", pipeline.config_path or "(hardcoded demo inputs)", "--config"),
             ]
+        )
+    if media_report is not None:
+        rows.append(("Media report schema", media_report.report_version, "MediaReport.report_version"))
+        rows.append(("CV ontology", media_report.ontology_version, "MediaReport.ontology_version"))
+        rows.extend(
+            (f"Photo pipeline — {label}", value, "MediaReport.provenance")
+            for label, value in _flatten_provenance("", media_report.provenance)
         )
 
     lines = [
@@ -468,6 +625,63 @@ def _render_glossary() -> str:
     return "\n".join(lines) + "\n"
 
 
+#: Canonical ontology labels the "Parking (from photos)" line reports on jointly. A "none" is only
+#: a real negative finding when at least one of these was something a provider could actually look
+#: for -- see :func:`_photo_capability_covers`.
+_PARKING_TYPE_LABELS: tuple[str, ...] = (
+    AmenityLabel.parking_garage.value,
+    AmenityLabel.parking_driveway.value,
+    AmenityLabel.street_parking.value,
+)
+
+#: `ProviderName`'s member values, read off the type rather than re-typed here so a provider added
+#: to the `Literal` later does not silently fall through `_photo_capability_covers`'s runtime check
+#: to "unrecognised provider -> treat as nothing looked" without anyone noticing the mismatch.
+_KNOWN_PROVIDER_NAMES: frozenset[str] = frozenset(get_args(ProviderName))
+
+
+def _photo_capability_covers(report: MediaReport, *canonical_labels: str) -> bool:
+    """Was the CV provider that produced ``report`` even capable of looking for any of these labels?
+
+    Every negative fact this section states about parking/EV charging is only true because
+    something looked. `ParkingSummary.ev_charging` defaults to `False` and `parking_type` defaults
+    to `"none"` on a schema built with no detections at all -- and every provider shipped with this
+    codebase declares only `{natural_light_high, stainless_appliances}` (plus synonyms), no parking
+    or EV-charger label at all (see `core.cv.amenities_defects`'s "Built-in capability
+    declarations"). So on every default configuration, printing that default as "no EV charging
+    observed" states a sighting nothing was capable of making -- R-6 (the filename-hint rule) run
+    in reverse, on an absence instead of a presence. This is the single check both call sites use
+    to tell "nothing could look" from "something looked and found none", so the two can never drift
+    apart.
+
+    Reads `report.provenance["selected_provider"]` because that -- not `report.coverage.provider`,
+    which is the constant `"cv_v2"` report-schema tag -- is the actual CV provider slot
+    (`"local"`/`"vision"`/`"llm"`/`"onnx"`) that produced the underlying detections; see
+    `core.cv.photo_insights.build_photo_insights`, the sole producer of that key. A missing or
+    unrecognised value is treated the same as "nothing looked": conservative, and the same reading
+    `provider_capabilities` documents for a provider that declared nothing at all.
+    """
+    raw_provider = report.provenance.get("selected_provider")
+    if not isinstance(raw_provider, str) or raw_provider not in _KNOWN_PROVIDER_NAMES:
+        return False
+    try:
+        return provider_covers(cast(ProviderName, raw_provider), *canonical_labels, ontology=AMENITIES_DEFECTS_V1)
+    except ValueError:
+        # A NAMED but UNBOUND provider slot. `"onnx"` is a member of `ProviderName`, so it clears
+        # the check above, but it has no default registration -- it only exists once a caller runs
+        # the documented `register_onnx_provider` path. Rendering a report is a *different process*
+        # from producing one, so `deal-report` reading an artifact from an onnx run finds the name
+        # in the artifact and no binding in its own registry, and `provider_capabilities` raises.
+        #
+        # Falling back to False is what the docstring above already promises ("a missing or
+        # unrecognised value is treated the same as 'nothing looked'") and is the conservative
+        # direction: without the registration we genuinely cannot know what that provider declared,
+        # so claiming it looked would be the same unfounded negative this whole check exists to
+        # stop. Letting it raise instead crashed `deal-report` with a bare traceback -- the class
+        # F19 closed in Wave 2 for a missing forecast file.
+        return False
+
+
 def _render_photo_coverage(report: MediaReport | None) -> str:
     """
     Render which rooms the photo set actually documents.
@@ -481,10 +695,17 @@ def _render_photo_coverage(report: MediaReport | None) -> str:
 
     lines: list[str] = [_section("Photo Coverage")]
 
+    # What the photo set is *of*. The media report carries its own listing identity, captured
+    # when the photos were gathered; the report header's address comes from the listing text.
+    # When both exist and disagree, the reader can see it instead of assuming they match.
+    subject = [bit for bit in (report.listing_title, report.address, report.source_url) if bit]
+    if subject:
+        lines.append(f"- **Subject:** {' · '.join(subject)}")
+
     cov = report.coverage
     lines.append(
         f"- **Images:** {cov.images_readable} readable of {cov.images_total} · "
-        f"{cov.detections_total} detections · provider `{cov.provider}`"
+        f"{cov.detections_total} detections · provider `{cov.provider}` version `{cov.version}`"
     )
 
     if report.room_counts:
@@ -496,6 +717,43 @@ def _render_photo_coverage(report: MediaReport | None) -> str:
     detected = sorted(name for name, present in report.amenities.items() if present)
     if detected:
         lines.append(f"- **Amenities Seen in Photos:** {', '.join(detected)}")
+
+    # Defects the CV pass flagged, with how many images carry each. An observation, not an
+    # inspection — the same caveat the Adjustments section states at length.
+    if report.defects:
+        flagged = ", ".join(f"{label} ({count} image{'s' if count != 1 else ''})" for label, count in sorted(report.defects.items()))
+        lines.append(f"- **Defects Seen in Photos:** {flagged}")
+
+    # Scored proxies (0-1, higher = the trait shows up more consistently across the photos that
+    # were checked). The scale is stated here because nowhere else in the report defines it. A
+    # score of exactly 0.00 is what an UNMATCHED proxy also produces (mean of an empty list), so it
+    # is rendered as "not measured" rather than as a number — a genuine low score and "nothing in
+    # this photo set matched this trait" are different facts, and a bare 0.00 does not say which.
+    if report.quality_flags:
+        rendered_flags = [
+            f"{name} not measured" if score <= 0.0 else f"{name} {score:.2f}" for name, score in sorted(report.quality_flags.items())
+        ]
+        lines.append(f"- **Quality Proxies (0-1 scale):** {', '.join(rendered_flags)}")
+
+    # Parking type/spots and EV charging are each gated on whether the CV provider that produced
+    # this report ever declared it could look for the corresponding label at all (see
+    # `_photo_capability_covers`). Every provider shipped with this codebase declares neither, so
+    # both defaults ("none" / False) are schema defaults, not sightings, and the report says so
+    # instead of stating a negative nothing was capable of observing.
+    parking = report.parking
+    if parking.parking_type == ParkingType.none.value and not _photo_capability_covers(report, *_PARKING_TYPE_LABELS):
+        parking_bits = ["not checked — no photo check in this run looks for parking"]
+    else:
+        parking_bits = [parking.parking_type]
+        if parking.parking_spots is not None:
+            parking_bits.append(f"{parking.parking_spots} spot{'s' if parking.parking_spots != 1 else ''}")
+
+    if _photo_capability_covers(report, AmenityLabel.ev_charger.value):
+        parking_bits.append("EV charging observed" if parking.ev_charging else "no EV charging observed")
+    else:
+        parking_bits.append("EV charging not checked — no photo check in this run looks for chargers")
+
+    lines.append(f"- **Parking (from photos):** {' · '.join(parking_bits)}")
 
     if report.warnings:
         lines.append("- **Coverage Warnings:**")
@@ -510,15 +768,23 @@ def _render_year_table(years: list[YearBreakdown]) -> str:
     Render a compact Markdown table of key annual metrics.
 
     Columns:
-      Year | GSI | GOI | Total OPEX | NOI | Debt Service | Cash Flow | DSCR | Ending Balance
+      Year | GSI | GOI | Total OPEX | NOI | Debt Service | Principal | Interest | Cash Flow | DSCR | Ending Balance
+
+    ``principal_paid``/``interest_paid`` are split out beside the debt-service total they sum
+    to. The engine computes both per year (``amortization_schedule``) and the report used to
+    drop them, leaving the reader with one lump payment: nothing on the page said how much of
+    it bought equity (principal, which is why Ending Balance falls) versus how much was the
+    cost of the money (interest, the deductible half). Both are already-computed engine
+    figures — this renders them, it does not derive them.
     """
     horizon = len(years)
     header = [
         _section(f"{horizon}-Year Pro Forma (Summary)"),
         f"| Year | {_glossary_link('gsi', 'GSI')} | {_glossary_link('goi', 'GOI')} "
         f"| Total {_glossary_link('opex', 'OPEX')} | {_glossary_link('noi', 'NOI')} "
-        f"| {_glossary_link('ds', 'Debt Service')} | Cash Flow | {_glossary_link('dscr', 'DSCR')} | Ending Balance |",
-        "| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        f"| {_glossary_link('ds', 'Debt Service')} | Principal | Interest "
+        f"| Cash Flow | {_glossary_link('dscr', 'DSCR')} | Ending Balance |",
+        "| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     rows = []
     for y in years:
@@ -529,6 +795,8 @@ def _render_year_table(years: list[YearBreakdown]) -> str:
             f"| {_fmt_currency(y.total_opex)} "
             f"| {_fmt_currency(y.noi)} "
             f"| {_fmt_currency(y.debt_service)} "
+            f"| {_fmt_currency(y.principal_paid)} "
+            f"| {_fmt_currency(y.interest_paid)} "
             f"| {_fmt_currency(y.cash_flow)} "
             f"| {y.dscr:.2f} "
             f"| {_fmt_currency(y.ending_balance)} |"
@@ -562,24 +830,63 @@ def _interest_rate_from_purchase(purchase: PurchaseMetrics) -> float:
     return max(0.0, rate)
 
 
+def _available_equity_at_80(est_value: float, ending_balance: float) -> float:
+    """
+    Equity available at the 80% refinance mark: ``max(0, 0.80 × value − mortgage balance)``.
+
+    The floor at zero is the engine's own definition (``YearBreakdown.available_equity``,
+    ``src/core/finance/engine.py``, and the same rule it uses for terminal equity in the IRR
+    series). The two report-side tracks below (baseline appreciation, stress-test) model values
+    the engine does not, so they need the rule restated here — but they must mean the same thing
+    by "Available Equity @80%" as the NOI table, which now renders the engine's stored figure.
+    Before this, a year above 80% LTV printed a *negative* "available" equity in two of the three
+    tables and 0.00 in the third, under one shared column heading and one shared formula.
+    """
+    return max(0.0, EQUITY_LTV * est_value - ending_balance)
+
+
 # -----------------------
 # Three separate valuation tables
 # -----------------------
 
 
+def _forecast_carries_valuation(years: list[YearBreakdown]) -> bool:
+    """
+    Whether every year carries the engine's own NOI-track valuation (``cap_rate_applied``).
+
+    ``cap_rate_applied`` is Optional in the schema: ``run_financial_model`` always sets it, but
+    ``deal-report`` renders whatever ``FinancialForecast`` JSON it is handed, which may predate
+    the field. All-or-nothing on purpose — a table mixing engine rows with recomputed rows would
+    be unreadable and unauditable.
+    """
+    return bool(years) and all(y.cap_rate_applied is not None for y in years)
+
+
 def _render_valuation_table_noi(years: list[YearBreakdown], purchase: PurchaseMetrics) -> str:
     """
-    NOI-based table with drifting cap:
-      - Cap_t = Cap_0 + drift * (t-1)
-      - Value_t = NOI_t / Cap_t
-      - LTV_t = EndingBalance_t / Value_t
-      - Equity80_t = 0.80 * Value_t - EndingBalance_t
+    NOI-based table — **the engine's own valuation track, rendered, not recomputed**.
+
+    ``run_financial_model`` already computes and stores this exact track on every
+    ``YearBreakdown`` (``src/core/finance/engine.py``)::
+
+        cap_rate_applied_t = cap_purchase + market.cap_rate_drift * (t - 1)
+        est_value_t        = NOI_t / cap_rate_applied_t   (0.0 when NOI_t < 0)
+        ltv_pct_t          = EndingBalance_t / est_value_t * 100      # PERCENT, not a fraction
+        available_equity_t = max(0, 0.80 * est_value_t - EndingBalance_t)
+
+    This function used to re-derive all four from ``purchase.cap_rate`` plus an env knob, which
+    made the report disagree with the forecast in two live ways: an input ``market.cap_rate_drift``
+    moved the stored values but not this table, and a negative-NOI year rendered a *negative*
+    estimated value where the engine stores 0.00. Both are gone now that the numbers are read.
+
+    Note ``ltv_pct`` is stored in percent (0-100), unlike every rate elsewhere in the schema, so
+    it is formatted directly rather than through :func:`_fmt_pct`.
+
+    Falls back to the historical recomputation only for a forecast that carries no stored cap
+    path at all (see :func:`_forecast_carries_valuation`).
     """
     if not years:
         return ""
-
-    base_cap = max(1e-6, float(purchase.cap_rate))
-    drift = _cap_drift_per_year()
 
     header = [
         _section("Valuation – NOI-Based (with Cap Drift)"),
@@ -588,12 +895,26 @@ def _render_valuation_table_noi(years: list[YearBreakdown], purchase: PurchaseMe
         "| ---: | ---: | ---: | ---: | ---: |",
     ]
     rows = []
+
+    if _forecast_carries_valuation(years):
+        for y in years:
+            assert y.cap_rate_applied is not None  # narrowed by _forecast_carries_valuation
+            rows.append(
+                f"| {y.year} | {_fmt_pct(y.cap_rate_applied)} | {_fmt_currency(y.est_value)} "
+                f"| {y.ltv_pct:.2f}% | {_fmt_currency(y.available_equity)} |"
+            )
+        return "\n".join(header + rows) + "\n"
+
+    base_cap = max(1e-6, float(purchase.cap_rate))
+    drift = _cap_drift_per_year()
     for y in years:
         cap_t = max(1e-6, base_cap + drift * (y.year - 1))
         est_value = (y.noi / cap_t) if cap_t > 0 else 0.0
         ltv = (y.ending_balance / est_value) if est_value > 0 else 0.0
-        avail_eq = 0.80 * est_value - y.ending_balance
-        rows.append(f"| {y.year} | {_fmt_pct(cap_t)} | {_fmt_currency(est_value)} | {_fmt_pct(ltv)} | {_fmt_currency(avail_eq)} |")
+        rows.append(
+            f"| {y.year} | {_fmt_pct(cap_t)} | {_fmt_currency(est_value)} "
+            f"| {_fmt_pct(ltv)} | {_fmt_currency(_available_equity_at_80(est_value, y.ending_balance))} |"
+        )
     return "\n".join(header + rows) + "\n"
 
 
@@ -603,7 +924,10 @@ def _render_valuation_table_baseline(years: list[YearBreakdown], forecast: Finan
       - PurchasePrice inferred from Y1 NOI / cap.
       - Value_t = PurchasePrice * (1 + g)^t, g from env (default 3%).
       - LTV_t = EndingBalance_t / Value_t
-      - Equity80_t = 0.80 * Value_t - EndingBalance_t
+      - Equity80_t = max(0, 0.80 * Value_t - EndingBalance_t)  (see _available_equity_at_80)
+
+    This is a report-side sensitivity track: the engine models the NOI track only, so these
+    values are computed here from the forecast's own figures.
     """
     if not years:
         return ""
@@ -620,7 +944,7 @@ def _render_valuation_table_baseline(years: list[YearBreakdown], forecast: Finan
     for y in years:
         est_value = p0 * ((1.0 + g) ** y.year)
         ltv = (y.ending_balance / est_value) if est_value > 0 else 0.0
-        avail_eq = 0.80 * est_value - y.ending_balance
+        avail_eq = _available_equity_at_80(est_value, y.ending_balance)
         rows.append(f"| {y.year} | {_fmt_currency(est_value)} | {_fmt_pct(ltv)} | {_fmt_currency(avail_eq)} |")
     return "\n".join(header + rows) + "\n"
 
@@ -632,7 +956,9 @@ def _render_valuation_table_stress(years: list[YearBreakdown], forecast: Financi
       - basis = max(0, PurchasePrice - Adj); Adj via env AIREAL_STRESS_ADJ (default 0)
       - Value_t = basis * (1 + r/3)^t
       - LTV_t = EndingBalance_t / Value_t
-      - Equity80_t = 0.80 * Value_t - EndingBalance_t
+      - Equity80_t = max(0, 0.80 * Value_t - EndingBalance_t)  (see _available_equity_at_80)
+
+    Report-side sensitivity track, like the baseline one above.
     """
     if not years:
         return ""
@@ -651,7 +977,7 @@ def _render_valuation_table_stress(years: list[YearBreakdown], forecast: Financi
     for y in years:
         est_value = basis * (growth**y.year)
         ltv = (y.ending_balance / est_value) if est_value > 0 else 0.0
-        avail_eq = 0.80 * est_value - y.ending_balance
+        avail_eq = _available_equity_at_80(est_value, y.ending_balance)
         rows.append(f"| {y.year} | {_fmt_currency(est_value)} | {_fmt_pct(ltv)} | {_fmt_currency(avail_eq)} |")
     return "\n".join(header + rows) + "\n"
 
@@ -681,6 +1007,179 @@ def _render_opex_details(year1: YearBreakdown) -> str:
         f"- Other: {_fmt_currency(year1.other_expenses)}",
         f"- **Total OPEX (Y1):** {_fmt_currency(year1.total_opex)}",
     ]
+    return "\n".join(lines) + "\n"
+
+
+# FIXED VERBATIM honesty block for the observation comparison. Rendered byte-for-byte with no
+# per-run interpolation, for the same reason as ABOUT_SCENARIOS_BLOCK: fixed text cannot drift
+# out of step with the numbers, and it only appears when observations actually moved something.
+#
+# Descriptive, never prescriptive — it states what an observation *is* and what it is not. It
+# does not tell the reader what to do about it.
+ABOUT_OBSERVATIONS_BLOCK = (
+    "> **About these observations.** Condition tags, defects and amenities are *observations* — what\n"
+    "> the pipeline read in the listing copy and the photo set. Nothing was inspected or measured, and\n"
+    "> an observation can be wrong: a feature can be missed, or a label attached to something it does\n"
+    "> not describe. Each adjustment below is a fixed engine rule applied to an observation — a\n"
+    "> modeling allowance, not a quote or a measured cost. The baseline column is the same deal with\n"
+    "> none of them applied, so the observation-dependent part of this analysis can be read apart from\n"
+    "> the part that does not depend on any observation."
+)
+
+# Emitted only when provenance records that the AI photo path was actually active. With it off we
+# say nothing about models: the report cannot tell an LLM-authored tag from a keyword match, so a
+# blanket "no AI was involved" would be a claim it has no standing to make.
+_AI_OBSERVATION_SOURCE_LINE = (
+    "_AI photo tagging was on for this run (`AIREAL_USE_VISION`): the photo-derived observations are "
+    "model output, so they carry a model's error rate on top of everything noted above._"
+)
+
+
+def _model_was_involved(provenance: RunProvenance | None) -> bool:
+    """Whether ANY model produced observations on this run -- vision OR language.
+
+    Gating AI attribution on `vision_enabled` alone hid the one path where a model authored
+    everything: with `--engine crewai` and `AIREAL_LLM_MODE` set but vision off, an LLM wrote every
+    condition tag, defect and amenity, moved GOI/NOI/cash flow/cap rate -- and the report rendered
+    the neutral "With observations" header, suppressed the model-error caveat, and told the reader
+    the tags came from "the listing copy and the photo set". Two accurate flags, one false picture.
+    """
+    if provenance is None:
+        return False
+    return bool(provenance.vision_enabled or provenance.llm_mode_enabled)
+
+
+def _render_observation_impact(
+    forecast: FinancialForecast,
+    baseline: BaselineOutlook,
+    thesis: InvestmentThesis | None,
+    provenance: RunProvenance | None,
+) -> list[str]:
+    """
+    Render the baseline-vs-observed comparison table for Year 1.
+
+    One table, metrics as rows, so the "Change" column reads as a single vertical strip — the
+    answer to "did anything I act on actually move?" in one scan. Metrics-as-columns would need
+    seven columns of three different units and overflow in PDF export.
+
+    Row order is decision-first then causal: the verdict (does this change the answer?), then the
+    path the adjustment actually travels — GOI, OPEX, NOI, cash flow — then the ratios computed
+    from them. GOI is carried even though no OPEX rule touches it because an amenity uplift moves
+    income, not expense: without that row a reader sees OPEX rise and NOI rise with nothing on the
+    page to explain it. With it, ``NOI = GOI − OPEX`` closes on both sides of the table.
+
+    ``Change`` is always *observed minus baseline*, stated in the lead-in so the sign is never
+    ambiguous. The verdict row compares strings, so its change cell reads unchanged/**changed**.
+    """
+    base_y1 = baseline.forecast.years[0]
+    obs_y1 = forecast.years[0]
+    base_p = baseline.forecast.purchase
+    obs_p = forecast.purchase
+
+    observed_header = "With observations (AI-assisted)" if _model_was_involved(provenance) else "With observations"
+
+    lines: list[str] = [
+        "**Year 1 impact** _(Change = with observations − baseline.)_",
+        "",
+        f"| Metric | Baseline | {observed_header} | Change |",
+        "| :--- | ---: | ---: | ---: |",
+    ]
+
+    # Verdict first: the only row that can change the decision rather than a figure behind it.
+    # Omitted rather than guessed when the caller supplied no baseline verdict to compare against.
+    if baseline.thesis is not None and thesis is not None:
+        moved = "**changed**" if baseline.thesis.verdict != thesis.verdict else "unchanged"
+        lines.append(f"| Verdict | {baseline.thesis.verdict} | {thesis.verdict} | {moved} |")
+
+    lines.extend(
+        [
+            f"| GOI | {_fmt_currency(base_y1.goi)} | {_fmt_currency(obs_y1.goi)} | {_fmt_delta_currency(obs_y1.goi - base_y1.goi)} |",
+            f"| Total OPEX | {_fmt_currency(base_y1.total_opex)} | {_fmt_currency(obs_y1.total_opex)} "
+            f"| {_fmt_delta_currency(obs_y1.total_opex - base_y1.total_opex)} |",
+            f"| NOI | {_fmt_currency(base_y1.noi)} | {_fmt_currency(obs_y1.noi)} | {_fmt_delta_currency(obs_y1.noi - base_y1.noi)} |",
+            f"| Cash flow | {_fmt_currency(base_y1.cash_flow)} | {_fmt_currency(obs_y1.cash_flow)} "
+            f"| {_fmt_delta_currency(obs_y1.cash_flow - base_y1.cash_flow)} |",
+            f"| Cap rate | {_fmt_pct(base_p.cap_rate)} | {_fmt_pct(obs_p.cap_rate)} "
+            f"| {_fmt_delta_rate(obs_p.cap_rate - base_p.cap_rate)} |",
+            f"| DSCR | {base_p.dscr:.2f} | {obs_p.dscr:.2f} | {_fmt_delta_ratio(obs_p.dscr - base_p.dscr)} |",
+            f"| Cash-on-cash | {_fmt_pct(base_p.coc)} | {_fmt_pct(obs_p.coc)} | {_fmt_delta_rate(obs_p.coc - base_p.coc)} |",
+        ]
+    )
+    return lines
+
+
+def _render_year_adjustments(
+    forecast: FinancialForecast,
+    *,
+    thesis: InvestmentThesis | None = None,
+    baseline: BaselineOutlook | None = None,
+    provenance: RunProvenance | None = None,
+) -> str:
+    """
+    Render the engine's per-year adjustment notes (``YearBreakdown.notes``) — the traceability
+    trail for why the OPEX/income figures above differ from the raw listing inputs (e.g. a
+    condition tag adding to reserves, a defect adding to repairs & maintenance, an amenity
+    uplifting other income). In practice only Year 1 carries these (the insight modifiers are
+    applied once, at the top of the model), but every year is checked so the section stays
+    correct if that ever changes.
+
+    Notes render verbatim — they are machine-generated traceability strings, not prose to be
+    softened or rewritten. Each one already *is* the per-line attribution ("condition: old roof →
+    reserves +$300/yr"): the observation that fired, and the rule it fired. Reformatting them here
+    would mean parsing engine-authored strings in the renderer, which breaks the first time the
+    engine words one differently.
+
+    Three designed states:
+
+    * **No notes** — returns "". A run with no listing insights (or insights that trip no
+      modifier) adds no empty heading. This is the default path, and it is what keeps
+      ``python main.py`` byte-identical.
+    * **Notes, no baseline** — the notes list exactly as before. Callers that hold a forecast but
+      not the inputs behind it (``report_cli``) cannot re-run the engine, so they get the
+      traceability trail without a comparison rather than a fabricated one.
+    * **Notes and a baseline** — the full two-picture section: the honesty block, the Year-1
+      comparison table, and the notes as the per-line attribution beneath it.
+    """
+    by_year = [(y.year, y.notes) for y in forecast.years if y.notes]
+    if not by_year:
+        return ""
+
+    show_comparison = baseline is not None and bool(baseline.forecast.years) and bool(forecast.years)
+
+    if not show_comparison:
+        lines = [
+            _section("Adjustments Applied"),
+            "Notes below explain why a year's OPEX or income differs from the raw inputs — each line "
+            "names the condition tag, defect, or amenity that triggered it. These are already reflected "
+            "in the figures above; nothing here changes a number, it only explains one.",
+            "",
+        ]
+        for year, notes in by_year:
+            for note in notes:
+                lines.append(f"- Year {year}: {note}")
+        return "\n".join(lines) + "\n"
+
+    assert baseline is not None  # narrowed by show_comparison
+    lines = [
+        _section("Adjustments Applied"),
+        "Observations from the listing copy and photos moved some of the figures above. This section "
+        "shows both pictures — the same deal with those observations and without them — and names the "
+        "observation behind every change.",
+        "",
+        ABOUT_OBSERVATIONS_BLOCK,
+        "",
+    ]
+    if _model_was_involved(provenance):
+        lines.append(_AI_OBSERVATION_SOURCE_LINE)
+        lines.append("")
+
+    lines.extend(_render_observation_impact(forecast, baseline, thesis, provenance))
+    lines.append("")
+    lines.append("**What moved each figure**")
+    lines.append("")
+    for year, notes in by_year:
+        for note in notes:
+            lines.append(f"- Year {year}: {note}")
     return "\n".join(lines) + "\n"
 
 
@@ -874,9 +1373,26 @@ def _render_market_scenarios(analysis: ScenarioAnalysis) -> str:
         "",
         f"_Region: {snapshot.region} · seed {analysis.seed} (provenance only — the grid is a fixed "
         f"deterministic set, not randomized by the seed) · {analysis.n_accepted} of {analysis.n_generated} "
-        f"scenarios admitted under guardrails._",
+        f"scenarios admitted under guardrails · admitted priors sum to {analysis.prior_sum:.2f}._",
         "",
     ]
+    # The snapshot the whole grid is perturbations OF. Only its region used to be shown, so the
+    # deltas below ("Δ Rent growth +1.00%") were quoted against a baseline the reader could not
+    # see. These are the descriptive figures the run started from — not live market data.
+    lines.extend(
+        [
+            "**Market snapshot** _(the baseline every scenario perturbs)._",
+            "",
+            "| Vacancy | Cap rate | Rent growth | Opex growth | Interest rate |",
+            "| ---: | ---: | ---: | ---: | ---: |",
+            f"| {_fmt_pct(snapshot.vacancy_rate)} | {_fmt_pct(snapshot.cap_rate)} | {_fmt_pct(snapshot.rent_growth)} "
+            f"| {_fmt_pct(snapshot.expense_growth)} | {_fmt_pct(snapshot.interest_rate)} |",
+            "",
+        ]
+    )
+    if snapshot.notes:
+        lines.append(f"_Snapshot notes: {snapshot.notes}_")
+        lines.append("")
 
     if analysis.n_accepted == 0:
         lines.append("**No admissible scenarios under the current guardrails.**")
@@ -923,6 +1439,8 @@ def generate_report(
     media_report: MediaReport | None = None,
     provenance: RunProvenance | None = None,
     scenarios: ScenarioAnalysis | None = None,
+    baseline: BaselineOutlook | None = None,
+    market: MarketAssumptions | None = None,
 ) -> str:
     """
     Generate a professional Markdown report that summarizes the investment analysis.
@@ -938,12 +1456,24 @@ def generate_report(
       - Valuation – Stress-Test table
       - Valuation – NOI-Based table
       - OPEX Detail (Year 1)
+      - Adjustments Applied (if any year carries YearBreakdown.notes — usually Year 1 only).
+        When ``baseline`` is also supplied this becomes the two-picture section: the honesty
+        block, a Year-1 baseline-vs-observed comparison table (verdict included), and the notes
+        as per-line attribution.
       - Refinance Event (if present)
       - Returns Summary
       - Warnings
       - Market Scenarios (opt-in overlay; only when ``scenarios`` is supplied)
       - Appendix — Run Provenance (always emitted)
       - Appendix — Definitions (always emitted, last)
+
+    Args:
+        market: The run's underwriting guardrails (``FinancialInputs.market``), when the caller
+            has them. Additive and optional so existing callers keep working, and deliberately
+            the same narrow type ``chief_strategist.synthesize_thesis`` takes — the report and
+            the thesis must quote the same floor and the same spread target or they can
+            contradict each other. Supplied, the Run Provenance appendix names them; omitted,
+            those rows are absent rather than guessed.
     """
     header = _render_header(insights)
     if title_override:
@@ -965,6 +1495,7 @@ def generate_report(
         _render_valuation_table_stress(forecast.years, forecast),
         _render_valuation_table_noi(forecast.years, forecast.purchase),
         _render_opex_details(forecast.years[0]),
+        _render_year_adjustments(forecast, thesis=thesis, baseline=baseline, provenance=provenance),
         _render_refi(forecast.refi),
         _render_returns(forecast),
         _render_warnings(forecast.warnings),
@@ -974,7 +1505,14 @@ def generate_report(
 
     # Appendices last: reference material a reader returns to, not something between them and
     # the numbers. Provenance precedes definitions so 'why do these differ?' is answered first.
-    parts.append(_render_provenance(provenance))
+    parts.append(
+        _render_provenance(
+            provenance,
+            market=market,
+            media_report=media_report,
+            applied_cap_drift=_applied_cap_drift(forecast.years),
+        )
+    )
     parts.append(_render_glossary())
     return "\n".join(part for part in parts if part).strip() + "\n"
 
@@ -989,6 +1527,8 @@ def write_report(
     media_report: MediaReport | None = None,
     provenance: RunProvenance | None = None,
     scenarios: ScenarioAnalysis | None = None,
+    baseline: BaselineOutlook | None = None,
+    market: MarketAssumptions | None = None,
 ) -> None:
     """
     Convenience helper to write the generated report to disk.
@@ -1002,6 +1542,8 @@ def write_report(
         media_report=media_report,
         provenance=provenance,
         scenarios=scenarios,
+        baseline=baseline,
+        market=market,
     )
 
     p = Path(path)

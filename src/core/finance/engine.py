@@ -302,6 +302,11 @@ def run_financial_model(
         warnings.append("cap-rate spread below target")
     if years and any(r.cash_flow < 0 for r in years):
         warnings.append("negative cash flow in projection")
+    # Cap-rate floor policy: purchase cap rate = NOI(Y1) / purchase price (or the
+    # explicit `market.cap_rate_purchase` override). A floor of None means "no floor
+    # policy configured" and is never a breach; a breach is strictly below the floor.
+    if mkt.cap_rate_floor is not None and cap_rate_purchase < mkt.cap_rate_floor:
+        warnings.append("cap rate below floor")
 
     return FinancialForecast(
         purchase=purchase_metrics,

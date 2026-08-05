@@ -14,6 +14,10 @@ import src.core.ingest as ingest_mod
 from src.core.advisor.portfolio import portfolio_summary
 from src.core.advisor.recommender import rank_deals
 from src.core.intelligence.deal_fusion import fuse_deal_intelligence
+from src.core.utils.markdown import render_markdown
+from src.core.utils.serialize import to_primitive
+from src.market.regional_income import build_regional_income
+from src.schemas.models import RegionalIncomeTable
 
 IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".webp", ".heic", ".bmp")
 
@@ -47,7 +51,11 @@ def normalize_input(d: dict[str, Any]) -> dict[str, Any]:
     if missing:
         raise SystemExit(
             f"Input is missing required key(s): {', '.join(missing)}. "
-            "See data/sample_listings/36_kelly_moncton/inputs.json for an example."
+            "A --files config JSON needs listing_path, photos_dir, and finance_inputs_path "
+            "(optional title) -- see data/examples/advisor_deal_config.json for a working example "
+            "(run: python -m src.cli.advisor_cli --files data/examples/advisor_deal_config.json), "
+            "or point --files/--dir at a bundle directory (e.g. data/sample_listings/36_kelly_moncton) "
+            "for auto-discovery instead."
         )
     return out
 
@@ -208,6 +216,88 @@ def _write_csvs(out_path: Path, ranked: list[tuple[Any, float]], portfolio: dict
     print(f"Wrote {port_csv}")
 
 
+def _deal_artifact_payload(d: Any, score: float) -> dict[str, Any]:
+    """
+    Build the JSON-primitive payload written by ``--save-artifacts`` for one deal.
+
+    Uses ``src.core.utils.serialize.to_primitive`` rather than the ad hoc
+    ``d.finance.model_dump() if hasattr(...) else d.finance.__dict__`` this replaced: the old
+    fallback returned whatever ``__dict__`` happened to hold verbatim, so a non-pydantic
+    ``finance``/``listing`` object with a *nested* pydantic/dataclass field would leave that
+    field un-converted -- ``json.dumps`` then either raises ``TypeError`` or (for an object with
+    a custom ``__str__``) silently serializes something other than the field's data.
+    ``to_primitive`` recurses, so nested models/dataclasses/mappings/sequences are all reduced to
+    JSON-safe primitives regardless of how deep they sit.
+    """
+    return {
+        "score": float(score),
+        "listing": to_primitive(d.listing),
+        "finance": to_primitive(d.finance),
+    }
+
+
+def _load_regional_income_table(path_str: str) -> RegionalIncomeTable:
+    """
+    Load ``--regional-income``'s JSON (``{"region": ..., "bedrooms": ..., "comps": [...]}``\\ )
+    and build the ``RegionalIncomeTable`` via ``src.market.regional_income.build_regional_income``
+    -- the public entry point ``src/market/README.md`` documents. Fails loud (``SystemExit``) on a
+    missing file, malformed JSON, a missing key, or a value ``build_regional_income`` itself
+    rejects (e.g. non-positive comps), rather than letting a raw traceback surface.
+    """
+    path = Path(path_str)
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError as e:
+        raise SystemExit(f"--regional-income: {path} not found.") from e
+    except OSError as e:
+        raise SystemExit(f"--regional-income: {path} could not be read ({e}).") from e
+
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as e:
+        raise SystemExit(f"--regional-income: {path} is not valid JSON ({e}).") from e
+
+    if not isinstance(data, dict):
+        raise SystemExit(f"--regional-income: {path} must contain a JSON object with region/bedrooms/comps.")
+
+    missing = [k for k in ("region", "bedrooms", "comps") if k not in data]
+    if missing:
+        raise SystemExit(
+            f"--regional-income: {path} is missing required key(s): {', '.join(missing)} "
+            "(expected region: str, bedrooms: int, comps: list[float])."
+        )
+
+    try:
+        return build_regional_income(str(data["region"]), int(data["bedrooms"]), [float(c) for c in data["comps"]])
+    except (ValueError, TypeError) as e:
+        raise SystemExit(f"--regional-income: {path}: {e}") from e
+
+
+_REGIONAL_INCOME_HONEST_FIELDS = ("region", "bedrooms", "median_rent", "p25_rent", "p75_rent")
+
+
+def _regional_income_payload(table: RegionalIncomeTable) -> dict[str, Any]:
+    """
+    JSON-safe payload for ``--regional-income``, restricted to the fields ``build_regional_income``
+    derives directly from the supplied comps (``statistics.median`` / ``numpy.percentile``).
+
+    ``RegionalIncomeTable`` (``src/schemas/models.py``) also carries ``turnover_cost`` and
+    ``str_multiplier``. Gate 3 (mission/2-wiring-gaps) found both fabricated -- an uncited
+    "median rent * 0.5" rule of thumb and a hardcoded 1.5x STR uplift gated by a policy hook whose
+    entire body was ``return True`` -- and ruled that neither may reach output a reader sees.
+    ``build_regional_income`` no longer computes the STR multiplier (always ``None``);
+    ``RegionalIncomeTable.summary()`` was corrected to stop rendering either field (Gate 3), but
+    ``turnover_cost`` is still a *required* field on the schema, so ``to_primitive`` still carries a
+    computed value for it -- this function is the seam that keeps that value out of ``--out``'s
+    JSON specifically. Dropping the field from the schema itself would touch
+    ``src/schemas/models.py``'s field declarations, which this project treats as additive-only, so
+    that removal is left to a follow-up schema decision rather than made unilaterally here (see
+    CHANGELOG "Removed").
+    """
+    dump = to_primitive(table)
+    return {k: dump[k] for k in _REGIONAL_INCOME_HONEST_FIELDS}
+
+
 def _expand_globs(patterns: list[str]) -> list[Path]:
     out: list[Path] = []
     for pat in patterns:
@@ -320,7 +410,7 @@ def main() -> None:
     ap.add_argument(
         "--debug",
         action="store_true",
-        help="Print ranked/portfolio to stdout.",
+        help="Print the full ranked/portfolio JSON payload to stdout, in addition to the compact table.",
     )
     ap.add_argument(
         "--save-artifacts",
@@ -331,6 +421,15 @@ def main() -> None:
         "--markdown",
         action="store_true",
         help="Emit a Markdown summary next to --out.",
+    )
+    ap.add_argument(
+        "--regional-income",
+        help=(
+            "Path to a JSON file {region, bedrooms, comps: [rent, ...]}; builds median/p25/p75 rent "
+            "via src.market.regional_income.build_regional_income (statistics.median / "
+            "numpy.percentile over the supplied comps) and includes it in --out and the --markdown "
+            "summary as a portfolio-level market sanity-check (not per-deal)."
+        ),
     )
     args = ap.parse_args()
 
@@ -358,27 +457,38 @@ def main() -> None:
     for d, score in ranked:
         ln = getattr(d, "listing", None)
         addr_struct = getattr(ln, "address_structure", None)
-        ranked_payload.append(
-            {
-                "title": getattr(ln, "title", None) or getattr(d, "shortname", None),
-                "address": getattr(ln, "address", None),
-                "composite_score": float(score),
-                "cashflow_monthly": float(getattr(d.finance, "cashflow_monthly", 0.0)),
-                "risk_flags": getattr(d, "risk_flags", []),
-                "summary": getattr(ln, "summary", lambda: "")() if hasattr(ln, "summary") else None,
-                "title_confidence": getattr(ln, "title_confidence", None),
-                "title_source": getattr(ln, "title_source", None),
-                "title_candidates": _coerce_candidates(getattr(ln, "title_candidates", None)),
-                "address_structure": (addr_struct.model_dump() if addr_struct else None),
-                "postal_code": getattr(ln, "postal_code", None),
-                "source_url": getattr(ln, "source_url", None),
-            }
-        )
+        item: dict[str, Any] = {
+            "title": getattr(ln, "title", None) or getattr(d, "shortname", None),
+            "address": getattr(ln, "address", None),
+            "composite_score": float(score),
+            "cashflow_monthly": float(getattr(d.finance, "cashflow_monthly", 0.0)),
+            "risk_flags": getattr(d, "risk_flags", []),
+            "summary": getattr(ln, "summary", lambda: "")() if hasattr(ln, "summary") else None,
+            "title_confidence": getattr(ln, "title_confidence", None),
+            "title_source": getattr(ln, "title_source", None),
+            "title_candidates": _coerce_candidates(getattr(ln, "title_candidates", None)),
+            "address_structure": (addr_struct.model_dump() if addr_struct else None),
+            "postal_code": getattr(ln, "postal_code", None),
+            "source_url": getattr(ln, "source_url", None),
+        }
+        ranked_payload.append(item)
 
     payload: dict[str, Any] = {
         "ranked": ranked_payload,
         "portfolio": portfolio_summary([d for d, _ in ranked]),
     }
+
+    regional_income_table: RegionalIncomeTable | None = None
+    if args.regional_income:
+        regional_income_table = _load_regional_income_table(args.regional_income)
+        payload["regional_income"] = _regional_income_payload(regional_income_table)
+        print(regional_income_table.summary())
+
+    if args.debug:
+        # The compact table above is a summary; --debug dumps the exact
+        # ranked/portfolio structure that will be written to --out, so it's
+        # useful for troubleshooting without opening the output file.
+        print(json.dumps(payload, indent=2))
 
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -390,25 +500,23 @@ def main() -> None:
 
     if args.markdown:
         md_path = out_path.with_suffix(".md")
-        lines = ["# Deal Advisor Report", ""]
+        if md_path == out_path:
+            # --out already ends in .md, so out_path *is* the JSON artifact we
+            # just wrote above. Deriving the Markdown path with with_suffix()
+            # would resolve to the same file and overwrite that JSON with the
+            # Markdown summary -- silent data loss. Use a distinct filename
+            # instead, and say so loudly rather than clobbering quietly.
+            md_path = out_path.with_name(out_path.stem + "_report.md")
+            print(f"Note: --out ends in .md, so writing Markdown to {md_path} instead, to avoid overwriting the JSON at {out_path}.")
 
-        ranked_list = cast(list[dict[str, Any]], payload["ranked"])
-        for i, item in enumerate(ranked_list, start=1):
-            lines.append(f"## {i}. {item['title'] or '(untitled)'}")
-            lines.append(f"- Address: {item['address']}")
-            lines.append(f"- Score: **{item['composite_score']:.2f}**")
-            lines.append(f"- Cashflow (monthly): **{item['cashflow_monthly']:.2f}**")
-            if item.get("title_confidence") is not None:
-                lines.append(f"- Title Confidence: {item['title_confidence']:.2f} ({item.get('title_source')})")
-            if item.get("summary"):
-                lines.append(f"- Summary: {item['summary']}")
-            lines.append("")
-        lines.append("## Portfolio")
-        portfolio_dict = cast(dict[str, Any], payload["portfolio"])
-        lines.append(f"- Average Score: **{float(portfolio_dict['avg_score']):.2f}**")
-        lines.append(f"- Total Cashflow: **{float(portfolio_dict['total_cashflow']):.2f}**")
-        lines.append(f"- Risk Items: **{float(portfolio_dict['risk_items']):.2f}**")
-        md_path.write_text("\n".join(lines), encoding="utf-8")
+        # src.core.utils.markdown -- the shared deal-card/portfolio renderer (Mission 2, 3.1b),
+        # replacing what used to be a hand-rolled, drifting re-derivation of the same fields.
+        md_text = render_markdown(ranked, cast(dict[str, Any], payload["portfolio"]))
+
+        if regional_income_table is not None:
+            md_text += "\n".join(["", "## Regional Income", "", regional_income_table.summary(), ""])
+
+        md_path.write_text(md_text, encoding="utf-8")
         print(f"Wrote {md_path}")
 
     if args.save_artifacts:
@@ -416,14 +524,7 @@ def main() -> None:
         art_dir.mkdir(parents=True, exist_ok=True)
         for idx, (d, score) in enumerate(ranked, start=1):
             (art_dir / f"deal_{idx:02d}.json").write_text(
-                json.dumps(
-                    {
-                        "score": float(score),
-                        "listing": d.listing.model_dump(),
-                        "finance": d.finance.model_dump() if hasattr(d.finance, "model_dump") else d.finance.__dict__,
-                    },
-                    indent=2,
-                ),
+                json.dumps(_deal_artifact_payload(d, score), indent=2),
                 encoding="utf-8",
             )
         print(f"Wrote artifacts to {art_dir}")

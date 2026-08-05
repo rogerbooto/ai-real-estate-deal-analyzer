@@ -409,22 +409,47 @@ def normalize_materials_from_name(name: str) -> set[MaterialTag]:
     return found
 
 
-def normalize_amenities_from_text(text: str) -> set[AmenityLabel]:
+def find_amenities_in_text(text: str) -> dict[AmenityLabel, str]:
+    """Amenity labels found in ``text``, each mapped to the literal substring that matched.
+
+    The matched phrase is the only evidence a keyword match has, and throwing it away is why a
+    text-derived tag used to be indistinguishable from a model-derived one (see
+    ``schemas.models.ObservationProvenance``). ``_AMENITY_PATTERNS`` is ordered longest-alias-first
+    and only the first hit per label is kept, so the result is deterministic.
+    """
     s = text.lower()
-    found: set[AmenityLabel] = set()
+    found: dict[AmenityLabel, str] = {}
     for pat, val in _AMENITY_PATTERNS:
-        if pat.search(s):
-            found.add(val)
+        if val in found:
+            continue
+        m = pat.search(s)
+        if m:
+            found[val] = m.group(0)
     return found
+
+
+def find_defects_in_text(text: str) -> dict[DefectLabel, str]:
+    """Defect labels found in ``text``, each mapped to the literal substring that matched.
+
+    See :func:`find_amenities_in_text` for why the matched phrase is retained.
+    """
+    s = text.lower()
+    found: dict[DefectLabel, str] = {}
+    for pat, val in _DEFECT_PATTERNS:
+        if val in found:
+            continue
+        m = pat.search(s)
+        if m:
+            found[val] = m.group(0)
+    return found
+
+
+def normalize_amenities_from_text(text: str) -> set[AmenityLabel]:
+    return set(find_amenities_in_text(text))
 
 
 def normalize_defects_from_text(text: str) -> set[DefectLabel]:
-    s = text.lower()
-    found: set[DefectLabel] = set()
-    for pat, val in _DEFECT_PATTERNS:
-        if pat.search(s):
-            found.add(val)
-    return found
+    return set(find_defects_in_text(text))
 
 
 def materials_to_amenity_surface(materials: Iterable[MaterialTag]) -> set[AmenityLabel]:

@@ -4,17 +4,35 @@ CrewAI Agent wrappers (V2 seam)
 
 Purpose
 -------
-Provide thin CrewAI Agent/Task shells that *delegate to deterministic*
-local Python functions. This keeps tests deterministic and makes it easy
-to swap in real LLM reasoning later by changing only the .run() bodies
-or by adding tool-calling prompts.
+Provide thin CrewAI Agent/Task shells over the deterministic local Python
+functions under src/agents/*, plus one opt-in LLM path for *observation*.
+
+Where the LLM is allowed to run
+-------------------------------
+- ``ListingAnalystAgent`` — YES, when ``AIREAL_LLM_MODE`` is set AND a provider
+  key is present. It runs a real ``crew.kickoff()`` and returns ``ListingInsights``.
+  This is an *observation* layer: it reports what it sees in the listing text and
+  photo names (amenities, condition tags, defects), the way an inspector's notes
+  would. Those observations flow into the forecast through the deterministic
+  insight modifiers; they are never money numbers themselves.
+- ``FinancialForecasterAgent`` — NO. Financial math must be exact and reproducible.
+- ``ChiefStrategistAgent`` — NO. The BUY/CONDITIONAL/DECLINE verdict, its rationale
+  and its levers are always produced by ``chief_strategist.synthesize_thesis`` from
+  the forecast, in every mode. See that class's docstring for the rationale.
 
 Design
 ------
-- No network calls here by default.
-- Construct Agent/Task objects for future parity, but .run() calls the
-  existing V1 functions under src/agents/* and src/tools/* unless the
-  LLM branch is explicitly enabled via env.
+- No network calls unless ``AIREAL_LLM_MODE`` is explicitly enabled *and* a
+  provider key is configured; both off => fully offline and deterministic.
+- Agent/Task objects are constructed for observability/parity only.
+
+  NOTE on ``llm=None``: passing it to ``crewai.Agent`` does **not** produce an
+  agent without a model -- crewai substitutes its default (``gpt-4o-mini``), so
+  ``agent.llm`` is a live ``LLM`` object either way. It is a declaration of intent,
+  not an enforcement mechanism. The actual guarantee for the forecaster and the
+  strategist is structural: neither class has any code path that builds a ``Crew``
+  or calls ``kickoff()``, so their Agent shell is never executed and its ``llm`` is
+  never reached. Tests assert the absence of that path, not the ``llm`` attribute.
 """
 
 from __future__ import annotations
@@ -30,7 +48,6 @@ try:
 except Exception:  # pragma: no cover - exercised by smoke test
     _CREW_AVAILABLE = False
 
-import json
 import logging
 import os
 import re
@@ -45,11 +62,14 @@ from src.agents.chief_strategist import synthesize_thesis
 # deterministic local functions
 from src.agents.financial_forecaster import forecast_financials
 from src.agents.listing_analyst import analyze_listing
+from src.core.insights.provenance import stamp_uniform_origin
+from src.core.runtime_flags import llm_mode_enabled
 from src.schemas.models import (
     FinancialForecast,
     FinancialInputs,
     InvestmentThesis,
     ListingInsights,
+    MarketAssumptions,
 )
 
 # -----------------------------
@@ -148,9 +168,14 @@ T = TypeVar("T", bound=BaseModel)
 
 
 def _llm_enabled() -> bool:
-    """Check if LLM reasoning is enabled."""
-    v = os.getenv("AIREAL_LLM_MODE", "").strip()
-    return v in {"1", "true", "yes", "on"}
+    """Whether LLM reasoning is enabled. Delegates to ``core.runtime_flags``.
+
+    The implementation lives in a dependency-free module because ``main.py`` needs this same
+    answer to record provenance on every run, and importing it from here would drag the
+    crewai/litellm SDK tree into a deterministic run that never uses it. Kept as a thin alias so
+    the many call sites in this module read naturally and there is still one implementation.
+    """
+    return llm_mode_enabled()
 
 
 def _get_model_name() -> str:
@@ -366,10 +391,29 @@ class ListingAnalystAgent:
 
             # Pull result from task.output
             result_text = getattr(task, "output", None) or ""
-            return _parse_json_as(
-                ListingInsights,
-                str(result_text),
-                lambda: analyze_listing(listing_txt_path=listing_txt_path, photos_folder=photos_folder),
+
+            # The deterministic fallback already carries its own per-tag provenance (text/CV), so
+            # we must know whether the LLM actually authored this object before stamping it
+            # `origin="llm"`. A bare `_parse_json_as` return cannot tell those two apart.
+            fell_back = False
+
+            def _fallback() -> ListingInsights:
+                nonlocal fell_back
+                fell_back = True
+                return analyze_listing(listing_txt_path=listing_txt_path, photos_folder=photos_folder)
+
+            parsed = _parse_json_as(ListingInsights, str(result_text), _fallback)
+            if fell_back:
+                return parsed
+            # LLM-authored: it returns a JSON blob with no per-tag handles, so every tag gets the
+            # same origin. provider_kind="model" is the truth here (unlike the CV stubs) and is
+            # what lets a consumer say "AI observed X" without lying.
+            return stamp_uniform_origin(
+                parsed,
+                origin="llm",
+                provider=_get_model_name(),
+                provider_kind="model",
+                detail="authored by the listing-analyst LLM task",
             )
         except Exception as e:
             # cache & print, then fallback
@@ -402,7 +446,9 @@ class FinancialForecasterAgent:
                 backstory="Wraps the local financial model engine; no LLM reasoning.",
                 verbose=False,
                 allow_delegation=False,
-                llm=None,  # explicitly no model
+                # Declares intent only: crewai backfills its default model when this is None.
+                # The real guarantee is that .run() never executes this shell.
+                llm=None,
             )
             self.task = Task(
                 description=(
@@ -429,90 +475,80 @@ class FinancialForecasterAgent:
 
 
 class ChiefStrategistAgent:
-    """CrewAI wrapper that deterministically produces an InvestmentThesis."""
+    """Deterministic wrapper that produces an InvestmentThesis via the local rule engine.
+
+    Intentionally *not* LLM-backed, in every mode — including ``AIREAL_LLM_MODE=1``.
+
+    Why
+    ---
+    The verdict (BUY/CONDITIONAL/DECLINE), the rationale that justifies it and the
+    levers that follow from it are a *judgment* over the forecast's metrics. That
+    judgment belongs to ``chief_strategist.synthesize_thesis``, which applies the
+    project's own tunable thresholds (``MIN_DSCR_Y1``, ``MIN_SPREAD``,
+    ``MIN_IRR_10YR``, ``MIN_COC_Y1``, the cash-flow requirements and the cap-floor
+    breach signal).
+    Routing it through a model made the answer irreproducible, unexplainable and
+    deaf to those thresholds — the same inputs could yield a different verdict, and
+    tuning a threshold would change nothing.
+
+    Nothing is lost by keeping the LLM out of here. The AI's contribution is an
+    *observation* layer (``ListingAnalystAgent``), and those observations are
+    already fully reflected in the forecast this method reads: they reach it
+    upstream through the deterministic insight modifiers in the forecaster. So an
+    AI-influenced deal still gets an AI-influenced answer — it just gets it from
+    the same rule engine every other deal goes through.
+
+    If narrative prose over the verdict is wanted later, its home is the *report*
+    layer (``src/core/reports/``), where the verdict is already fixed and rendered
+    from the model and narration provably cannot reach it. Do not reintroduce it
+    here.
+
+    Like ``FinancialForecasterAgent``, we keep an Agent/Task (when crewai is present)
+    only for parity/observability. The guarantee is structural, not configuration-based:
+    this class builds no ``Crew`` and calls no ``kickoff()``, so the shell never runs.
+    (``llm=None`` documents intent but does not enforce it -- see the module docstring.)
+    """
 
     def __init__(self) -> None:
         if _CREW_AVAILABLE:
             self.agent = Agent(
-                role="Chief Strategist",
-                goal="Synthesize a clear, defensible investment thesis.",
-                backstory="Applies rule-based guardrails and levers.",
+                role="Chief Strategist (Deterministic)",
+                goal="Synthesize a clear, defensible investment thesis from the local rule engine.",
+                backstory="Applies rule-based guardrails and levers; no LLM reasoning.",
                 verbose=False,
                 allow_delegation=False,
-                llm=_get_model_name(),
+                # Declares intent only (see module docstring); the verdict is kept
+                # model-free by there being no kickoff() path in this class at all.
+                llm=None,
             )
             self.task = Task(
                 description=(
-                    "Given FinancialForecast (+ optional ListingInsights), produce a BUY/CONDITIONAL/DECLINE thesis. "
-                    "Respond with JSON ONLY matching InvestmentThesis."
+                    "Given FinancialForecast (+ optional ListingInsights), produce a BUY/CONDITIONAL/DECLINE thesis "
+                    "by applying the local underwriting thresholds. This is a deterministic computation; "
+                    "do not call an LLM."
                 ),
-                expected_output="JSON matching InvestmentThesis",
+                expected_output="A valid InvestmentThesis object (Pydantic).",
                 agent=self.agent,
             )
-
-    def _run_llm(
-        self,
-        forecast: FinancialForecast,
-        insights: ListingInsights | None = None,
-    ) -> InvestmentThesis:
-        if not _ensure_crewai_ready():
-            return synthesize_thesis(forecast)
-
-        payload = {
-            "forecast": forecast.model_dump(),
-            "listing_insights": insights.model_dump() if insights else None,
-        }
-
-        prompt = (
-            "You are a buy-side real-estate chief strategist.\n"
-            "Given a FinancialForecast (+ optional ListingInsights), "
-            "produce a clear investment thesis.\n\n"
-            "Respond with JSON ONLY that conforms to the InvestmentThesis schema. "
-            "No prose, no markdown, no extra text.\n\n"
-            "Schema:\n"
-            '{ "verdict": "BUY|CONDITIONAL|DECLINE",\n'
-            '  "rationale": ["string", ...],\n'
-            '  "key_metrics": { "dscr": float, "irr": float, "coc": float }\n'
-            "}\n\n"
-            "Do not use ellipses; output MUST be complete and valid JSON without truncation.\n"
-            "Do not include comments or trailing commas.\n"
-            f"DATA:\n{json.dumps(payload, indent=2)}"
-        )
-
-        try:
-            task = Task(
-                description=prompt,
-                expected_output="JSON for InvestmentThesis only.",
-                agent=self.agent,
-            )
-
-            crew = Crew(
-                agents=[self.agent],
-                tasks=[task],
-                process=Process.sequential,
-                verbose=False,
-            )
-            _ = crew.kickoff()
-
-            result_text = getattr(task, "output", None) or ""
-            return _parse_json_as(
-                InvestmentThesis,
-                str(result_text),
-                lambda: synthesize_thesis(forecast),
-            )
-        except Exception as e:
-            try:
-                self._last_llm_error = e
-            except Exception:
-                pass
-            _print_debug_exc("ChiefStrategistAgent.crew.kickoff failed", e)
-            return synthesize_thesis(forecast)
 
     def run(
         self,
         forecast: FinancialForecast,
         insights: ListingInsights | None = None,
+        *,
+        market: MarketAssumptions | None = None,
     ) -> InvestmentThesis:
-        if _llm_enabled():
-            return self._run_llm(forecast, insights)
-        return synthesize_thesis(forecast)
+        """Return the deterministic thesis for ``forecast``.
+
+        ``insights`` is accepted for call-site parity with the deterministic
+        orchestrator and is deliberately unused: any listing observation that
+        should move the verdict must move it by moving the *forecast* first, so
+        that the change is visible in the numbers the thesis cites.
+
+        ``market`` is forwarded unchanged so the cap-rate-spread test uses the
+        target the user configured rather than this module's fallback constant —
+        the same target the engine uses for its "cap-rate spread below target"
+        warning. Both engines must pass it, or the two would disagree.
+        """
+        del insights  # see docstring: observations act through the forecast, not here
+        return synthesize_thesis(forecast, market=market)

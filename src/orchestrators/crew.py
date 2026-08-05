@@ -32,6 +32,7 @@ from src.agents.listing_analyst import analyze_listing
 from src.core.cv.photo_insights import build_photo_insights
 from src.core.media.insights import analyze_media
 from src.core.media.local import collect_local_assets
+from src.core.reports.baseline import BaselineOutlook
 from src.core.reports.photo_report import build_media_report
 from src.core.reports.report_models import MediaReport
 from src.schemas.models import (
@@ -55,6 +56,44 @@ class OrchestrationResult:
     media_insights: MediaInsights | None = None
     #: What the photos *show* — room coverage, detected amenities, provider provenance.
     media_report: MediaReport | None = None
+    #: The same deal re-run with no listing observations applied, so the report can show both
+    #: pictures. None whenever no observation moved a number — which is the common case, and what
+    #: keeps a run with no live insight modifiers byte-identical to one from before this existed.
+    baseline: BaselineOutlook | None = None
+
+
+def build_baseline_outlook(
+    inputs: FinancialInputs,
+    forecast: FinancialForecast,
+    *,
+    horizon_years: int,
+) -> BaselineOutlook | None:
+    """
+    Re-run the deal with every listing observation suppressed, for the report's comparison.
+
+    Shared by both orchestrators. The forecaster and the strategist are deterministic in *every*
+    mode by construction (see ``crewai_runner``'s module docstring and ``ChiefStrategistAgent``),
+    so calling the underlying functions directly here is the same computation the CrewAI engine
+    would perform through its own wrappers — there is no second code path to diverge from.
+
+    Args:
+        inputs: The exact inputs the observed forecast was produced from.
+        forecast: The observed forecast, used only to detect whether any observation fired.
+        horizon_years: Same horizon as the observed forecast, so the two are comparable.
+
+    Returns:
+        A ``BaselineOutlook`` when at least one insight modifier fired, otherwise ``None``.
+
+    Notes:
+        ``YearBreakdown.notes`` is the engine's own record of a fired modifier — one note per
+        rule applied. No notes means ``insights=None`` would reproduce the observed forecast
+        exactly, so the second engine run is skipped: it would cost time to prove the two
+        pictures are the same picture, and the report has nothing to compare.
+    """
+    if not any(y.notes for y in forecast.years):
+        return None
+    base_forecast = forecast_financials(inputs=inputs, insights=None, horizon_years=horizon_years)
+    return BaselineOutlook(forecast=base_forecast, thesis=synthesize_thesis(base_forecast, market=inputs.market))
 
 
 def run_orchestration(
@@ -75,7 +114,9 @@ def run_orchestration(
 
     Returns:
         OrchestrationResult with insights, forecast, investment thesis, and — when photos
-        were supplied — media insights over that folder.
+        were supplied — media insights over that folder. Also carries a ``baseline`` outlook
+        whenever a listing observation actually moved a number, so the report can show the
+        same deal with and without those observations.
 
     Notes:
         - This is a clean seam to swap in a CrewAI-based orchestrator in V2+.
@@ -83,7 +124,10 @@ def run_orchestration(
     """
     insights = analyze_listing(listing_txt_path=listing_txt_path, photos_folder=photos_folder)
     forecast = forecast_financials(inputs=inputs, insights=insights, horizon_years=horizon_years)
-    thesis = synthesize_thesis(forecast)
+    # `market=` is what makes the thesis judge the spread against the target the user configured —
+    # the same number the engine tests when it warns "cap-rate spread below target".
+    thesis = synthesize_thesis(forecast, market=inputs.market)
+    baseline = build_baseline_outlook(inputs, forecast, horizon_years=horizon_years)
 
     # Descriptive media stats over the same folder the analyst tagged. Defensive by the same
     # rule as the agents: a bad photo folder degrades the report, it never fails the run.
@@ -107,4 +151,5 @@ def run_orchestration(
         thesis=thesis,
         media_insights=media_insights,
         media_report=media_report,
+        baseline=baseline,
     )

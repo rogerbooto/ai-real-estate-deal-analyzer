@@ -97,10 +97,17 @@ class RefinancePlan(BaseModel):
     refi_ltv: float = Field(0.75, ge=0, le=1, description="Loan-to-Value used at refi to size the new loan.")
     exit_cap_rate: float | None = Field(
         None,
-        description="Cap rate used to value the asset at refi. If None, falls back to market_cap_rate or heuristic.",
+        description=(
+            "Cap rate used to value the asset at refi. If None, the engine falls back to "
+            "market.cap_rate_purchase, then to the computed purchase cap rate."
+        ),
     )
     market_cap_rate: float | None = Field(
-        None, description="Market cap rate reference; also used for purchase if cap_rate_purchase is not provided."
+        None,
+        description=(
+            "Market cap rate reference. NOT read by any engine or agent — record-keeping only. "
+            "Set market.cap_rate_purchase to override the purchase cap rate."
+        ),
     )
 
 
@@ -165,6 +172,19 @@ class ListingInsights(BaseModel):
     condition_tags: list[str] = Field(default_factory=list, description="Condition features (e.g., 'renovated kitchen', 'old roof').")
     defects: list[str] = Field(default_factory=list, description="Potential issues (e.g., 'water stain', 'mold', 'foundation crack').")
     notes: list[str] = Field(default_factory=list, description="Free-form additional observations.")
+
+    # ADDITIVE (Mission 2): per-tag provenance. The three tag lists above remain the contract --
+    # every existing consumer keeps reading them unchanged and this field defaults to empty, so a
+    # producer that has not been taught to populate it is not a validation error. It is a parallel
+    # ledger, not a replacement: see ObservationProvenance for why it is a list and not a dict.
+    observations: list[ObservationProvenance] = Field(
+        default_factory=list,
+        description=(
+            "Per-observation provenance for the amenities/condition_tags/defects above. Zero or "
+            "more records per tag (a tag observed by both the listing copy and a photo yields one "
+            "record each). Advisory: may be empty even when the tag lists are not."
+        ),
+    )
 
 
 # =========================
@@ -318,20 +338,43 @@ class RegionalIncomeTable(BaseModel):
     median_rent: float = Field(..., ge=0, description="Median monthly rent for this unit type.")
     p25_rent: float = Field(..., ge=0, description="25th percentile monthly rent.")
     p75_rent: float = Field(..., ge=0, description="75th percentile monthly rent.")
-    turnover_cost: float = Field(..., ge=0, description="Average turnover cost for this unit type.")
-    str_multiplier: float | None = Field(None, ge=0, description="Optional STR uplift (multiplier) relative to LTR baseline.")
+    turnover_cost: float = Field(
+        ...,
+        ge=0,
+        description=(
+            "NOT an observed average. Its only producer (`market.regional_income`) writes "
+            "`median_rent * 0.5`, an uncited rule of thumb -- the previous wording, 'Average "
+            "turnover cost for this unit type', asserted a measurement nothing took. Withheld from "
+            "`summary()` and from the advisor's JSON at Gate 3 (2026-08-05) so it reaches no "
+            "reader; the field itself stays only because removing a required field is a breaking "
+            "change and that call is Roger's. Do not render it or feed it to a calculation."
+        ),
+    )
+    str_multiplier: float | None = Field(
+        None,
+        ge=0,
+        description=(
+            "Optional STR uplift (multiplier) relative to LTR baseline. Always `None` since Gate 3 "
+            "(2026-08-05): it was a hardcoded 1.5x gated by a policy hook whose entire body was "
+            "`return True`, so it printed for every region on earth about an activity many "
+            "municipalities regulate. It stays `None` until a real regional policy lookup exists."
+        ),
+    )
 
     model_config = ConfigDict(frozen=True, extra="ignore")
 
     def summary(self) -> str:
-        base = (
-            f"[RegionalIncomeTable] {self.region} | {self.bedrooms}BR | "
-            f"P25: ${self.p25_rent:,.0f}, Median: ${self.median_rent:,.0f}, "
-            f"P75: ${self.p75_rent:,.0f} | Turnover: ${self.turnover_cost:,.0f}"
+        # Mission 2, Gate 3 (2026-08-05): dropped the "[RegionalIncomeTable]" class-name prefix and
+        # the turnover_cost/STR-multiplier figures from this string -- both were found fabricated
+        # (turnover_cost is an uncited "median rent * 0.5" rule of thumb; str_multiplier was a
+        # hardcoded 1.5x gated by a policy hook that always returned True) and this method's output
+        # reaches the CLI page. The fields themselves stay on the model (removing them would touch
+        # this file's field declarations, which this project treats as additive-only, and no other
+        # code depends on them); only what this method renders changed. See CHANGELOG.md "Removed".
+        return (
+            f"{self.region} | {self.bedrooms}BR | "
+            f"P25: ${self.p25_rent:,.0f}, Median: ${self.median_rent:,.0f}, P75: ${self.p75_rent:,.0f}"
         )
-        if self.str_multiplier is not None:
-            base += f" | STRx: {self.str_multiplier:.2f}"
-        return base
 
     def __str__(self) -> str:
         return self.summary()
@@ -504,6 +547,33 @@ class ParkingType(str, Enum):
     unknown = "unknown"
 
 
+#: How a detection record came to exist — **a file name may SUGGEST; only a detector that
+#: actually looked may CONFIRM.** These four values are the four epistemic states that rule
+#: produces, and consumers branch on them:
+#:
+#:   pixels               — a provider examined the image and emitted the label. Its own
+#:                          confidence, evidence and rationale are the record.
+#:   filename_confirmed   — a provider that CAN detect this label did detect it, AND the file name
+#:                          independently says the same thing. Two agreeing signals, so the
+#:                          confidence is the corroborated blend.
+#:   filename_contested   — a provider that CAN detect this label examined the image and did NOT
+#:                          emit it, while the file name says it is there. A genuine
+#:                          disagreement: something measured it, so the claim is scoreable, and
+#:                          the blend scores it deliberately weakly.
+#:   filename_unconfirmed — NO registered provider declares the ability to detect this label, so
+#:                          nothing measured it. Carries no confidence at all and must be kept out
+#:                          of every path that can move a number.
+#:
+#: Absent means ``pixels``: a record that never went through the filename pass is a detection,
+#: which is what it is.
+#:
+#: Defined HERE rather than in ``core.cv`` because it crosses the schema boundary on
+#: :class:`DetectedLabelModel`, and the schema layer may not import ``core``.
+#: ``core.cv.amenities_defects`` re-exports this name, with the producer-side notes, so existing
+#: importers are unaffected and there is exactly one definition to drift from.
+DetectionSource = Literal["pixels", "filename_confirmed", "filename_contested", "filename_unconfirmed"]
+
+
 class DetectedLabelModel(BaseModel):
     """Closed-set amenity/defect detection for a single image."""
 
@@ -514,6 +584,84 @@ class DetectedLabelModel(BaseModel):
     confidence: float = Field(..., ge=0.0, le=1.0, description="Model confidence in [0,1].")
     evidence: list[str] | None = Field(default=None, description="Optional textual/visual evidence ids.")
     rationale: str | None = Field(default=None, description="Short model rationale (if available).")
+
+    # ADDITIVE (Mission 2, G2-N2). The producer has always set this on the raw ``DetectedLabel``
+    # mapping; this model did not declare it and ``extra="ignore"`` therefore DELETED it at the
+    # validation boundary. Downstream, `core.insights.synthesis` had nothing left to branch on and
+    # stamped every surviving record `origin="cv_provider", provider_kind="model"` — asserting a
+    # detector found what it had explicitly reported it did NOT find. Carrying the marker on the
+    # model is what makes refusing that stamp possible at all.
+    source: DetectionSource = Field(
+        default="pixels",
+        description=(
+            "How this record came to exist; see DetectionSource. Default 'pixels' matches the "
+            "producer's contract that an absent marker means a provider emitted the label itself."
+        ),
+    )
+
+
+#: Which ``ListingInsights`` list an observation belongs to.
+ObservationKind = Literal["condition", "defect", "amenity"]
+
+#: What class of producer authored an observation. Deliberately about the *producer*, not the
+#: confidence: ``cv_provider`` says "a detector looked at the pixels", it does NOT say the
+#: detector was a model — read ``ObservationProvenance.provider_kind`` for that.
+#:
+#:   listing_text   — a keyword/regex match over the listing copy, or a normalized listing fact.
+#:   photo_filename — derived from an image's FILE NAME, not its pixels (e.g. "kitchen_island.jpg").
+#:   cv_provider    — a detector in ``core/cv`` ran over the image.
+#:   llm            — authored by a language model (``agents/crewai_components``' V2 path).
+#:   unknown        — the tag is present but this pipeline genuinely cannot attribute it. Recorded
+#:                    rather than guessed; a consumer must not upgrade it to any of the above.
+ObservationOrigin = Literal["listing_text", "photo_filename", "cv_provider", "llm", "unknown"]
+
+
+class ObservationProvenance(BaseModel):
+    """Where ONE observation on ``ListingInsights`` came from, and what evidence backs it.
+
+    Exists because ``condition_tags`` / ``defects`` / ``amenities`` are bare strings: nothing in
+    them distinguishes an LLM-authored tag from a regex keyword match from a CV detection, so a
+    report cannot honestly say "AI observed 'old roof'". This record carries the origin alongside
+    the tag.
+
+    Metadata is present only where it genuinely exists. A keyword match has no confidence, so
+    ``detection`` stays ``None`` for text origins -- a fabricated confidence would be worse than
+    no number at all.
+
+    ``detection`` reuses :class:`DetectedLabelModel` rather than restating confidence/evidence/
+    rationale, so the CV pipeline's own record travels intact. ``detection.name`` is the raw
+    ontology label; ``tag`` is the string as it appears in the ``ListingInsights`` list, which can
+    differ (surface mapping, e.g. ontology ``stainless_appliances`` -> surface ``stainless_kitchen``).
+    """
+
+    model_config = ConfigDict(frozen=True, extra="ignore")
+
+    tag: str = Field(..., description="The observation string exactly as it appears in the ListingInsights list named by `kind`.")
+    kind: ObservationKind = Field(..., description="Which ListingInsights list this tag lives in.")
+    origin: ObservationOrigin = Field(..., description="Producer class that authored the tag; see ObservationOrigin.")
+    detail: str | None = Field(
+        default=None,
+        description=(
+            "The single free-text 'what fired' slot: the matched listing phrase (listing_text), the "
+            "filename token (photo_filename), or the threshold that tripped (derived cv_provider tags). "
+            "None when the producer offers no such handle."
+        ),
+    )
+    provider: str | None = Field(default=None, description="Producer identity, e.g. 'vision' | 'local' | an LLM model name.")
+    provider_kind: Literal["heuristic_stub", "model"] | None = Field(
+        default=None,
+        description=(
+            "Whether `provider` is a real model or a hand-written heuristic standing in for one "
+            "(see core.cv.amenities_defects.provider_kind). This is the field a caller must read "
+            "before claiming a tag was AI-observed. None when no provider was involved."
+        ),
+    )
+    provider_version: str | None = Field(default=None, description="Version string of the producer, e.g. 'vision-stub-v1'.")
+    source_image_sha: str | None = Field(default=None, description="sha256 of the image this observation came from, when it came from one.")
+    detection: DetectedLabelModel | None = Field(
+        default=None,
+        description="The CV pipeline's own detection record (confidence/evidence/rationale). None for non-detector origins.",
+    )
 
 
 class ParkingSummary(BaseModel):
@@ -547,6 +695,40 @@ class PhotoInsights(BaseModel):
     )
     amenity_counts: dict[str, int] = Field(default_factory=dict, description="How many distinct images exhibited each amenity label.")
     defect_counts: dict[str, int] = Field(default_factory=dict, description="How many distinct images exhibited each defect label.")
+
+    # ADDITIVE (Mission 2, M17/R-6). Deliberately a THIRD roll-up rather than more entries in the
+    # two above: those count things a detector reported, and this counts things a file name
+    # suggested that NO registered provider is able to look for (see
+    # core.cv.amenities_defects.DetectionSource). The distinction is load-bearing -- amenity_counts
+    # and defect_counts flow into ListingInsights and from there into the deterministic OPEX/income
+    # rules, so an unmeasured claim mixed into them lets a file name move a number. These carry no
+    # confidence for the same reason: nothing measured them, and any number would be invented.
+    # A label listed here moves into defect_counts/amenity_counts automatically, with no code
+    # change, the day a provider declaring it is registered.
+    unconfirmed_hint_counts: dict[str, int] = Field(
+        default_factory=dict,
+        description=(
+            "How many images had a FILE NAME suggesting each label that no registered provider "
+            "declares it can detect. Advisory only: unscored, and never an input to any number."
+        ),
+    )
+
+    # ADDITIVE (Mission 2, G2-N1). The sibling of the field above, for the OTHER half of the same
+    # rule. `unconfirmed_hint_counts` holds claims nothing was able to check; this holds claims a
+    # detector that CAN see the label checked and CONTRADICTED. Deliberately a separate roll-up
+    # rather than an entry in `amenity_counts`/`defect_counts`, because those two feed
+    # `ListingInsights` and from there `finance.engine._apply_insight_modifiers`, which selects
+    # rules by MEMBERSHIP and never reads a confidence — so a contested label sitting in them let a
+    # file name a detector had contradicted move Y1 cash flow by $1,105.80. Merging the two hint
+    # roll-ups would be a lie in the other direction: "nothing looked" and "something looked and
+    # disagreed" are different facts and are reported with different words.
+    contested_hint_counts: dict[str, int] = Field(
+        default_factory=dict,
+        description=(
+            "How many images had a FILE NAME suggesting each label that a covering detector "
+            "examined the pixels for and did not report. Advisory only: never an input to any number."
+        ),
+    )
     parking: ParkingSummary | None = Field(default=None, description="Derived listing-level parking summary.")
     ontology_version: str | None = Field(default=None, description="Ontology version string used for closed-set labels.")
 
@@ -1072,6 +1254,20 @@ class RunProvenance(BaseModel):
         ...,
         description="Whether the AI photo-tagging path was active (AIREAL_USE_VISION). Changes which amenities appear.",
     )
+    llm_mode_enabled: bool = Field(
+        False,
+        description=(
+            "Whether a language model ACTUALLY authored observations in this run -- not merely "
+            "whether AIREAL_LLM_MODE was requested. `main.py` writes `llm_mode_enabled() and "
+            "any(o.origin == 'llm' ...)`, so a run with the flag set whose model call fell back to "
+            "the deterministic path records False, which is the honest answer. When true, a model "
+            "authored the listing observations (condition tags, defects, amenities) that feed the "
+            "deterministic insight modifiers, so it changes the reported figures. Distinct from "
+            "vision_enabled, which covers photo tagging only: on an LLM run with vision off, "
+            "vision_enabled=False alone would leave the report implying no model was involved. "
+            "The verdict is never LLM-authored in any mode (see chief_strategist.synthesize_thesis)."
+        ),
+    )
     config_path: str | None = Field(
         None,
         description="Inputs file used, exactly as supplied. None when the run fell back to hardcoded demo inputs.",
@@ -1104,3 +1300,16 @@ class ScenarioAnalysis(BaseModel):
     irr_10yr: ScenarioMetricBand | None = Field(None, description="Prior-weighted IRR band; None iff n_accepted == 0.")
     equity_multiple_10yr: ScenarioMetricBand | None = Field(None, description="Prior-weighted equity-multiple band; None if 0 accepted.")
     notes: str | None = Field(None, description="Rejector notes / 'no admissible scenarios'.")
+
+
+# =========================
+# Deferred forward references
+# =========================
+#
+# ListingInsights.observations is annotated `list[ObservationProvenance]`, but
+# ObservationProvenance is declared further down (next to DetectedLabelModel, which it reuses).
+# With `from __future__ import annotations` every annotation is a string, so ListingInsights is
+# left with an unresolved reference at class-creation time. Pydantic would resolve it lazily on
+# first use; rebuilding explicitly here makes the failure loud at import if the reference ever
+# breaks, instead of at whichever call site happens to validate first.
+ListingInsights.model_rebuild()

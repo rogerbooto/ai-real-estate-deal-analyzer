@@ -10,7 +10,6 @@ Run the full analysis pipeline end-to-end and emit a Markdown report:
        - Listing Analyst (text + photos → insights)
          * Uses the new CV Tagging Orchestrator (single door to deterministic/AI).
          * Honors flags:
-             - AIREAL_PHOTO_AGENT=1  → route via PhotoTaggerAgent
              - AIREAL_USE_VISION=1   → always run AI on all readable images (batch-first)
        - Financial Forecaster (10-year pro forma & purchase metrics)
        - Chief Strategist (investment thesis)
@@ -27,6 +26,9 @@ Usage
     python main.py
     python main.py --config data/sample_listings/36_kelly_moncton/inputs.json --out out.md --horizon 10 \
                    --listing data/sample_listings/36_kelly_moncton/listing.txt --photos data/sample_listings/36_kelly_moncton/photos
+
+`--listing`/`--photos` require `--config` (see `resolve_config_path`): an asset without
+financials would otherwise be underwritten against the demo deal's numbers.
 """
 
 from __future__ import annotations
@@ -36,6 +38,7 @@ import os
 from pathlib import Path
 
 from src.core.reports.generator import write_report
+from src.core.runtime_flags import llm_mode_enabled
 from src.inputs.inputs import AppInputs, InputsLoader
 from src.orchestrators import crew as deterministic_orchestrator
 from src.orchestrators.cv_tagging_orchestrator import vision_enabled
@@ -113,8 +116,18 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--config", type=str, default=None, help="Path to JSON config (FinancialInputs or AppInputs).")
     p.add_argument("--out", type=str, default=None, help="Output Markdown path (overrides config).")
     p.add_argument("--horizon", type=int, default=None, help="Forecast horizon in years (overrides config).")
-    p.add_argument("--listing", type=str, default=None, help="Path to listing .txt (overrides config).")
-    p.add_argument("--photos", type=str, default=None, help="Path to photos folder (overrides config).")
+    p.add_argument(
+        "--listing",
+        type=str,
+        default=None,
+        help="Path to listing .txt (overrides config). Requires --config describing the same property.",
+    )
+    p.add_argument(
+        "--photos",
+        type=str,
+        default=None,
+        help="Path to photos folder (overrides config). Requires --config describing the same property.",
+    )
     p.add_argument(
         "--engine",
         type=str,
@@ -156,6 +169,48 @@ def ensure_sample_assets(listing_txt_path: str | None, photos_dir_path: str | No
     return str(listing_txt), str(photos_dir)
 
 
+def resolve_config_path(config: str | None, listing: str | None, photos: str | None) -> str | None:
+    """
+    Decide which financial config the run uses, refusing to pair an asset with foreign numbers.
+
+    ``--listing``/``--photos`` say *which property* to report on; the config says *what the
+    money looks like*. They are only meaningful together. Supplying an asset without a config
+    used to fall through to the committed demo bundle, so the report described the caller's
+    address against 36 Kelly's purchase price, rent roll, and financing — silently, with no
+    line in the output admitting the mismatch. That is a report asserting something false, so
+    it fails loudly instead of guessing which of the two properties the reader meant.
+
+    Args:
+        config: ``--config`` path, if given.
+        listing: ``--listing`` path, if given.
+        photos: ``--photos`` path, if given.
+
+    Returns:
+        The config path to load, or None when there is nothing to load (no ``--config`` and no
+        committed demo bundle) and the caller should fall back to ``build_sample_inputs``.
+
+    Raises:
+        SystemExit: an asset flag was supplied without ``--config``.
+    """
+    if config:
+        return config
+
+    supplied = [flag for flag, value in (("--listing", listing), ("--photos", photos)) if value]
+    if supplied:
+        raise SystemExit(
+            f"{' and '.join(supplied)} supplied without --config. The financials would then come from the "
+            f"built-in demo deal ({DEFAULT_INPUTS}) rather than from your property, and the report would "
+            "pair your address with another property's purchase price, rent roll, and financing without "
+            "saying so. Pass --config pointing at a JSON that describes the same property (see "
+            f"{DEFAULT_INPUTS} for the shape), or run `python main.py` with no arguments to underwrite "
+            "the demo bundle."
+        )
+
+    # Nothing supplied: the zero-argument demo underwrites one coherent deal (listing, photos,
+    # and financials all 36 Kelly) rather than reporting a real address against unrelated numbers.
+    return str(DEFAULT_INPUTS) if DEFAULT_INPUTS.exists() else None
+
+
 def main() -> None:
     """Run end-to-end analysis and write investment_analysis.md (or chosen output)."""
     print("Running AI Real Estate Deal Analyzer (V2)...")
@@ -163,10 +218,9 @@ def main() -> None:
 
     loader = InputsLoader()
 
-    # No --config still prefers the committed sample bundle, so the zero-argument demo
-    # underwrites one coherent deal (listing, photos, and financials all 36 Kelly) rather
-    # than reporting a real address against unrelated numbers.
-    config_path = args.config or (str(DEFAULT_INPUTS) if DEFAULT_INPUTS.exists() else None)
+    # Zero arguments → the committed sample bundle. An asset flag without --config loud-fails
+    # rather than borrowing the demo deal's financials (see resolve_config_path).
+    config_path = resolve_config_path(args.config, args.listing, args.photos)
 
     if config_path:
         # Load AppInputs (FinancialInputs + run options) and apply CLI overrides if provided.
@@ -194,6 +248,9 @@ def main() -> None:
         market_block = cfg.market
     else:
         # Neither --config nor the sample bundle → fall back to hardcoded demo inputs.
+        # resolve_config_path guarantees no asset flag reached here, so these are both None
+        # and ensure_sample_assets will report the missing bundle rather than pair an asset
+        # with the hardcoded numbers.
         inputs = build_sample_inputs()
         out_path = args.out or "investment_analysis.md"
         horizon = args.horizon or 10
@@ -246,6 +303,14 @@ def main() -> None:
             engine=engine,
             scenarios_enabled=bool(run_scenarios_flag),
             vision_enabled=vision_enabled(),
+            # Report what ACTUALLY happened, not merely what the env asked for. AIREAL_LLM_MODE
+            # is only consulted by the crewai engine, and even there the LLM call can fail and
+            # fall back to the deterministic path -- so the env var alone would claim
+            # "LLM-authored observations: on" for runs where nothing was LLM-authored. That is
+            # the same over-claim as M12 in the opposite direction. The per-tag provenance ledger
+            # (R-4) is the ground truth: an observation carries origin="llm" only if a model
+            # really wrote it.
+            llm_mode_enabled=llm_mode_enabled() and any(o.origin == "llm" for o in (getattr(result.insights, "observations", None) or [])),
             config_path=config_path,
         )
 
@@ -258,6 +323,14 @@ def main() -> None:
             media_report=getattr(result, "media_report", None),
             provenance=provenance,
             scenarios=scenarios_analysis,
+            # None unless a listing observation actually moved a number, in which case the
+            # report shows the same deal with and without those observations. getattr keeps
+            # third-party/older OrchestrationResult shapes working, as the media fields do.
+            baseline=getattr(result, "baseline", None),
+            # The same guardrails the thesis was judged against (crew.py passes this exact block
+            # to synthesize_thesis), so the report can name the cap-rate floor it cleared or
+            # breached instead of alluding to "the configured floor".
+            market=inputs.market,
         )
 
         print(f"Report written to {out_path}")

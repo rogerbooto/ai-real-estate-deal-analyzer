@@ -4,19 +4,37 @@ V2 Orchestrator (CrewAI seam)
 
 Purpose
 -------
-Mirror the deterministic orchestrator but back it with CrewAI Agent/Task
-wrappers that *delegate to local Python functions*. This keeps behavior
-identical by default while establishing a real CrewAI integration seam.
+Mirror the deterministic orchestrator, backed by the CrewAI Agent/Task wrappers
+in ``src/agents/crewai_components.py``.
+
+What actually executes
+----------------------
+With ``AIREAL_LLM_MODE`` unset (the default), every step delegates to the same
+local deterministic functions the ``crew`` orchestrator uses, and output matches
+that engine.
+
+With ``AIREAL_LLM_MODE`` set **and** a provider key present, exactly one step
+changes: ``ListingAnalystAgent`` runs a real ``crew.kickoff()`` and the model
+authors the ``ListingInsights`` (a network call; falls back to the deterministic
+analyzer if the call or the JSON parse fails). That is an *observation* layer —
+it reports what it reads in the listing text and photo names.
+
+The forecast and the verdict never go through a model, in any mode:
+``FinancialForecasterAgent`` always calls the local engine, and
+``ChiefStrategistAgent`` always calls ``synthesize_thesis``. So an LLM run can
+move the *inputs* to the analysis (via the deterministic insight modifiers), but
+never the arithmetic and never the BUY/CONDITIONAL/DECLINE judgment.
 
 Public API
 ----------
 run_orchestration(listing_txt_path, photos_folder, inputs, horizon_years=10)
-  -> OrchestrationResult(insights, forecast, thesis)
+  -> OrchestrationResult(insights, forecast, thesis, media_insights, media_report)
 """
 
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 try:
     # Importing Crew to verify availability for helpful errors
@@ -29,8 +47,13 @@ from src.agents.crewai_components import (
     FinancialForecasterAgent,
     ListingAnalystAgent,
 )
-from src.orchestrators.crew import OrchestrationResult
-from src.schemas.models import FinancialInputs
+from src.core.cv.photo_insights import build_photo_insights
+from src.core.media.insights import analyze_media
+from src.core.media.local import collect_local_assets
+from src.core.reports.photo_report import build_media_report
+from src.core.reports.report_models import MediaReport
+from src.orchestrators.crew import OrchestrationResult, build_baseline_outlook
+from src.schemas.models import FinancialInputs, MediaInsights
 
 
 def _require_provider_env() -> None:
@@ -66,8 +89,13 @@ def run_orchestration(
 
     Behavior:
         - Validates env/dep presence for CrewAI usage and fails with a friendly error.
-        - Delegates actual work to local deterministic functions for identical math.
-        - Constructs Agent/Task shells for future CrewAI LLM runs (not executed here).
+        - Analyst: deterministic by default; with ``AIREAL_LLM_MODE`` set and a provider
+          key present it runs a real ``crew.kickoff()`` and the model authors the
+          ListingInsights (observations only), falling back to the deterministic
+          analyzer on any error.
+        - Forecaster and Strategist: always the local deterministic functions, in every
+          mode -- identical math and an identical, rule-derived verdict.
+        - Media stats are plain deterministic calls over ``photos_folder`` (see below).
     """
     _require_provider_env()
 
@@ -78,17 +106,48 @@ def run_orchestration(
     forecast = forecaster.run(inputs=inputs, insights=insights, horizon_years=horizon_years)
 
     strategist = ChiefStrategistAgent()
-    thesis = strategist.run(forecast=forecast, insights=insights)
+    # `market=` mirrors the deterministic orchestrator exactly: the spread guardrail is judged
+    # against the user's configured target, not a module constant. Drop it here and this engine
+    # would reach a different verdict from `crew.py` on the same inputs.
+    thesis = strategist.run(forecast=forecast, insights=insights, market=inputs.market)
 
-    # (Optional parity) Example of how we'd wire a real Crew:
-    # if _CREW_AVAILABLE:
-    #     crew = Crew(
-    #         agents=[analyst.agent, forecaster.agent, strategist.agent],
-    #         tasks=[analyst.task, forecaster.task, strategist.task],
-    #         process=Process.sequential,
-    #         verbose=False,
-    #     )
-    #     # NOTE: We do NOT call crew.kickoff() in deterministic mode.
-    #     # Real LLM integration would replace .run() calls above with kickoff().
+    # The observation-free counterpart of the run above, when an observation actually moved a
+    # number. This matters most on this engine: with an LLM mode configured the analyst's
+    # observations are model-authored, and this is what lets a reader see exactly which figures
+    # depend on them. Shared with the deterministic orchestrator so the two cannot diverge.
+    baseline = build_baseline_outlook(inputs, forecast, horizon_years=horizon_years)
 
-    return OrchestrationResult(insights=insights, forecast=forecast, thesis=thesis)
+    # Note: there is deliberately no single Crew spanning all three agents. Only the analyst
+    # may reason, and it owns its own one-agent Crew inside `ListingAnalystAgent._run_llm`.
+    # Building a shared sequential Crew over all three Agent shells here would put the
+    # forecast and the verdict back in a model's hands -- their `llm=None` would not prevent
+    # it, since crewai substitutes a default model for that value. Do not add one.
+
+    # Descriptive media stats over the same folder the analyst tagged. Mirrors
+    # src/orchestrators/crew.py's derivation exactly (not an agent/LLM concern —
+    # collect_local_assets/analyze_media/build_photo_insights/build_media_report are
+    # plain deterministic calls), so both engines reach parity on the report's
+    # Media Overview and Photo Coverage sections. Defensive by the same rule as the
+    # agents: a bad photo folder degrades the report, it never fails the run.
+    media_insights: MediaInsights | None = None
+    media_report: MediaReport | None = None
+    if photos_folder:
+        try:
+            assets = collect_local_assets(photos_folder)
+            if assets:
+                media_insights = analyze_media(assets)
+        except Exception:
+            media_insights = None
+        try:
+            media_report = build_media_report(build_photo_insights(Path(photos_folder)))
+        except Exception:
+            media_report = None
+
+    return OrchestrationResult(
+        insights=insights,
+        forecast=forecast,
+        thesis=thesis,
+        media_insights=media_insights,
+        media_report=media_report,
+        baseline=baseline,
+    )

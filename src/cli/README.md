@@ -24,16 +24,20 @@ Key flags (all deterministic-first; network and AI are opt-in):
 
 | Flag | Default | Meaning |
 | --- | --- | --- |
-| `--url` / `--file` | — | Listing source (exactly one). |
+| `--url` / `--file` | — | Listing source. If both are given, `--url` wins (the fetch path is used and `--file` is ignored). |
 | `--photos` | — | Optional local photo directory for photo insights. |
 | `--out-cache` | `data/cache` | Cache directory for fetches/artifacts. |
-| `--online` | `0` | Allow network fetch (robots.txt respected; safe fetch policy). |
-| `--ai` | `0` | Enable AI photo-insight path (falls back to deterministic stubs). |
-| `--render` | `0` | Render JS via headless browser before parsing. |
-| `--download-media` | `1` | Discover & download listing media. |
-| `--max-media` | `64` | Max media assets to fetch. |
-| `--media-intel` | `0` | Enable media intelligence (perceptual hash, quality, palette, hero ranking). |
-| `--media-kinds` | all | Comma-separated filter: `image,video,floorplan,document,other`. |
+| `--online` | `0` | Allow network fetch when `--url` is used (robots.txt respected; safe fetch policy). |
+| `--ai` | `0` | Switches the photo-insight detection provider from `local` to `vision` (`use_ai=True` → `core.cv.build_photo_insights`). **This does change the output**: `image_detections`, `amenity_counts`, `detections_total`, `version` and `provenance` all differ from the default path, and the derived fields (`amenities` booleans, `parking` summary) can move with them. It is **not** a model call — the `vision` slot currently holds a hand-written threshold over image brightness, colour spread and aspect ratio, so its artifacts are stamped `version="vision-stub-v1"` and `provenance.provider_kind="heuristic_stub"`. Treat its labels as a placeholder, not as observations. The flag exists so a real classifier (fine-tuned ViT, a hosted API, or a user-supplied model) can be registered behind that seam; `provider_kind` reports `"model"` once one is. |
+| `--render` | `0` | Render JS via headless browser before parsing (requires `--url`). |
+| `--pretty` | `1` | Console-formatting knob only: pretty-prints the full listing/insights/photos JSON to stdout. Does **not** affect what is written to `--out-cache` or whether a screenshot is saved (see `--save-screenshot`, below — these two used to be silently tied together). |
+| `--save-screenshot` | `1` | Save a render screenshot to disk when `--render` is used (`FetchPolicy.save_screenshot`). Independent of `--pretty`. |
+| `--download-media` | `1` | Discover & download listing media. **Only has an effect when there is an HTML source to scan** (`--url`, with or without `--render`) — `collect_media` needs a URL/snapshot to find `<img>`/`og:image`/JSON-LD references, and the local-folder walker (`core.media.local.collect_local_assets`, used by the orchestrators) is not wired into `ingest_listing`. `--file` alone therefore yields an empty media bundle; the CLI prints a note to stderr explaining this, and `--photos` remains the way to get photo insights from a local folder. |
+| `--max-media` | `64` | Max media assets to fetch. Same `--file`-mode caveat as `--download-media`. |
+| `--media-intel` | `0` | Enable media intelligence (perceptual hash, quality, palette, hero ranking). Same `--file`-mode caveat as `--download-media`. |
+| `--media-kinds` | all | Comma-separated filter: `image,video,floorplan,document,other`. An invalid value is a clean argparse usage error (exit 2), not a traceback. Same `--file`-mode caveat as `--download-media`. |
+
+The console output always prints a one-line summary of `result.media`/`result.media_insights` (when present) and of the computed `result.insights`/`result.photos` — the pipeline's synthesized outputs are not silently discarded. `--pretty 1` additionally dumps the full JSON of the listing (including the structured `address_structure` block, when parsed), insights, and photos.
 
 Delegates to `src.core.ingest.listing_ingest.ingest_listing()` and returns an `IngestResult` (see `src/schemas/models.py`).
 
@@ -48,10 +52,28 @@ python -m src.cli.report_cli \
   --out out/investment_report.md
 ```
 
-* `--forecast` (required): `FinancialForecast` JSON.
+The example above uses only the JSON files committed under `data/examples/`, so it runs as
+written. `--media-report` and `--provenance` (below) take artifacts produced by an actual run —
+there are no committed examples of them, because a checked-in `provenance.json` would describe a
+run that never happened.
+
+* `--forecast` (required): `FinancialForecast` JSON. A missing, unreadable, or syntactically-invalid file fails with a clear `SystemExit` message naming the path, not a raw `FileNotFoundError`/`json.JSONDecodeError` traceback. A syntactically-valid file that doesn't match the schema still surfaces pydantic's own `ValidationError` (e.g. missing `purchase`/`years`), since that message is already actionable.
 * `--insights`, `--thesis`, `--media-insights` (optional): `ListingInsights`, `InvestmentThesis`, `MediaInsights` JSON.
+* `--media-report` (optional): `MediaReport` JSON (`src/core/reports/report_models.py`) — renders the **Photo Coverage** section. Distinct from `--media-insights`, which drives the file-level **Media Overview** section.
+* `--provenance` (optional): `RunProvenance` JSON (`src/schemas/models.py`) — renders the pipeline-facts rows of the **Run Provenance** appendix. This CLI only renders already-computed JSON artifacts; it does not itself pick an orchestration engine, run Market Scenarios, or run vision tagging, so it cannot truthfully *construct* a `RunProvenance` describing those choices. Point it at the provenance file emitted by the run that produced the other artifacts (e.g. `main.py`'s) rather than fabricating one — an absent `--provenance` simply omits those rows (the appendix header and valuation-knob rows still render, since those apply to every run).
 * `--title`: override the report H1.
 * Delegates to `src.core.reports.generator.write_report()`.
+
+**`--insights` recognizability guard:** every field on `ListingInsights` is optional (absent facts
+are legitimate — this project never fabricates listing data), which means `{}` or a JSON object
+with no relation to the schema (e.g. `{"totally": "unrelated"}`) used to validate cleanly and
+silently produce a report with an empty listing section. `--insights` now rejects JSON that shares
+no key with any real `ListingInsights` field, while a genuinely sparse-but-real file (e.g. just
+`{"address": "..."}`) is untouched. This gate is scoped to `--insights` only: the other optional
+artifacts (`--thesis`, `--media-insights`, `--media-report`, `--provenance`) each have at least one
+*required* field on their model, so unrelated JSON already fails there via pydantic's own
+`ValidationError` — the same gate would only replace one clear error with a different one, for no
+behavioral gain.
 
 ### 3) `advisor_cli` — multi-deal ranking & portfolio summary
 
@@ -59,13 +81,23 @@ python -m src.cli.report_cli \
 # One or more deal-bundle directories (each: listing.(txt|md|html), photos/, finance.json, optional inputs.json)
 python -m src.cli.advisor_cli --dir data/sample_listings/47_perrot_shediac --out out/advisor_output.json --markdown
 
-# Config JSONs or globs also work
-python -m src.cli.advisor_cli --files deal_a.json deal_b.json --export-csv
+# Config JSONs or globs also work -- see data/examples/advisor_deal_config.json for a
+# working config-JSON example (listing_path/photos_dir/finance_inputs_path/optional title)
+python -m src.cli.advisor_cli --files data/examples/advisor_deal_config.json --export-csv
 python -m src.cli.advisor_cli --glob "data/sample_listings/*" --save-artifacts --debug
+
+# Regional rent-comps sanity-check, opt-in and additive to the JSON/Markdown output above.
+python -m src.cli.advisor_cli --dir data/sample_listings/36_kelly_moncton --out out/advisor_output.json \
+  --markdown --regional-income data/examples/regional_income_comps.json
 ```
 
-* Inputs: `--dir`, `--files`, `--glob` (URL mode is intentionally rejected — a finance mapping is required per deal).
+* Inputs: `--dir`, `--files`, `--glob` (URL mode is intentionally rejected — a finance mapping is required per deal). `--files` accepts bundle directories (auto-discovery) or config JSONs; a config JSON missing `listing_path`/`photos_dir`/`finance_inputs_path` raises a clear error pointing at `data/examples/advisor_deal_config.json`.
 * Outputs: ranked deals + portfolio summary JSON (`--out`), optional CSVs (`--export-csv`), Markdown summary (`--markdown`), and per-deal artifacts (`--save-artifacts`).
+* `--debug` additionally prints the full ranked/portfolio JSON payload to stdout (the compact table is always printed regardless of this flag).
+* `--markdown` writes `<out-stem>.md` next to `--out`. If `--out` already ends in `.md` (so that path would collide with the JSON artifact), it writes `<out-stem>_report.md` instead and prints a note — the JSON at `--out` is never overwritten. As of Mission 2 task 3.1b it renders via `src.core.utils.markdown.render_markdown()` (shared with any future consumer of the same deal-card format) rather than a hand-rolled reimplementation, and gains richer per-deal fields (price/sqft, beds, baths, sqft, title source) the old inline version never had.
+* `--regional-income <path>` (Mission 2 task 3.1b, made honest at Gate 3) loads a JSON file `{region, bedrooms, comps: [rent, ...]}`, builds a `RegionalIncomeTable` via `src.market.regional_income.build_regional_income`, and attaches its real, comps-derived fields (`region`, `bedrooms`, `median_rent`, `p25_rent`, `p75_rent`) to `--out` under `regional_income` (via `advisor_cli._regional_income_payload`, which filters the JSON dump down to those five fields) and prints/embeds `RegionalIncomeTable.summary()` to the console and a `## Regional Income` section in `--markdown`. It is a portfolio-level market sanity-check, not per-deal — comps describe a market, not one listing. Fails loud (`SystemExit`) on a missing/malformed file or missing keys. `RegionalIncomeTable` also carries `turnover_cost`/`str_multiplier`; Gate 3 found both fabricated (an uncited "median rent × 0.5" rule of thumb and a hardcoded 1.5x STR uplift gated by a policy hook that always returned `True`) and neither reaches this output — `str_multiplier` is no longer computed at all, `summary()` no longer renders either field, and `_regional_income_payload` keeps `turnover_cost` (still a required schema field, computed for validity) out of the JSON artifact specifically — see `CHANGELOG.md` "Removed".
+
+**Removed at Gate 3 (2026-08-05):** the flags spelled --what-if (`src.core.advisor.scenarios`) and --narrative (`src.core.intelligence.narrative_builder`/`report_builder`) were wired in task 3.1b and blocked by the founder-proxy before merge — both printed numbers the deterministic finance engine never computed (a fabricated IRR proxy with no amortization behind it; a duplicate, strictly-poorer report printing raw-fraction IRR). The modules are deleted; neither flag is recognized by the parser anymore (unrecognized-argument exit code 2) rather than a silent no-op. See `CHANGELOG.md` "Removed" for the full record. An engine-backed what-if would go through `src.market.scenario_runner` (perturbs `FinancialInputs`, re-runs `run_financial_model`) instead of approximating outside the engine.
 * Delegates to `src.core.intelligence.deal_fusion.fuse_deal_intelligence()`, `src.core.advisor.recommender.rank_deals()`, and `src.core.advisor.portfolio.portfolio_summary()`.
 
 ## Design Notes / Invariants
@@ -77,14 +109,23 @@ python -m src.cli.advisor_cli --glob "data/sample_listings/*" --save-artifacts -
 ## Test Strategy
 
 * `tests/integration/test_advisor_cli_dir_mode.py` — advisor directory discovery & ranking.
-* `tests/integration/test_report_cli_minimal.py`, `test_report_cli_media.py`, `test_report_cli_errors.py` — report CLI paths.
+* `tests/integration/test_advisor_cli_flags.py` — advisor CLI flag honesty: `--debug` payload dump, `--markdown` not clobbering `--out` when it ends in `.md`, and the `--files` missing-key error citing a real, working example.
+* `tests/integration/test_advisor_cli_wiring.py` — Mission 2 task 3.1b, corrected at Gate 3: `--regional-income` reaches the real `src.market.regional_income` module (not a re-derivation of its output) and asserts the two fabricated fields (`turnover_cost`, `str_multiplier`) never reach `--out`/`--markdown`/console output; `--markdown` renders via `src.core.utils.markdown` instead of the retired inline block; `--save-artifacts` serializes via `src.core.utils.serialize.to_primitive`; the removed --what-if/--narrative flags are asserted **rejected** by the parser (exit code 2), not silently accepted as no-ops.
+* `tests/core/utils/test_markdown.py`, `tests/core/utils/test_serialize.py` — direct unit coverage of the two newly-wired `src/core/utils/` modules.
+* `tests/integration/test_report_cli_minimal.py`, `test_report_cli_media.py`, `test_report_cli_errors.py`, `test_report_cli_media_report_and_provenance.py` — report CLI paths.
+* `tests/integration/test_report_cli_bad_input_guards.py` — `report_cli` input-honesty checks: `--insights` rejects `{}`/unrelated JSON but still accepts a sparse-but-real file; `--forecast` fails cleanly (not a raw traceback) on a missing file, malformed JSON, or a directory path; the recognized-field gate stays scoped to `ListingInsights` (a schema-invalid `--forecast` still raises pydantic's own `ValidationError`).
 * `tests/integration/test_listing_ingest.py`, `tests/listing/test_ingest.py` — ingestion flows.
+* `tests/integration/test_ingest_cli.py` — `ingest_cli` CLI honesty checks: printed insights/photos, the `--file`-without-`--url` media-flag note, `--ai`/`--pretty`/`--save-screenshot` help text, the `--media-kinds` usage error, and the `address_structure` dump.
 
 Run:
 
 ```bash
-pytest -q tests/integration
+pytest -q --no-cov tests/integration
 ```
+
+`--no-cov` disables coverage for this subset run only; the project's ≥80% coverage gate
+(`pytest.ini`, `--cov-fail-under=80`) is enforced against the **full** `pytest` suite, not any one
+subset command.
 
 ## Cross-links
 
@@ -95,4 +136,4 @@ pytest -q tests/integration
 
 ---
 
-_Last reconciled: 2026-07-23 against main @ e4716df._
+_Last reconciled: 2026-08-05 against mission/2-wiring-gaps (Gate 3 remediation): the flags spelled --what-if and --narrative were removed (founder-proxy blocked them at Gate 3 for rendering figures the finance engine never computed) — `advisor_cli.py` no longer defines either flag, and this file documents them as rejected, not as features. `--regional-income` is kept but corrected to drop its two fabricated fields from output; its description and test-strategy line updated accordingly. Earlier note: 2026-08-05 against mission/2-wiring-gaps (task 3.1b, OPD-3 "wire-first"): documented `advisor_cli`'s new --what-if/--narrative/`--regional-income` flags and the `--markdown`/`--save-artifacts` internals switching to `src.core.utils.markdown`/`serialize`; added `data/examples/regional_income_comps.json`. Earlier note: 2026-08-04 against mission/2-wiring-gaps @ d18ee1a (Gate 2 VETO remediation, condition C4: stamp was stale from before this file's Wave 2 rewrite (`5e85836`) — content re-verified against current code with no further drift found; added the full-suite coverage-gate note. The `--ai` row and `report_cli` section were already corrected in `5e85836` and are unchanged here)._

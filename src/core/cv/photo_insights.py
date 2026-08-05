@@ -7,9 +7,15 @@ from collections.abc import Callable, Mapping, Sequence
 from hashlib import sha256
 from pathlib import Path
 from statistics import mean
-from typing import Any, cast
+from typing import Any, NamedTuple, cast
 
-from src.core.cv.amenities_defects import ProviderName
+from src.core.cv.amenities_defects import (
+    ProviderName,
+    is_contested_hint,
+    is_unconfirmed_hint,
+    is_uncorroborated_filename_claim,
+    provider_kind,
+)
 from src.core.cv.runner import tag_amenities_and_defects, tag_images
 
 # Centralized labels/enums + helpers
@@ -29,6 +35,19 @@ from src.schemas.models import MediaAsset, PhotoInsights
 AssetLike = str | Path | MediaAsset
 
 _IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff"}
+
+#: `PhotoInsights.version` for the `use_ai=True` path.
+#:
+#: The `"vision"` provider slot holds a hand-written heuristic, not a model (see
+#: `core.cv.amenities_defects._provider_vision_stub`). Stamping its output `"ai"` made those
+#: artifacts indistinguishable from a future real classifier's, so the value names the actual
+#: producer instead. A real vision provider registered into the slot ships its own version
+#: string with it; `provenance["provider_kind"]` flips to `"model"` automatically either way.
+VISION_STUB_VERSION = "vision-stub-v1"
+
+#: `PhotoInsights.version` for the default (`use_ai=False`) path. Unchanged: the local provider
+#: is also a heuristic, but this label claims only determinism, which is true.
+DETERMINISTIC_VERSION = "deterministic"
 
 # Sanity thresholds
 _MIN_BYTES = 1024  # 1 KiB
@@ -60,6 +79,79 @@ _QUALITY_PREDICATES: dict[str, Callable[[dict[str, Any]], bool]] = {
     "renovated_score": _is_renovated,
     "curb_appeal_score": _is_exterior,
 }
+
+
+class _SplitDetections(NamedTuple):
+    """The three streams :func:`_split_measured_and_hints` produces. See its docstring."""
+
+    measured: dict[str, list[Mapping[str, Any]]]
+    unconfirmed_counts: dict[str, int]
+    contested_counts: dict[str, int]
+
+
+def _split_measured_and_hints(dets_per_sha: Mapping[str, list[Mapping[str, Any]]]) -> _SplitDetections:
+    """Separate what a detector reported from what only a file name claims.
+
+    Everything downstream of this split -- roll-ups, quality scores, the parking summary, the
+    amenity booleans -- is a claim about the property, and several of them reach the deterministic
+    finance rules through ``ListingInsights``. So ``measured`` must mean exactly one thing: **a
+    provider emitted this label from the pixels.** Two filename states fail that test and are
+    routed out of it:
+
+    ``filename_unconfirmed``
+        Nothing was ABLE to look. The entry has no confidence (nothing produced one), so letting it
+        through would either crash the count-based consumers or, worse, silently score it 0.0 and
+        drag an average down with a measurement that never happened.
+
+    ``filename_contested``
+        A detector that CAN see the label looked and did not report it. It does carry a score, and
+        that score is what used to make it look safe -- but `_apply_insight_modifiers` selects OPEX
+        and income rules by MEMBERSHIP in ``amenities``/``defects`` and never reads a confidence, so
+        a contested ``parking_garage`` in ``amenity_counts`` became the tag ``"parking"`` and moved
+        Y1 cash flow by $1,105.80 (G2-N1). A claim a detector contradicted is a *weaker* basis for
+        moving a number than one nothing could check, not a stronger one.
+
+    ``filename_confirmed`` stays in ``measured``: there, the detector did emit the label and the
+    file name merely agreed.
+
+    The withhold/keep decision itself is delegated to
+    :func:`~src.core.cv.amenities_defects.is_uncorroborated_filename_claim` rather than
+    re-implemented as "unconfirmed or contested" here. That union used to BE the withhold rule, and
+    was only equivalent to it because ``is_unconfirmed_hint``/``is_contested_hint`` between them
+    enumerate the two known bad ``source`` values -- a ``source`` this module has never seen (a
+    fifth state added later) matched neither predicate and fell through to ``kept.append(det)``,
+    silently promoted to a measured detection. Routing through the single designated predicate means
+    the two can no longer diverge: fix the predicate once and every caller, including this one,
+    inherits the fix. ``is_unconfirmed_hint``/``is_contested_hint`` are still used below, but only to
+    decide which of the two *known* buckets a withheld entry is reported under -- an unrecognised
+    future state is withheld either way and simply is not attributed to either named bucket, because
+    there is nothing correct to call it yet.
+
+    Counts use the same "images exhibiting this" convention as the roll-ups.
+    """
+    measured: dict[str, list[Mapping[str, Any]]] = {}
+    unconfirmed_counts: dict[str, int] = {}
+    contested_counts: dict[str, int] = {}
+    for sha, dets in dets_per_sha.items():
+        kept: list[Mapping[str, Any]] = []
+        seen_unconfirmed: set[str] = set()
+        seen_contested: set[str] = set()
+        for det in dets or []:
+            name = str(det.get("name", "")).lower()
+            source_val = det.get("source")
+            if is_uncorroborated_filename_claim(str(source_val) if source_val is not None else None):
+                if is_unconfirmed_hint(det):
+                    if name and name not in seen_unconfirmed:
+                        seen_unconfirmed.add(name)
+                        unconfirmed_counts[name] = unconfirmed_counts.get(name, 0) + 1
+                elif is_contested_hint(det):
+                    if name and name not in seen_contested:
+                        seen_contested.add(name)
+                        contested_counts[name] = contested_counts.get(name, 0) + 1
+                continue
+            kept.append(det)
+        measured[sha] = kept
+    return _SplitDetections(measured, unconfirmed_counts, contested_counts)
 
 
 def _parking_summary(dets_per_sha: Mapping[str, list[Mapping[str, Any]]]) -> dict[str, Any]:
@@ -225,13 +317,19 @@ def build_photo_insights(photo_dir: Path, *, use_ai: bool = False) -> PhotoInsig
     # Filter images with sanity checks
     paths, quality_warnings, drop_reasons = _filter_photos(paths_all)
 
+    # Provider selection and its provenance labels are computed once so the empty-folder
+    # early return and the main path can never disagree about what produced the artifact.
+    provider: ProviderName = "vision" if use_ai else "local"
+    version = VISION_STUB_VERSION if use_ai else DETERMINISTIC_VERSION
+    kind = provider_kind(provider)
+
     if not paths:
         return PhotoInsights(
             room_counts={},
             amenities={a.value: False for a in PHOTOINSIGHTS_AMENITY_SURFACE},
             quality_flags={k: 0.0 for k in _QUALITY_PREDICATES},
             provider="cv_v2",
-            version="ai" if use_ai else "deterministic",
+            version=version,
             image_index={},
             image_labels={},
             image_detections={},
@@ -242,7 +340,8 @@ def build_photo_insights(photo_dir: Path, *, use_ai: bool = False) -> PhotoInsig
             images_total=0,
             detections_total=0,
             provenance={
-                "selected_provider": "local" if not use_ai else "vision",
+                "selected_provider": provider,
+                "provider_kind": kind,
                 "use_ai": bool(use_ai),
                 "cache_root": os.getenv("AIREDEAL_CACHE_DIR", str(Path(".") / ".cache" / "cv")),
                 "quality_warnings": quality_warnings,
@@ -254,8 +353,6 @@ def build_photo_insights(photo_dir: Path, *, use_ai: bool = False) -> PhotoInsig
                 },
             },
         )
-
-    provider: ProviderName = "vision" if use_ai else "local"
 
     # 1) Generic filename-derived labels (schema form)
     generic_schema: dict[str, Any] = cast(
@@ -288,7 +385,12 @@ def build_photo_insights(photo_dir: Path, *, use_ai: bool = False) -> PhotoInsig
             image_index[sha] = p
 
     # 2) Closed-set detections (for rollups and quality)
-    dets = tag_amenities_and_defects(cast(Sequence[AssetLike], paths), provider=provider, use_cache=True)
+    raw_dets = tag_amenities_and_defects(cast(Sequence[AssetLike], paths), provider=provider, use_cache=True)
+    # Filename claims no detector emitted -- both the unmeasured and the contradicted kind -- are
+    # pulled out here, once, before anything derives a number from them. `dets` from this point on
+    # is exactly "what a detector reported".
+    split = _split_measured_and_hints(cast(Mapping[str, list[Mapping[str, Any]]], raw_dets))
+    dets = {sha: cast(list[Any], entries) for sha, entries in split.measured.items()}
 
     # 3) Room counts — RoomType → PhotoInsights key via ROOM_COUNT_CANONICAL
     room_counts: dict[str, int] = {}
@@ -327,18 +429,21 @@ def build_photo_insights(photo_dir: Path, *, use_ai: bool = False) -> PhotoInsig
         amenities=amenities_bool,
         quality_flags=quality_flags,
         provider="cv_v2",
-        version="ai" if use_ai else "deterministic",
+        version=version,
         image_index=image_index,
         image_labels=image_labels,
         image_detections=dets,
         amenity_counts=amenity_counts,
         defect_counts=defect_counts,
+        unconfirmed_hint_counts=split.unconfirmed_counts,
+        contested_hint_counts=split.contested_counts,
         parking=parking,
         ontology_version="amenities_defects_v1",
         images_total=len(paths),
         detections_total=total_dets,
         provenance={
             "selected_provider": provider,
+            "provider_kind": kind,
             "use_ai": bool(use_ai),
             "cache_root": os.getenv("AIREDEAL_CACHE_DIR", str(Path(".") / ".cache" / "cv")),
             "quality_warnings": quality_warnings,

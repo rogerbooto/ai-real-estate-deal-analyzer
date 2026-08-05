@@ -29,8 +29,13 @@ def test_counts_amenities_quality(photo_dir: Path):
     assert ins.room_counts.get("kitchen") == 2
     assert ins.room_counts.get("bath") == 1
 
-    # Amenity flagged True (derived from filename -> feature -> amenity)
-    assert ins.amenities.get("dishwasher") is True
+    # M17/R-6: "dishwasher" is in the FILE NAME and no built-in provider declares it can detect a
+    # dishwasher, so nothing examined the pixels for one. The amenity boolean stays False -- it
+    # feeds ListingInsights.amenities, which finance.engine._apply_insight_modifiers reads for the
+    # income-uplift rules. The claim is not lost: it is recorded as an unconfirmed hint.
+    assert ins.amenities.get("dishwasher") is False, "a file name alone set an amenity that can move income"
+    assert ins.unconfirmed_hint_counts.get("dishwasher") == 1
+    assert "dishwasher" not in ins.amenity_counts, "an unmeasured hint was counted as a detection"
 
     # Quality mean: 'renovated_kitchen' appears once at 0.62 confidence
     # photo_insights aggregates MEAN over seen values; with one value it should be ~0.62
