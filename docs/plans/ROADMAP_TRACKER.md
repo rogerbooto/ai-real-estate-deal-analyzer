@@ -52,6 +52,36 @@ Base (this run): `main @ 6147839`, synced 2026-08-03. **`origin/main` has never 
 
 ---
 
+## 3a. Standing process rules (Roger, 2026-08-05) — apply to EVERY mission
+
+**1. Never dispatch agents without `staff-cost-aware-model-router`.** Not "when the call is
+ambiguous" — always, before a batch of dispatches. Record `task → agent → tier` and any deviation
+**at dispatch time**, not in a post-mortem.
+
+**2. Never run without the graphify CLI, and keep the graph current.** Refresh it after code
+changes so the next step reads accurate data.
+
+**Why these are rules rather than guidance** — both failed in Mission 2, the same way:
+
+- I declined to spawn the router at kickoff, reasoning that its charter says invoke it only for
+  *ambiguous* calls and the planner's table was unambiguous. Defensible in isolation. But I then
+  drifted from that table — dispatching ~4 tasks the charter rated `std` (sonnet) at `opus` — and
+  never logged it, despite my own note saying to. Roger caught it. **The failure was not the
+  reasoning; it was that nothing forced me to notice I had left the plan.**
+- The graph went ~50 commits stale while I fell back to greps. A stale edge claiming
+  `chief_strategist` calls `form_thesis` nearly blocked a correct deletion, and I initially
+  "verified" it against today's tree rather than against the graph's own commit — the wrong
+  comparison, which happened to give the right answer.
+
+**Operational notes:**
+- `graphify update . --force` — `--force` is **required** after deletions, since the rebuild has
+  fewer nodes and the tool refuses to shrink the graph otherwise.
+- **Back up `graphify-out/graph.json` first.** It is gitignored; there is no other safety net.
+- **Never rebuild while subagents are mid-write** — concurrent rebuilds corrupt the output. Refresh
+  at quiet points, between waves or after a commit.
+- Confirm any graph edge against the file **at the graph's own `built_at_commit`**, not against the
+  current tree. Those are different propositions.
+
 ## 3b. Architecture decision — where the agent layer begins (Roger, 2026-08-05)
 
 **An agent exists only where a model might one day enter. Everything deterministic is called
