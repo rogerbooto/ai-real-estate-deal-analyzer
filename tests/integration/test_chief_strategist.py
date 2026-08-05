@@ -1,5 +1,7 @@
 # tests/test_chief_strategist.py
-from src.agents.chief_strategist import synthesize_thesis
+import pytest
+
+from src.agents.chief_strategist import MIN_SPREAD, synthesize_thesis
 from src.agents.financial_forecaster import forecast_financials
 from src.schemas.models import (
     FinancialInputs,
@@ -233,3 +235,109 @@ def test_cap_floor_breach_plus_weak_dscr_forces_decline():
     assert forecast.years[0].dscr < 1.20
     assert thesis.verdict == "DECLINE"
     assert BREACHES_FLOOR in thesis.rationale
+
+
+# ---------------------------------------------------------------------------
+# Cap-rate SPREAD guardrail (Mission 2 / Wave 3 task 3.1a — guardian M4)
+#
+# `run_financial_model` warns "cap-rate spread below target" against the user's
+# `MarketAssumptions.cap_rate_spread_target`. The strategist used to judge the same
+# spread against a hardcoded 0.015, so the two could reach opposite conclusions about
+# one number: the report's Warnings section said the spread missed, its own Investment
+# Thesis said it met target, and because that deal still read BUY the levers list was
+# empty — so the warning appeared with nothing explaining it.
+#
+# These tests pin the fix. Reverting `synthesize_thesis` to the hardcoded constant, or
+# dropping `market=inputs.market` at either orchestrator, turns them RED.
+# ---------------------------------------------------------------------------
+
+SPREAD_BELOW_TARGET = "cap-rate spread below target"
+
+
+def _spread_lines(thesis) -> list[str]:  # type: ignore[no-untyped-def]
+    """The thesis' own claim about the spread — exactly one line, either way."""
+    return [line for line in thesis.rationale if "Cap-rate spread" in line]
+
+
+def _with_spread_target(inputs: FinancialInputs, target: float) -> FinancialInputs:
+    """`inputs` with only `cap_rate_spread_target` varied — nothing else moves."""
+    return inputs.model_copy(update={"market": inputs.market.model_copy(update={"cap_rate_spread_target": target})})
+
+
+def test_stricter_configured_target_is_honoured_over_the_fallback():
+    """
+    A deal that clears 150 bps but misses the target the user actually set must be judged
+    against the user's number.
+
+    `_inputs_good()` earns a 11.50% spread and is a clean BUY at the 1.50% fallback. An
+    investor who requires 15.00% has not been served by that answer. Before the fix this
+    deal returned BUY with an empty levers list while the engine warned that the spread
+    missed target — the M4 contradiction, verbatim.
+    """
+    inputs = _with_spread_target(_inputs_good(), 0.15)
+    forecast = forecast_financials(inputs)
+    thesis = synthesize_thesis(forecast, market=inputs.market)
+
+    assert forecast.purchase.spread_vs_rate > MIN_SPREAD  # would clear the old hardcoded bar
+    assert SPREAD_BELOW_TARGET in forecast.warnings  # engine judged it against 15.00%
+    assert _spread_lines(thesis) == ["Cap-rate spread is thin at 11.50% (< 15.00%)."]
+    assert thesis.verdict != "BUY"
+    # A BUY has no levers, so the engine's warning had nowhere to be explained. Now it is.
+    assert "Address: cap-rate spread below target" in thesis.levers
+    assert "Negotiate lower price to improve cap-rate spread to ≥ 1500 bps." in thesis.levers
+
+
+def test_looser_configured_target_is_honoured_over_the_fallback():
+    """
+    The mirror case: a target *below* 150 bps must also be respected.
+
+    `_inputs_mixed()` earns 0.88%. At a configured 0.50% the engine raises no warning at
+    all, yet the pre-fix thesis still called the spread "thin (< 1.50%)" and spent a
+    guardrail failure on it — holding the deal at CONDITIONAL on a bar the user never set.
+    """
+    inputs = _with_spread_target(_inputs_mixed(), 0.005)
+    forecast = forecast_financials(inputs)
+    thesis = synthesize_thesis(forecast, market=inputs.market)
+
+    assert forecast.purchase.spread_vs_rate < MIN_SPREAD  # would have failed the old hardcoded bar
+    assert SPREAD_BELOW_TARGET not in forecast.warnings
+    assert _spread_lines(thesis) == ["Cap-rate spread meets target at 0.88% (≥ 0.50%)."]
+    assert thesis.verdict == "BUY"
+
+
+def test_no_market_supplied_falls_back_to_min_spread():
+    """
+    Callers that pass no market block keep the documented fallback, unchanged.
+
+    This is what keeps the kwarg additive: `MIN_SPREAD` is still the bar when there is no
+    configured target to honour, so no existing caller's verdict moves.
+    """
+    inputs = _with_spread_target(_inputs_mixed(), 0.005)
+    forecast = forecast_financials(inputs)
+
+    thesis = synthesize_thesis(forecast)  # no market=
+
+    assert MIN_SPREAD == 0.015
+    assert _spread_lines(thesis) == ["Cap-rate spread is thin at 0.88% (< 1.50%)."]
+
+
+@pytest.mark.parametrize("target", [0.0, 0.005, 0.0088, 0.015, 0.05, 0.115, 0.15, 0.30])
+def test_warnings_can_never_contradict_the_thesis_about_the_spread(target: float):
+    """
+    The invariant behind the fix: one number, one verdict about it.
+
+    For every configured target and both fixture deals, the engine's warning and the
+    thesis' own spread line must agree. This is the property that makes "Warnings says
+    missed / Thesis says met" unreachable, rather than merely absent from a fixture.
+    """
+    for builder in (_inputs_good, _inputs_mixed, _inputs_poor):
+        inputs = _with_spread_target(builder(), target)
+        forecast = forecast_financials(inputs)
+        thesis = synthesize_thesis(forecast, market=inputs.market)
+
+        engine_says_missed = SPREAD_BELOW_TARGET in forecast.warnings
+        lines = _spread_lines(thesis)
+        assert len(lines) == 1, "the thesis states its spread verdict exactly once"
+        thesis_says_missed = "is thin" in lines[0]
+
+        assert engine_says_missed == thesis_says_missed, f"target={target!r} deal={builder.__name__}: {forecast.warnings} vs {lines[0]}"

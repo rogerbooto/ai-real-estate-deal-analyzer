@@ -62,7 +62,8 @@ def main() -> None:
     )
 
     forecast = forecast_financials(inputs=inputs, insights=insights, horizon_years=HORIZON)
-    thesis = synthesize_thesis(forecast)
+    # Same as the orchestrators: judge the spread against this config's own target.
+    thesis = synthesize_thesis(forecast, market=inputs.market)
     baseline = build_baseline_outlook(inputs, forecast, horizon_years=HORIZON)
 
     write_report(

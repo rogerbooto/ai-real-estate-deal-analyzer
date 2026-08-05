@@ -106,7 +106,10 @@ def run_orchestration(
     forecast = forecaster.run(inputs=inputs, insights=insights, horizon_years=horizon_years)
 
     strategist = ChiefStrategistAgent()
-    thesis = strategist.run(forecast=forecast, insights=insights)
+    # `market=` mirrors the deterministic orchestrator exactly: the spread guardrail is judged
+    # against the user's configured target, not a module constant. Drop it here and this engine
+    # would reach a different verdict from `crew.py` on the same inputs.
+    thesis = strategist.run(forecast=forecast, insights=insights, market=inputs.market)
 
     # The observation-free counterpart of the run above, when an observation actually moved a
     # number. This matters most on this engine: with an LLM mode configured the analyst's

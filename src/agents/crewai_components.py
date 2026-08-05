@@ -69,6 +69,7 @@ from src.schemas.models import (
     FinancialInputs,
     InvestmentThesis,
     ListingInsights,
+    MarketAssumptions,
 )
 
 # -----------------------------
@@ -533,6 +534,8 @@ class ChiefStrategistAgent:
         self,
         forecast: FinancialForecast,
         insights: ListingInsights | None = None,
+        *,
+        market: MarketAssumptions | None = None,
     ) -> InvestmentThesis:
         """Return the deterministic thesis for ``forecast``.
 
@@ -540,6 +543,11 @@ class ChiefStrategistAgent:
         orchestrator and is deliberately unused: any listing observation that
         should move the verdict must move it by moving the *forecast* first, so
         that the change is visible in the numbers the thesis cites.
+
+        ``market`` is forwarded unchanged so the cap-rate-spread test uses the
+        target the user configured rather than this module's fallback constant —
+        the same target the engine uses for its "cap-rate spread below target"
+        warning. Both engines must pass it, or the two would disagree.
         """
         del insights  # see docstring: observations act through the forecast, not here
-        return synthesize_thesis(forecast)
+        return synthesize_thesis(forecast, market=market)

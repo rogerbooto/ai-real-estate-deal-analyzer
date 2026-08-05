@@ -43,9 +43,18 @@
 
 ### Chief Strategist
 
-* `synthesize_thesis(forecast: FinancialForecast) -> InvestmentThesis`
+* `synthesize_thesis(forecast: FinancialForecast, *, market: MarketAssumptions | None = None) -> InvestmentThesis`
 
   * Rule-based verdict (DSCR, cash-flow, spread guardrails) with rationale and improvement levers.
+  * **`market` is what makes the cap-rate-spread test honour the target the user configured.**
+    `run_financial_model` warns `"cap-rate spread below target"` against `market.cap_rate_spread_target`;
+    pass the same block here and the thesis is judged against that number too. Omit it and the spread
+    falls back to the module constant `MIN_SPREAD` (0.015) — which is why the kwarg is additive and no
+    existing caller's verdict moved. Both orchestrators pass `inputs.market`; anything that builds a
+    thesis outside them should too, or a report can print "spread below target" under **Warnings**
+    while its own **Investment Thesis** says the spread meets target.
+  * `spread_target_for(market: MarketAssumptions | None) -> float` exposes that resolution (configured
+    target, else `MIN_SPREAD`) for callers that need to state the bar they were judged against.
   * **Never LLM-authored, in any mode.** `ChiefStrategistAgent.run` (see `crewai_components.py`) always calls this function on the forecast — `AIREAL_LLM_MODE` does not change that; `_run_llm` was deleted from that class specifically so the verdict cannot bypass it.
 
 ### Photo Tagger

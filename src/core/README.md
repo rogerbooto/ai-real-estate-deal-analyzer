@@ -25,6 +25,12 @@
     caller today. Mission 2 (OPD-1) will reconcile any thresholds worth keeping into
     `chief_strategist`'s tunable constants and then delete `strategist.py`; until that lands, treat
     this module as legacy/dead, not a second live code path.
+    **Reconciled so far (Mission 2 task 3.1a):** the one guardrail on which this dead module was
+    *more* correct than the live one — judging the cap-rate spread against the user's
+    `market.cap_rate_spread_target` rather than a hardcoded constant — is now the live behaviour;
+    `synthesize_thesis` takes an optional `market=` for exactly that. Its `coc < 0.03` Year-1
+    cash-on-cash floor is **not** ported: that is a product decision pending, measured but not
+    implemented (`artifacts/mission2_3.1a/measure_b1_b2.py`).
   * **reports/**: Markdown report generation (see [`reports/README.md`](reports/README.md)).
   * **utils/**: markdown/serialization helpers.
 

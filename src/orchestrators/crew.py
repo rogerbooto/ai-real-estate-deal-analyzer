@@ -93,7 +93,7 @@ def build_baseline_outlook(
     if not any(y.notes for y in forecast.years):
         return None
     base_forecast = forecast_financials(inputs=inputs, insights=None, horizon_years=horizon_years)
-    return BaselineOutlook(forecast=base_forecast, thesis=synthesize_thesis(base_forecast))
+    return BaselineOutlook(forecast=base_forecast, thesis=synthesize_thesis(base_forecast, market=inputs.market))
 
 
 def run_orchestration(
@@ -124,7 +124,9 @@ def run_orchestration(
     """
     insights = analyze_listing(listing_txt_path=listing_txt_path, photos_folder=photos_folder)
     forecast = forecast_financials(inputs=inputs, insights=insights, horizon_years=horizon_years)
-    thesis = synthesize_thesis(forecast)
+    # `market=` is what makes the thesis judge the spread against the target the user configured —
+    # the same number the engine tests when it warns "cap-rate spread below target".
+    thesis = synthesize_thesis(forecast, market=inputs.market)
     baseline = build_baseline_outlook(inputs, forecast, horizon_years=horizon_years)
 
     # Descriptive media stats over the same folder the analyst tagged. Defensive by the same

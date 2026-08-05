@@ -24,7 +24,11 @@
 
   1. `agents.listing_analyst.analyze_listing()` → `ListingInsights`.
   2. `agents.financial_forecaster.forecast_financials()` → `FinancialForecast`.
-  3. `agents.chief_strategist.synthesize_thesis()` → `InvestmentThesis`.
+  3. `agents.chief_strategist.synthesize_thesis(forecast, market=inputs.market)` → `InvestmentThesis`.
+     Both orchestrators pass `market=` so the thesis judges the cap-rate spread against the target the
+     caller configured — the same number the engine tests when it warns "cap-rate spread below target".
+     Drop it and the report's **Warnings** section can contradict its own **Investment Thesis**, and the
+     two engines can reach different verdicts on identical inputs.
 
   Returns `OrchestrationResult(insights, forecast, thesis, media_insights, media_report, baseline)`. `baseline` is a `BaselineOutlook | None` (`src/core/reports/baseline.py`) carrying the same deal re-run with no observation-derived modifiers, so the report can show both pictures side by side; it is `None` unless an observation actually fired. The two media
   fields are populated only when `photos_folder` is supplied and readable — `media_insights` from

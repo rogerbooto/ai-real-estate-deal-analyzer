@@ -29,16 +29,41 @@ This is intentionally simple for V1. In V2+, you can:
 
 from __future__ import annotations
 
-from src.schemas.models import FinancialForecast, InvestmentThesis
+from src.schemas.models import FinancialForecast, InvestmentThesis, MarketAssumptions
 
 # ----------------------------
 # Underwriting guardrails (tunable)
 # ----------------------------
 MIN_DSCR_Y1 = 1.20  # Year 1 DSCR floor
+#: Fallback cap-rate-spread target, used ONLY when the caller supplies no ``MarketAssumptions``.
+#: When they do, the user's own ``market.cap_rate_spread_target`` wins — that is the same number
+#: ``run_financial_model`` tests when it raises "cap-rate spread below target", so the thesis and
+#: the report's Warnings section cannot disagree about whether the spread cleared the bar.
 MIN_SPREAD = 0.015  # Cap rate - interest rate target (150 bps)
 MIN_IRR_10YR = 0.12  # 10-year IRR target (12%)
 REQUIRE_POSITIVE_CF_ALL = False  # If True, require CF >= 0 for all years to be BUY
 REQUIRE_POSITIVE_CF_Y1 = True  # Require CF >= 0 in Year 1 for BUY
+
+
+def spread_target_for(market: MarketAssumptions | None) -> float:
+    """
+    Resolve the cap-rate-spread target this thesis is judged against.
+
+    The engine warns on ``purchase.spread_vs_rate < market.cap_rate_spread_target``
+    (``src/core/finance/engine.py``). The strategist must test the *same* number, or a report can
+    print "cap-rate spread below target" under Warnings while its own Investment Thesis says the
+    spread meets target — and on a deal that otherwise reads BUY the levers list is empty, so the
+    warning is never explained.
+
+    Args:
+        market: The run's market guardrails, or None when the caller has none to give.
+
+    Returns:
+        ``market.cap_rate_spread_target`` when a market block is supplied, else ``MIN_SPREAD``.
+    """
+    if market is None:
+        return MIN_SPREAD
+    return market.cap_rate_spread_target
 
 
 def _flag(condition: bool, msg: str, rationale: list[str]) -> None:
@@ -47,17 +72,22 @@ def _flag(condition: bool, msg: str, rationale: list[str]) -> None:
         rationale.append(msg)
 
 
-def _levers_for(forecast: FinancialForecast) -> list[str]:
+def _levers_for(forecast: FinancialForecast, spread_target: float) -> list[str]:
     """
     Produce actionable (but generic) levers based on observed weaknesses.
     This is V1 and intentionally qualitative.
+
+    Args:
+        forecast: The forecast being judged.
+        spread_target: The cap-rate-spread target in force (see ``spread_target_for``). Quoted in
+            the lever text so the suggested fix names the bar the reader actually configured.
     """
     y1 = forecast.years[0]
     levers: list[str] = []
 
     # If spread below target
-    if forecast.purchase.spread_vs_rate < MIN_SPREAD:
-        levers.append("Negotiate lower price to improve cap-rate spread to ≥ 150 bps.")
+    if forecast.purchase.spread_vs_rate < spread_target:
+        levers.append(f"Negotiate lower price to improve cap-rate spread to ≥ {spread_target * 10_000:.0f} bps.")
         levers.append("Pursue lower interest rate or longer amortization to widen spread.")
 
     # If DSCR weak
@@ -73,7 +103,7 @@ def _levers_for(forecast: FinancialForecast) -> list[str]:
 
     # If 10-year IRR low
     if forecast.irr_10yr < MIN_IRR_10YR:
-        levers.append("Refine exit assumptions (cap rate, value-add) or hold horizon to reach IRR ≥ 12%.")
+        levers.append(f"Refine exit assumptions (cap rate, value-add) or hold horizon to reach IRR ≥ {MIN_IRR_10YR:.0%}.")
         levers.append("Explore value-add scope (unit upgrades) to raise rents and exit value.")
 
     # Bubble up model-generated warnings as soft levers
@@ -90,13 +120,13 @@ def _levers_for(forecast: FinancialForecast) -> list[str]:
     return deduped
 
 
-def synthesize_thesis(forecast: FinancialForecast) -> InvestmentThesis:
+def synthesize_thesis(forecast: FinancialForecast, *, market: MarketAssumptions | None = None) -> InvestmentThesis:
     """
     Convert a FinancialForecast into an InvestmentThesis via simple guardrails.
 
     Rules for BUY:
       - DSCR (Y1) ≥ MIN_DSCR_Y1
-      - Cap-rate spread ≥ MIN_SPREAD
+      - Cap-rate spread ≥ the configured ``market.cap_rate_spread_target`` (else MIN_SPREAD)
       - IRR_10yr ≥ MIN_IRR_10YR
       - If REQUIRE_POSITIVE_CF_Y1: Year-1 cash flow ≥ 0
       - If REQUIRE_POSITIVE_CF_ALL: All years have cash flow ≥ 0
@@ -105,17 +135,26 @@ def synthesize_thesis(forecast: FinancialForecast) -> InvestmentThesis:
     Else if most but not all pass -> CONDITIONAL with suggested levers.
     Else -> DECLINE with levers.
 
+    Args:
+        forecast: The deterministic forecast to judge. All money numbers come from here; this
+            function computes none of them.
+        market: The run's market guardrails, when the caller has them. Optional and additive so
+            existing callers keep working — but every orchestrator passes ``inputs.market``,
+            because the spread test must use the target the *user* configured, not a constant
+            baked into this module. Omit it and the spread falls back to ``MIN_SPREAD``.
+
     Returns:
         InvestmentThesis with verdict, rationale, and levers.
     """
     y1 = forecast.years[0]
     purchase = forecast.purchase
+    spread_target = spread_target_for(market)
 
     rationale: list[str] = []
 
     # Evaluate guardrails
     dscr_ok = y1.dscr >= MIN_DSCR_Y1
-    spread_ok = purchase.spread_vs_rate >= MIN_SPREAD
+    spread_ok = purchase.spread_vs_rate >= spread_target
     irr_ok = forecast.irr_10yr >= MIN_IRR_10YR
     cf_y1_ok = (y1.cash_flow >= 0.0) if REQUIRE_POSITIVE_CF_Y1 else True
     cf_all_ok = all(y.cash_flow >= 0.0 for y in forecast.years) if REQUIRE_POSITIVE_CF_ALL else True
@@ -125,8 +164,8 @@ def synthesize_thesis(forecast: FinancialForecast) -> InvestmentThesis:
     _flag(dscr_ok, f"DSCR (Y1) is healthy at {y1.dscr:.2f} (≥ {MIN_DSCR_Y1:.2f}).", rationale)
     _flag(not dscr_ok, f"DSCR (Y1) is weak at {y1.dscr:.2f} (< {MIN_DSCR_Y1:.2f}).", rationale)
 
-    _flag(spread_ok, f"Cap-rate spread meets target at {purchase.spread_vs_rate:.2%} (≥ {MIN_SPREAD:.2%}).", rationale)
-    _flag(not spread_ok, f"Cap-rate spread is thin at {purchase.spread_vs_rate:.2%} (< {MIN_SPREAD:.2%}).", rationale)
+    _flag(spread_ok, f"Cap-rate spread meets target at {purchase.spread_vs_rate:.2%} (≥ {spread_target:.2%}).", rationale)
+    _flag(not spread_ok, f"Cap-rate spread is thin at {purchase.spread_vs_rate:.2%} (< {spread_target:.2%}).", rationale)
 
     _flag(irr_ok, f"Projected IRR (10y) is {forecast.irr_10yr:.2%} (≥ {MIN_IRR_10YR:.2%}).", rationale)
     _flag(not irr_ok, f"Projected IRR (10y) is {forecast.irr_10yr:.2%} (< {MIN_IRR_10YR:.2%}).", rationale)
@@ -167,9 +206,9 @@ def synthesize_thesis(forecast: FinancialForecast) -> InvestmentThesis:
         levers: list[str] = []
     elif pass_condition:  # many critical fails
         verdict = "DECLINE"
-        levers = _levers_for(forecast)
+        levers = _levers_for(forecast, spread_target)
     else:  # some fail, some pass
         verdict = "CONDITIONAL"
-        levers = _levers_for(forecast)
+        levers = _levers_for(forecast, spread_target)
 
     return InvestmentThesis(verdict=verdict, rationale=rationale, levers=levers)
