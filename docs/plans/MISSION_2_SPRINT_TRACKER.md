@@ -54,7 +54,15 @@ orchestrator verifying) · `DONE` (verified inline) · `DEFERRED`
 
 ## Overall progress
 - Tasks: **27 / 28 DONE** (one SCOPED — see 0.1) · 0 BLOCKED · **1 TODO: 3.1c, Roger's threshold call** · 6 founder-directed additions R-1…R-6 all DONE
-- Suite: **628 tests, exit 0, coverage 86.04%** (mission start: 310 / 81.87%) — re-measured 2026-08-05 after Gate 3 remediation
+- Suite **@ `fbc3179`**: **630 tests, exit 0, coverage 86.09%** (mission start: 310 / 81.87%)
+  - *Always carry the SHA.* This line has gone stale **every single time it has been touched** —
+    C5 at the Gate 2 VETO, again as M16, again as the code-reviewer's S2, and again at the Gate 3
+    re-review, where I stated 629 against an actual 630 in the very message reporting the fix for
+    the previous staleness. The number is not the problem; **a figure that has to be re-typed is a
+    claim with no test behind it.** Pinning it to a commit at least makes a stale figure visibly
+    attached to a stale tree instead of silently wrong against the current one. The real fix is to
+    derive it from a build artifact — recorded as backlog work, because doing it now would be a
+    seventh unreviewed change at a gate.
 - *(**C5, fourth recurrence.** Caught again at Gate 3 by both the code-reviewer (S2) and the
   founder-proxy: the line above read "500 tests / 84.27%" against an actual 585, and every Wave 3
   row read TODO while shipped in commits. Raised at the Gate 2 VETO, recurred as M16, "fixed",
@@ -611,7 +619,7 @@ port → **review** → only then delete.
 ## Wave Validation
 | ID | Task | Agent → tier | Status |
 | --- | --- | --- | --- |
-| V.1 | Full battery (`pytest`, coverage ≥80%, `ruff`, `mypy`, `python main.py`) + byte-identical default-off check | qa + code-reviewer → std | TODO |
+| V.1 | Full battery (`pytest`, coverage ≥80%, `ruff`, `mypy`, `python main.py`) + byte-identical default-off check | qa + code-reviewer → std | **DONE** · `fbc3179` — 630 tests, 86.09%, 3 consecutive clean runs, main.py byte-identical |
 
 ## Wave Integrate
 | ID | Task | Agent → tier | Status |
@@ -747,6 +755,45 @@ stand-in. `_PROVIDER_CAPABILITIES` is keyed by **function identity, not slot**, 
 overwrote the real `local` provider's declaration for the rest of the test process — passing in
 isolation, failing in the full run. It caught this itself, from the full-suite run, and fixed it.
 Logged because it is a live argument for running the whole suite rather than the touched files.
+
+## Gate 3 — FINAL: 🟢 guardian VETO LIFTED · 🟢 code-reviewer APPROVE · 🔶 founder ship-with-conditions (met), 2026-08-05 @ `fbc3179`
+
+**One blocker was introduced by the remediation itself and caught by the re-review.** The B3
+capability check crashed `deal-report` on `"onnx"` — the very provider it was written for. `onnx` is
+a `ProviderName` member so it cleared the known-names guard, then `provider_capabilities` raised,
+because onnx has **no default binding**: it exists only after a caller runs the documented
+`register_onnx_provider` path. Rendering a report is a *different process* from producing one, so
+`deal-report` reading an onnx artifact finds the name and no binding, and exited 1 with a bare
+traceback — the class Wave 2's F19 closed for a missing forecast file.
+
+**Why twelve tests missed it:** every other `onnx` test registers a provider first. The untested
+shape — named-but-unbound — is the *only* production shape. The new test asserts
+`"onnx" not in ad._PROVIDERS` up front so it cannot silently start passing because some other test
+registered onnx, and asserts the conservative *wording*, not merely the absence of an exception:
+failing safe must mean the right sentence, or a swallowed exception passes as a fix.
+
+### The guardian's ruling on deletion, recorded so it cannot be misused later
+> *"Deletion is stronger compliance than either option I offered, and I should have named it as the
+> third… This does not conflict with 'flag, don't remove.' Roger's instruction is about not
+> withholding a **finding about the property** from the investor. It is not a licence to keep a
+> calculator that emits wrong numbers. Deleting a broken sensitivity model removes no finding."*
+
+### A decorative guard, removed
+`synthesis` expressed its tie to the shared predicate as
+`if is_uncorroborated_filename_claim(UNCONFIRMED_HINT_SOURCE):` — the argument is a module constant,
+so the branch could never be false and the `real_sightings += 1` below it was dead. A line that reads
+like a runtime guard and is not one invites a later reader to trust a check that isn't there. The
+`if` is gone; the claim moved to a test that *can* fail, and which also pins the allow-list polarity
+rather than the single value. Same lesson as Blocker 2. `ruff` then caught the orphaned import.
+
+### Carried forward — named, with owners, NOT resolved here
+| Item | Why deferred |
+| --- | --- |
+| `RegionalIncomeTable.turnover_cost` field removal | Removing a **required** field is a breaking change. Description now states it is `median_rent * 0.5` and not an observed average; it reaches no reader (verified on both JSON and Markdown). **Roger's call.** |
+| `tests/integration/test_listing_analyst.py:60` — `or isinstance(out.condition_tags, list)` | Fourth decorative assertion, two lines below one just fixed. **Deliberately not fixed**: an unverified tightening slipped in late at a gate is exactly how a test starts passing for the wrong reason — the failure mode this mission spent five rewrites on. The reviewer endorsed the deferral. |
+| `core/utils/serialize.py` pydantic-v1 fallback | Unreachable; the module is now wired, so it is live dead code. Reviewer ruled non-blocking. Backlog. |
+| Report plain-language pass | Raw ontology identifiers (`'mold_suspected'`, `stainless_kitchen`), `bps` undefined (**prioritise: it appears in a lever the investor is told to act on**), `cap-rate spread` and `seasoning` unglossed, hero SHA / double-printed byte count / pixel dimensions. The guardian noted the new "not checked — no photo check in this run looks for parking" copy is **plainer than the hint notes shipped earlier** and should be the model for that pass. |
+| Suite-count line derived from a build artifact | See "Always carry the SHA" above. |
 
 ## Gate decision records
 - **Gate 0 (Truth):** _in progress 2026-08-03._
