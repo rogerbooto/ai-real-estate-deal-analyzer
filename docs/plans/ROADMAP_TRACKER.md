@@ -52,6 +52,38 @@ Base (this run): `main @ 6147839`, synced 2026-08-03. **`origin/main` has never 
 
 ---
 
+## 3b. Architecture decision — where the agent layer begins (Roger, 2026-08-05)
+
+**An agent exists only where a model might one day enter. Everything deterministic is called
+directly in `core/`.**
+
+**Why this came up.** Mission 2 found ~10 dead modules and the disposition looked like a
+wire-or-delete chore. Digging into the history showed it was not: they are **two half-finished
+architecture migrations pointing in opposite directions**, and neither could be finished without
+choosing a direction first.
+
+| Migration | Evidence | Status |
+| --- | --- | --- |
+| **Agents as a uniform wrapper layer** — orchestrators talk to agents, agents wrap core | `agents/photo_tagger.py` ("thin policy wrapper that delegates to the CV stack") and `agents/listing_ingest.py` ("wraps `ingest_listing` and adapts the result for orchestrators"), both created alongside the pipelines they wrap, both documented in `src/agents/README.md:62,66` | **Abandoned in practice** — `crew.py` imports 3 agents then reaches straight past them into `core.cv`, `core.media`, `core.reports` |
+| **Pull deterministic logic out of agents into core** — `core/strategy/strategist.py`, added 2025-10-19 in *"Implement financial intelligence layer"*, the same commit that created `core/finance/engine.py` and deleted `tools/financial_model.py` | `chief_strategist.py` predates it by a month (2025-09-15), so `strategist.py` is **not** legacy — it is the newer, unfinished half of that move | **Stranded** — the agent kept its own copy |
+
+**The decision draws the line where it actually matters**: an agent is where a model *could* enter;
+`core/` is where one never does. That is the same boundary as Roger's R-1 verdict ruling (a model may
+observe, only rules may decide), applied to package layout instead of to control flow.
+
+**Disposition rule this yields:**
+- Wraps something deterministic, adds no model seam → **delete the wrapper**, call core directly.
+- Deterministic logic sitting in `core/` with no caller → **wire it**, it is already in the right place.
+- A model might plausibly enter → **keep the agent** (listing analysis: text/vision; strategy: the
+  crewai seam, even though the verdict itself is now always deterministic).
+
+**Known consequence, deliberately deferred.** By this rule `financial_forecaster` (documented as never
+LLM-backed) and arguably `chief_strategist` (whose verdict is now always deterministic) belong in
+`core/`. That is a real refactor with real blast radius and it is **not** Mission 2 work — Mission 2 is
+a wiring-gap mission. Recorded here so a future planner inherits the reasoning rather than
+rediscovering it, and so the two live agents are understood as *known exceptions under review*, not as
+counter-examples that undermine the rule.
+
 ## 4. Opportunity backlog (leverage-ranked)
 
 | Rank | Candidate | Reward | Blast | Seam | Gap closed | Axes moved | Pre-conditions |
