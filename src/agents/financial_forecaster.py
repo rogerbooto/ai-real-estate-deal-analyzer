@@ -23,6 +23,7 @@ forecast_financials(inputs, insights=None, horizon_years=10) -> FinancialForecas
 from __future__ import annotations
 
 from src.core.finance import run_financial_model
+from src.schemas.labels import DefectLabel
 from src.schemas.models import FinancialForecast, FinancialInputs, ListingInsights
 
 
@@ -48,6 +49,48 @@ def _normalize_inputs(inputs: FinancialInputs) -> FinancialInputs:
     return inputs.model_copy(update={"income": income})
 
 
+# `core.finance.engine._apply_insight_modifiers` tests literal, PRE-normalization phrases for its
+# OPEX bumps (`"water stain" in defs`) -- deliberately frozen there; see ROADMAP_TRACKER.md backlog
+# #7 / Mission 2 "defect #4". The CV/label layer (`schemas.labels`) normalizes listing text like
+# "water stain" to the closed-set `DefectLabel.water_leak_suspected` *before* the engine ever sees
+# it (`schemas/labels.py` DEFECT_TOKEN_ALIASES), so on every real pipeline run the engine's trigger
+# was unreachable and the report's "Adjustments Applied" section could never appear.
+#
+# This map translates each normalized label the engine cannot see back into the literal phrase it
+# is still watching for. It is additive-only and applied to a COPY used solely for the engine call
+# -- the caller's `insights` (and therefore the report's "Condition & Defects" list) is untouched,
+# so the reader never sees a duplicate-looking "water stain" bullet next to "water_leak_suspected".
+#
+# NOTE: "old roof" (the engine's other literal trigger) has no entry here on purpose. No ontology
+# concept for roof condition exists anywhere in the CV/label layer (text or photo path) to translate
+# back from -- closing that gap means inventing new vocabulary (a schema change), which is a
+# separate, larger, explicitly out-of-scope decision (see ROADMAP_TRACKER.md backlog #7 and Mission
+# 2 Sprint Tracker's "defect #4" record).
+_ENGINE_DEFECT_TRIGGER_ALIASES: dict[DefectLabel, str] = {
+    DefectLabel.water_leak_suspected: "water stain",
+}
+
+
+def _reconcile_engine_trigger_vocabulary(insights: ListingInsights | None) -> ListingInsights | None:
+    """Restore the engine's literal OPEX-modifier triggers alongside their normalized labels.
+
+    Additive-only translation at the CV/label seam, not a change to the engine: for every
+    normalized defect label in ``insights.defects`` that has a legacy trigger phrase the engine
+    still tests for (``_ENGINE_DEFECT_TRIGGER_ALIASES``), add that phrase to a COPY of ``defects``.
+    Returns ``insights`` unchanged (same object) whenever there is nothing to add, so a run with no
+    matching defect stays byte-identical to before this existed.
+    """
+    if insights is None or not insights.defects:
+        return insights
+    defect_set = {d.lower().strip() for d in insights.defects}
+    additions = {
+        trigger for label, trigger in _ENGINE_DEFECT_TRIGGER_ALIASES.items() if label.value in defect_set and trigger not in defect_set
+    }
+    if not additions:
+        return insights
+    return insights.model_copy(update={"defects": sorted({*insights.defects, *additions})})
+
+
 def forecast_financials(
     inputs: FinancialInputs,
     insights: ListingInsights | None = None,
@@ -67,8 +110,12 @@ def forecast_financials(
 
     Behavior:
         - Clamps occupancy & bad_debt_factor to [0, 1] for safety.
+        - Reconciles normalized listing-insight vocabulary back to the literal phrases the engine's
+          OPEX-insight modifiers test for (see ``_reconcile_engine_trigger_vocabulary``), using a
+          copy scoped to this call only -- the caller's ``insights`` object is never mutated.
         - Delegates all math and warning logic to the financial_model engine.
     """
     safe_inputs = _normalize_inputs(inputs)
-    forecast = run_financial_model(safe_inputs, insights=insights, horizon_years=horizon_years)
+    engine_insights = _reconcile_engine_trigger_vocabulary(insights)
+    forecast = run_financial_model(safe_inputs, insights=engine_insights, horizon_years=horizon_years)
     return forecast
