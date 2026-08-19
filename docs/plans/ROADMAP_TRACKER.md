@@ -7,7 +7,7 @@ Standing ledger owned by the mission-planner. Read first, update last, every run
 ## 1. Current state (as-built)
 
 **Composite grade: B-** _(planner-derived 2026-07-23; to be confirmed by app-evaluator when spawnable)_
-Base (this run): `main @ 6147839`, synced 2026-08-03. **`origin/main` has never received Mission 1** — local `main` diverged at Mission 1's merge and every commit since compounds on top (see §3; check the live count, don't trust a written number). The dirty working tree the charter describes as the baseline **landed as `6147839`** (sample bundle restore, parsing regex fixes, report identity/glossary/provenance wiring, `PASS`→`DECLINE` rename, `.env.example` rewrite); the tree is now clean. Planner-verified, orchestrator-reproduced in the real `airedeal` env (`/home/rtokime/anaconda3`, NOT `~/miniconda3`): `pytest` green, coverage 81.87%, `ruff` + `mypy` clean. Graph rebuilt against the working tree (1631 nodes / 4013 edges).
+Base (this run): `main @ 8ed9397`, **in sync with `origin/main`** (verified 2026-08-19: `git rev-list --left-right --count origin/main...main` = `0 0`). Mission 2 has since been merged AND pushed; the earlier "origin has never received Mission 1" divergence is closed — origin now carries everything through `8ed9397`. _(Historical: the dirty working tree the Mission 1 charter described as its baseline had landed as `6147839` — sample bundle restore, parsing regex fixes, report identity/glossary/provenance wiring, `PASS`→`DECLINE` rename, `.env.example` rewrite.)_ The tree is now clean. Planner-verified, orchestrator-reproduced in the real `airedeal` env (`/home/rtokime/anaconda3`, NOT `~/miniconda3`): `pytest` green, coverage 81.87%, `ruff` + `mypy` clean. Graph rebuilt against the working tree (1631 nodes / 4013 edges).
 
 | Axis | Grade | One-liner |
 | --- | --- | --- |
@@ -30,7 +30,7 @@ Base (this run): `main @ 6147839`, synced 2026-08-03. **`origin/main` has never 
 | --- | --- | --- | --- |
 | — | (pre-tracker) v0.1.0 MVP, media pipeline, CV v2, advisor/intelligence, address parsing | Shipped organically | 2025-09 → 2025-11 |
 | 1 | Scenario Intelligence (wire `src/market` into pipeline + reports; Wave 0 packaging fix; authorized IRR-solver core fix) | **Shipped and pushed** — Roger's mission gate approved; merged to `main`, and `main`'s subsequent history (including Mission 2) reached `origin/main` on 2026-08-05 (see §3, "`origin/main` has never received Mission 1" row) | 2026-07-23 → 2026-07-24 |
-| 2 | Close the end-to-end wiring gaps (Tier 0 false-report fixes, Tier 1 silent-drop wiring + anti-regression guard, Tier 3 CLI honesty, T4/T5 wire-first disposition) | **Shipped, merged, released, pushed** — Gate 3 passed (principles-guardian VETO lifted, staff code review approved); merged `--no-ff` as `8b2acf8`, released as v0.3.0 (`652acd7`), CI fixed and green at `66ffacd`, mission closed at `8ed9397`. 27/28 tasks done; the remainder (3.1c) is a threshold decision for Roger, not engineering work (branch `mission/2-wiring-gaps`) | 2026-08-03 → 2026-08-05 |
+| 2 | Close the end-to-end wiring gaps (Tier 0 false-report fixes, Tier 1 silent-drop wiring + anti-regression guard, Tier 3 CLI honesty, T4/T5 wire-first disposition) | **Shipped, merged, released, pushed** — Gate 3 passed (principles-guardian VETO lifted, staff code review approved); merged `--no-ff` as `8b2acf8` ("Merge Mission 2: close the end-to-end wiring gaps"), released as v0.3.0 (`652acd7`), CI fixed and green at `66ffacd`, mission closed at `8ed9397`. **Merged AND pushed — local `main` in sync with `origin/main`** (verified 2026-08-19: `git rev-list --left-right --count origin/main...main` = `0 0`). 27/28 tasks done; the remainder (3.1c) is a threshold decision for Roger, not engineering work (branch `mission/2-wiring-gaps`) | 2026-08-03 → 2026-08-05 |
 
 ---
 
@@ -47,7 +47,7 @@ Base (this run): `main @ 6147839`, synced 2026-08-03. **`origin/main` has never 
 | Doc drift | Planning on stale docs | **Closed 2026-08-05** — Mission 2 T6 found `README:46-47` (no-op ingest cmd), `CHANGELOG:17` (claims dead narrative/report builders + scenario what-ifs ship), `market/README:22,86` (documents dead `regional_income` as public), `reports/README` (signatures omit `media_report`/`provenance`); fixed in Mission 2 Wave 2. **Re-opened and re-closed 2026-08-19** — a doc-maintainer audit against `main @ 8ed9397` found new drift introduced by the post-release CI fix (`ee023ee`, agent shells no longer built eagerly) and the dependency lock (`66ffacd`): `src/agents/README.md`, `src/orchestrators/README.md`, and root `README.md` still described all three CrewAI agent classes as building an Agent/Task shell, and the "Deps"/install sections omitted `requirements.lock`. Fixed the same day; see the `_Last reconciled` stamps in those files. |
 | **`origin/main` has never received Mission 1.** Local `main` diverged at Mission 1's merge and every commit since compounds on top (7 at charter time → 9 at Mission 2 branch-point: + mission-zero `6147839`, + the Mission 2 docs commit; the mission branch adds more) | Any push; Mission 2 Wave Integrate | **Resolved 2026-08-05** — Mission 2 merged (`8b2acf8`), released as v0.3.0 (`652acd7`), and pushed; CI green at `66ffacd`. Verified 2026-08-19: `main` and `origin/main` both resolve to `8ed9397` (`git rev-list --count origin/main..main` = 0). |
 | Report asserts false claims (`cap_rate_floor` unread → "respects the floor policy" always prints; lone `--listing` inherits default bundle financials) | Truthful reports | **Closed 2026-08-05** — OPD-2 shipped: `run_financial_model` now reads `market.cap_rate_floor` and emits the "cap rate below floor" warning (verified at `src/core/finance/engine.py:305-308` against `main @ 8ed9397` on 2026-08-19); the `--listing`-without-`--config` case now loud-fails (`main.py::resolve_config_path`) instead of borrowing the demo bundle's financials. |
-| OPD-1..4 (Mission 2 product decisions) | Mission 2 Waves 0.2 / 3 | **CLOSED 2026-08-03 (Roger):** OPD-1 reconcile-then-delete `strategist.py`; OPD-2 wire F1 into engine; OPD-3 wire-first Tier-4 (delete only un-wireable); OPD-4 populate Tier-5 fields into reports |
+| OPD-1..4 (Mission 2 product decisions) | Mission 2 Waves 0.2 / 3 | **SHIPPED 2026-08-05** (decided by Roger 2026-08-03, then executed and merged in Mission 2 — no longer just resolved-on-paper): OPD-1 `strategist.py` reconciled then **deleted** (verified absent at `main @ 8ed9397`); OPD-2 F1 cap-floor warning **wired into `run_financial_model`**; OPD-3 Tier-4 wire-first landed (un-wireable `orchestrator.py`/`agents/listing_ingest.py` deleted; the toy `scenarios.py`/`narrative_builder`/`report_builder` deleted at the Gate-3 founder ruling; `--regional-income` kept); OPD-4 Tier-5 fields **populated into the reports** (cap-floor value, media schema/ontology/provenance rows). Confirmed live on 2026-08-19 via the Mission 2 manual-test pass. |
 | Transforms rebuild models field-by-field (silent field-drop); nothing tests end-to-end reachability | Any new schema field surviving to the report; truthful CLI/doc claims | **Closed 2026-08-05** — Mission 2 shipped the anti-regression sentinel-model builder (`tests/utils.py:659`) and feature→reachable-path guards (`tests/integration/test_cli_reachable_paths.py`, `tests/orchestrators/test_baseline_outlook.py:94`); verified present against `main @ 8ed9397` on 2026-08-19. |
 
 ---
@@ -124,6 +124,8 @@ counter-examples that undermine the rule.
 | 3 | **Real vision provider behind the existing CV seam** — see the detailed note below, added 2026-08-03 at Roger's request | High (makes the "AI" headline true) | Med-High (API keys, cost, non-determinism policy; guardian gate) | CV provider registry (`register_onnx_provider` **already exists**) | CV/AI C+→B+ | CV/AI, Orchestration | Determinism policy approved; Mission 2's honest-provenance labelling landed |
 | 4 | Streamlit UI for interactive scenario exploration | High (portfolio wow) | Med (new surface, new deps) | Reads existing JSON artifacts | Distribution | Packaging, Portfolio | #1 (scenarios give the UI something to explore), #2 |
 | 5 | Live market data ingestion (comps, cap-rate drift) | Med | High (network, data licensing, freshness) | fetch/ policy | Market realism | Market | #1; compliance review |
+| 7 | **F3 "Adjustments Applied" note is unreachable on real data** (found in the 2026-08-19 manual-test pass; documented as Mission 2 case F3 / defect #4). The report renderer correctly ships whatever OPEX-adjustment notes the engine emits, but the engine's triggers test **pre-normalization** strings (`"old roof"`, `"water stain"`) that the CV/label layer normalizes away before the engine sees them (e.g. `"water stain"` → `water_leak_suspected`), so on any real pipeline run the notes are empty and the section never appears. **Real defect, survived Mission 2.** | Low-Med (report honesty — a shipped section that can never populate on real input misleads by omission) | Med (fixing the engine side is inside `src/core/finance/`; fixing the normalization map has CV/label blast — a product decision) | engine OPEX-modifier ↔ CV-label vocabulary | Reports/Finance honesty | Reports, CV/AI | Roger decides which side moves (trigger/label reconciliation) |
+| 8 | **Stale editable-install metadata** (found 2026-08-19): `pip show ai-real-estate-deal-analyzer` reports `Version: 0.1.0` while `pyproject.toml` reads `0.3.0`, because an earlier `pip install -e .` cached the old metadata. Cosmetic; console scripts resolve and run correctly. Refreshed by re-running `pip install -e .`. | Very low (cosmetic; no functional impact) | Minimal (no source change; a re-install, or a docs note) | packaging | Packaging polish | Packaging | — |
 
 ### Backlog #6 — "What would have to change?" (Roger's design, 2026-08-05)
 
@@ -274,37 +276,48 @@ inherits for free.
 
 ## 5. Current recommendation
 
-**Mission 2 — Close the end-to-end wiring gaps: CHARTERED + KICKOFF-APPROVED 2026-08-03 (ready to execute).**
-Artifacts: `docs/plans/MISSION_2_wiring_gaps.md` (charter), `docs/plans/MISSION_2_SPRINT_TRACKER.md`
-(tracker), `docs/plans/MISSION_2_HANDOFF.md` (pasteable prompt). Branch `mission/2-wiring-gaps`.
+**OPEN — next mission not yet chosen; awaiting Roger.** Mission 2 shipped (merged `8b2acf8`,
+released v0.3.0, pushed — `origin/main` in sync at `8ed9397`; see §2). No new mission has been
+chartered, and none should be selected until Roger asks: the leverage-ranked candidates in §4 have
+**not** been re-scored against the as-shipped `8ed9397` grade, and doing that scoring is the first
+step of the next planning run, not a decision to pre-empt here.
 
-**Why now:** the reports currently assert things that are false (a `cap_rate_floor` read by zero
-lines makes "Purchase cap rate respects the floor policy" print for every deal; a lone `--listing`
-inherits the default bundle's financials) and silently drop computed artifacts before they reach the
-report (stated listing facts, per-year OPEX notes, `--engine crewai` media sections). These are the
-highest-reward, mostly-lowest-blast fixes available (report honesty is the product's core promise),
-and the mission installs the anti-regression + reachability net that prevents the whole class from
-recurring.
+**Where the backlog stands (for when Roger does ask — candidates, not a recommendation):**
+- **#3 Real vision provider behind the CV seam** — its stated pre-conditions are now met (Mission 2
+  landed the honest-provenance labelling and the 70/30 confirm-don't-fabricate rule); the ONNX
+  bring-your-own-model registry already exists and is Python-API-only.
+- **#6 "What would have to change?"** (Roger's actionable-recourse design, §4) — makes a near-miss
+  legible; Roger flagged the Year-1 CoC-floor / DECLINE-shortcut threshold calls (3.1c) should be
+  revisited *after* it ships, not before.
+- **#4 Streamlit UI**, **#5 live market data** — unchanged.
+- **#7 / #8** (this run) — the unreachable F3 "Adjustments Applied" note (real, report-honesty) and
+  the cosmetic stale editable-install version metadata.
 
-**Kickoff decisions (Roger, 2026-08-03):** full mission (Waves 0–3) approved as one; all four product
-decisions CLOSED — OPD-1 reconcile-then-delete `strategist.py`; **OPD-2 wire the F1 cap-floor warning
-into `run_financial_model`** (high-blast; deliberately re-baselines every golden number — regenerate
-+ human-review); OPD-3 wire-first the Tier-4 dead modules (delete only the un-wireable); OPD-4
-populate the Tier-5 unread fields into the reports. Zero open blockers; the mission is ready to
-execute. _(Planner had recommended splitting Waves 2–3 into a follow-on; Roger chose one mission —
-history only.)_
-
-**Before merge/push (§3):** reconcile the local-`main`-ahead-of-origin-by-7 delta (Roger's push
-timing); the GitHub signing key + `CITATION.cff`/`pyproject` version blockers remain open from
-Mission 1.
-
-**Deferred backlog** (unchanged): Real AI provider behind CV/LLM seams (#3); Streamlit UI (#4);
-cross-input building-mismatch validation (root cause 3 — new feature, logged here, out of Mission 2).
+**Still-open blockers that gate certain futures (§3):** no real AI provider yet (gates any
+"AI-powered" claim); the GitHub SSH **signing** key remains unregistered (commits show Unverified);
+the parked media-intelligence refactor (`parked/media-intelligence-refactor`) still gates any
+`src/core/media/` work.
 
 ---
 
 ## 6. Changelog
 
+* **2026-08-19 (manual-testing backfill + ledger reconcile, docs-only, no code, no git ops)** —
+  **Backfilled four Roger-facing docs and reconciled the ledger to as-shipped reality.** Confirmed
+  with Roger that Mission 2 shipping was intentional. Wrote two manual-testing handoffs under
+  `docs/manual testing/` (`MISSION_1_MANUAL_TESTING.md` — 7 cases, every command run and PASSing in
+  the `airedeal` env today; `MISSION_2_MANUAL_TESTING.md` — 28 cases across Waves 0-3 as a
+  *verification* checklist, since Mission 2 is shipped, not a red-until-fixed plan; a representative
+  set spot-run live, deferred items flagged) and two plain-English briefs
+  (`docs/plans/MISSION_1_PLAIN_ENGLISH.md`, `docs/plans/MISSION_2_PLAIN_ENGLISH.md`). Reconciled the
+  tracker: §1 baseline → `main @ 8ed9397, in sync with origin`; §2 Mission 2 → SHIPPED (merged
+  `8b2acf8`, released v0.3.0 `652acd7`, closed `8ed9397`, `origin/main...main` = `0 0`); §3 OPD-1..4
+  row → SHIPPED (not merely resolved-on-paper); §5 → **OPEN, next mission not yet chosen (awaiting
+  Roger)** — deliberately did NOT charter a new mission. Logged two findings from the manual-test
+  pass into §4 backlog: **#7** the F3 "Adjustments Applied" note is unreachable on real data (engine
+  OPEX-trigger strings are normalized away by the CV layer before the renderer sees them — real
+  defect, survived Mission 2), and **#8** stale editable-install metadata (`pip show` reads `0.1.0`
+  vs pyproject `0.3.0` — cosmetic).
 * **2026-08-19** — **Doc-maintainer reconciliation against `main @ 8ed9397` (docs-only).** Closed
   five §3 blocker rows found stale: `CITATION.cff` version (resolved at v0.3.0's release, `652acd7`),
   "Doc drift" (T6 findings fixed in Mission 2 Wave 2; re-opened/re-closed same day for a fresh

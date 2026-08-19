@@ -37,6 +37,8 @@ This project is intended as an **open research and educational project**. Contri
    ```
 
    > Note: `pip install -e .` is supported and installs the console scripts (`ingest-listing`, `deal-report`, `deal-advisor`). Install one of the sets above first, then `pip install -e .` for the entry points.
+   >
+   > **After pulling:** if `pip show ai-real-estate-deal-analyzer` reports a stale `Version`, re-run `pip install -e .` to refresh editable-install metadata (the console scripts still work, but the version string may lag).
 
    If you change `requirements.txt` or `requirements-dev.txt`, regenerate **both** lockfiles so CI
    (which installs from `requirements-dev.lock`, not the loose ranges) picks up the change — requires
