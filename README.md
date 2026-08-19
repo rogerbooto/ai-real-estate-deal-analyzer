@@ -17,7 +17,7 @@ This project is a portfolio piece designed to showcase a modern, agent-seamed ar
 Run the demo in **one line**:
 
 ```bash
-git clone https://github.com/rogerbooto/ai-real-estate-deal-analyzer.git && cd ai-real-estate-deal-analyzer && python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt && python main.py
+git clone https://github.com/rogerbooto/ai-real-estate-deal-analyzer.git && cd ai-real-estate-deal-analyzer && python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.lock && python main.py
 ```
 
 Expected output:
@@ -103,7 +103,7 @@ The system's unique value is its **opinionated financial model**, which implemen
 
 ## High-Level Architecture
 
-At a glance, the system is a multi-agent pipeline with a **deterministic orchestrator by default** and a **CrewAI seam** for optional LLM-backed runs (`--engine crewai`). With `AIREAL_LLM_MODE` unset (the default), the seam is a parity shell that validates the environment and delegates to the same deterministic math. With `AIREAL_LLM_MODE` set **and** a provider key present, the Listing Analyst's `crew.kickoff()` does run — an LLM authors *observations* (condition tags, defects, amenities) that flow into the forecast through the deterministic insight modifiers. **The verdict never goes through a model, in any mode:** the Chief Strategist always synthesizes the final BUY/CONDITIONAL/DECLINE thesis from the same deterministic rule engine (`chief_strategist.synthesize_thesis`), so an AI-influenced deal still gets its judgment from the identical rules every other deal goes through.
+At a glance, the system is a multi-agent pipeline with a **deterministic orchestrator by default** and a **CrewAI seam** for optional LLM-backed runs (`--engine crewai`). Choosing `--engine crewai` still fail-fast validates the environment (a provider key and an importable `crewai` package) before anything runs. With `AIREAL_LLM_MODE` unset (the default), that seam builds **no crewai `Agent` shell at all** — `FinancialForecasterAgent` and `ChiefStrategistAgent` never construct one, in any mode, and the Listing Analyst's shell is built lazily, only when the LLM path actually runs — and every step delegates to the same deterministic math. With `AIREAL_LLM_MODE` set **and** a provider key present, the Listing Analyst's `crew.kickoff()` does run — an LLM authors *observations* (condition tags, defects, amenities) that flow into the forecast through the deterministic insight modifiers. **The verdict never goes through a model, in any mode:** the Chief Strategist always synthesizes the final BUY/CONDITIONAL/DECLINE thesis from the same deterministic rule engine (`chief_strategist.synthesize_thesis`), so an AI-influenced deal still gets its judgment from the identical rules every other deal goes through.
 
 ```mermaid
 flowchart LR
@@ -244,8 +244,8 @@ This model feeds into our per-year pro forma:
 * **Data Modeling:** Pydantic v2
 * **Testing:** Pytest (+ coverage via pytest-cov / Codecov)
 * **Lint/Type:** Ruff, mypy (strict)
-* **Deps:** `requirements.txt` (runtime) + `requirements-dev.txt` (dev)
-* **Packaging:** `pyproject.toml` (console-script metadata incomplete; run CLIs via `python -m`)
+* **Deps:** `requirements.txt` (runtime) + `requirements-dev.txt` (dev) declare the *ranges*. Two hash-pinned `uv`-generated lockfiles hold the exact versions: **`requirements.lock`** (runtime only — what you need to run the tool) and **`requirements-dev.lock`** (runtime + test/lint/type tooling — what CI installs). See [Developer Setup](#developer-setup) to regenerate them.
+* **Packaging:** `pyproject.toml` declares `[project]` metadata and the `ingest-listing` / `deal-report` / `deal-advisor` console scripts; `pip install -e .` installs them (see [Developer Setup](#developer-setup)). The `python -m src.cli.*` forms also work without installing the package.
 
 ---
 
@@ -324,7 +324,7 @@ To get started as a contributor:
 **1. Clone the repository**
 
 ```bash
-git clone git clone https://github.com/rogerbooto/ai-real-estate-deal-analyzer.git
+git clone https://github.com/rogerbooto/ai-real-estate-deal-analyzer.git
 cd ai-real-estate-deal-analyzer
 ```
 
@@ -338,17 +338,43 @@ source .venv/bin/activate   # Linux/Mac
 
 **3. Install dependencies**
 
+For the exact, hash-pinned versions CI installs (recommended — this is what "the tests pass on my machine" should mean):
+
+```bash
+pip install -r requirements.lock
+```
+
+If you'd rather resolve the loose ranges yourself (runtime only):
+
 ```bash
 pip install -r requirements.txt
 ```
 
-For development (with tests, linting, typing):
+For runtime + dev tooling (tests, linting, typing) at the exact versions CI uses:
+
+```bash
+pip install -r requirements-dev.lock
+```
+
+Or resolve the dev ranges yourself:
 
 ```bash
 pip install -r requirements.txt -r requirements-dev.txt
 ```
 
-> Note: `pip install -e .` is supported and installs the `ingest-listing`, `deal-report`, and `deal-advisor` console scripts. Runtime dependencies still come from the requirements files (this matches CI), so install those first, then `pip install -e .` for the entry points.
+> Note: `pip install -e .` is supported and installs the `ingest-listing`, `deal-report`, and `deal-advisor` console scripts. Runtime dependencies still come from one of the installs above, so run one of those first, then `pip install -e .` for the entry points.
+
+**If you change `requirements.txt` or `requirements-dev.txt`**, regenerate the lock so CI picks up the change (requires [`uv`](https://github.com/astral-sh/uv)):
+
+```bash
+# runtime only
+uv pip compile requirements.txt \
+  --output-file requirements.lock --python-version 3.10 --generate-hashes
+
+# runtime + dev (this is the one CI installs)
+uv pip compile requirements.txt requirements-dev.txt \
+  --output-file requirements-dev.lock --python-version 3.10 --generate-hashes
+```
 
 ### Optional Dependencies
 
@@ -446,4 +472,4 @@ testpaths = tests
 
 ---
 
-_Last reconciled: 2026-08-04 against mission/2-wiring-gaps @ d18ee1a (Gate 2 VETO remediation: corrected the High-Level Architecture / Technical Architecture / V4-roadmap claims that `crew.kickoff()` is not yet called — it is, opt-in, for the Listing Analyst's observations only; the verdict is always deterministic, in every mode. Earlier note: 2026-08-03 @ 74c985c, ingest CLI example corrected to reflect F10/F11 media-flag reachability)._
+_Last reconciled: 2026-08-19 against main @ 8ed9397 (post-release fixes `ee023ee`/`66ffacd`: corrected the High-Level Architecture claim that the CrewAI seam "validates the environment" as a shell-construction step — with `AIREAL_LLM_MODE` unset no Agent shell is built at all, only fail-fast env checks run; fixed the Tech Stack "Deps"/"Packaging" bullets to name `requirements.lock` as what CI actually installs and to reflect that `pip install -e .` and the console scripts work; fixed a duplicated `git clone git clone` typo and added the `requirements.lock` install path + regeneration command to Developer Setup). Earlier note: 2026-08-04 against mission/2-wiring-gaps @ d18ee1a (Gate 2 VETO remediation: corrected the High-Level Architecture / Technical Architecture / V4-roadmap claims that `crew.kickoff()` is not yet called — it is, opt-in, for the Listing Analyst's observations only; the verdict is always deterministic, in every mode. Earlier note: 2026-08-03 @ 74c985c, ingest CLI example corrected to reflect F10/F11 media-flag reachability)._

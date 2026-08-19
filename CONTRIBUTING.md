@@ -24,11 +24,36 @@ This project is intended as an **open research and educational project**. Contri
 
 3. Install dependencies (including dev tools):
 
+   For the exact, hash-pinned versions CI installs (recommended):
+
+   ```bash
+   pip install -r requirements-dev.lock
+   ```
+
+   Or resolve the loose ranges yourself:
+
    ```bash
    pip install -r requirements.txt -r requirements-dev.txt
    ```
 
-   > Note: `pip install -e .` is supported and installs the console scripts (`ingest-listing`, `deal-report`, `deal-advisor`). The requirements files still provide the runtime/dev dependencies and match what CI installs, so install them first.
+   > Note: `pip install -e .` is supported and installs the console scripts (`ingest-listing`, `deal-report`, `deal-advisor`). Install one of the sets above first, then `pip install -e .` for the entry points.
+
+   If you change `requirements.txt` or `requirements-dev.txt`, regenerate **both** lockfiles so CI
+   (which installs from `requirements-dev.lock`, not the loose ranges) picks up the change — requires
+   [`uv`](https://github.com/astral-sh/uv):
+
+   ```bash
+   # runtime only — what someone needs to just run the tool
+   uv pip compile requirements.txt \
+     --output-file requirements.lock --python-version 3.10 --generate-hashes
+
+   # runtime + dev tooling — this is the one CI installs
+   uv pip compile requirements.txt requirements-dev.txt \
+     --output-file requirements-dev.lock --python-version 3.10 --generate-hashes
+   ```
+
+   Regenerating only one leaves the two disagreeing about a shared package, which is the same
+   split-brain the lockfiles exist to prevent.
 
 4. Run the test suite:
 
@@ -88,7 +113,7 @@ feat(financial_model): add mortgage insurance integration
 
 ## License & Attribution
 
-This project is released under the **Research & Education License** (see `LICENSE`).
+This project is released under the **Research & Education License** (see `LICENSE.md`; commercial terms are in `LICENSE-commercial.md`).
 
 * Free to use for **personal, academic, and research purposes**.
 * Commercial/business use requires a separate **commercial license**.
@@ -98,4 +123,4 @@ Please respect these terms when contributing.
 
 ---
 
-_Last reconciled: 2026-07-23 against main @ e4716df._
+_Last reconciled: 2026-08-19 against main @ 8ed9397 (added `requirements.lock` as the recommended, CI-matching install path and the `uv pip compile` regeneration command; corrected the `LICENSE` filename reference to `LICENSE.md`). Earlier note: 2026-07-23 against main @ e4716df._

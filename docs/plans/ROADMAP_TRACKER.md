@@ -29,8 +29,8 @@ Base (this run): `main @ 6147839`, synced 2026-08-03. **`origin/main` has never 
 | # | Mission | Status | Dates |
 | --- | --- | --- | --- |
 | — | (pre-tracker) v0.1.0 MVP, media pipeline, CV v2, advisor/intelligence, address parsing | Shipped organically | 2025-09 → 2025-11 |
-| 1 | Scenario Intelligence (wire `src/market` into pipeline + reports; Wave 0 packaging fix; authorized IRR-solver core fix) | **Shipped** — Roger's mission gate approved; branch merged to local `main` (unpushed) | 2026-07-23 → 2026-07-24 |
-| 2 | Close the end-to-end wiring gaps (Tier 0 false-report fixes, Tier 1 silent-drop wiring + anti-regression guard, Tier 3 CLI honesty, T4/T5 wire-first disposition) | **Chartered + kickoff-approved 2026-08-03 — all 4 OPDs CLOSED, zero open blockers, ready to execute** (branch `mission/2-wiring-gaps`) | 2026-08-03 → — |
+| 1 | Scenario Intelligence (wire `src/market` into pipeline + reports; Wave 0 packaging fix; authorized IRR-solver core fix) | **Shipped and pushed** — Roger's mission gate approved; merged to `main`, and `main`'s subsequent history (including Mission 2) reached `origin/main` on 2026-08-05 (see §3, "`origin/main` has never received Mission 1" row) | 2026-07-23 → 2026-07-24 |
+| 2 | Close the end-to-end wiring gaps (Tier 0 false-report fixes, Tier 1 silent-drop wiring + anti-regression guard, Tier 3 CLI honesty, T4/T5 wire-first disposition) | **Shipped, merged, released, pushed** — Gate 3 passed (principles-guardian VETO lifted, staff code review approved); merged `--no-ff` as `8b2acf8`, released as v0.3.0 (`652acd7`), CI fixed and green at `66ffacd`, mission closed at `8ed9397`. 27/28 tasks done; the remainder (3.1c) is a threshold decision for Roger, not engineering work (branch `mission/2-wiring-gaps`) | 2026-08-03 → 2026-08-05 |
 
 ---
 
@@ -42,13 +42,13 @@ Base (this run): `main @ 6147839`, synced 2026-08-03. **`origin/main` has never 
 | `pyproject.toml` missing `[project]` metadata (broken install, dead console scripts) | Truthful CLI docs; distribution; UI missions | **Closed 2026-07-24** — `[build-system]`+`[project]`+discovery added (Mission 1 Wave 0.2); `pip install -e .` + 3 console scripts verified |
 | Media-intelligence API refactor incomplete/broken (caller `insights.py` + tests not propagated to new signatures; ruff/mypy/tests red; env-dependent `_dct2` pHash) | Any work touching `src/core/media/` | **Open 2026-07-24** — orphaned WIP parked in `git stash@{0}`; deferred to its own branch `feat/media-intelligence-refactor` (NOT Mission 1). Fix list in `MISSION_1_SPRINT_TRACKER.md` parking note |
 | GitHub SSH **signing** key not registered ("Dell Laptop" key is an auth key only) | Verified commits; clean pushes without admin bypass | **Open 2026-07-24** — commits SSH-signed locally (git 2.55 shim, `~/.gitmodern-bin`) but show Unverified; Roger to add the key as a Signing key in GitHub settings |
-| `CITATION.cff` version `1.0.0` ≠ `pyproject`/CHANGELOG `0.1.0` | Any version tag / release cut | **Open 2026-07-24** — reconcile before tagging |
+| `CITATION.cff` version `1.0.0` ≠ `pyproject`/CHANGELOG `0.1.0` | Any version tag / release cut | **Closed 2026-08-05** — the v0.3.0 release (`652acd7`) reconciled both to `0.3.0`; verified against `main @ 8ed9397` on 2026-08-19 (`CITATION.cff` and `pyproject.toml` both read `0.3.0`). |
 | No real AI provider (vision/LLM stubs only) | Any "AI-powered" marketing claim; CrewAI kickoff mission | Open — deferred (backlog #3) |
-| Doc drift | Planning on stale docs | **Re-opened 2026-08-03** — Mission 2 T6 found `README:46-47` (no-op ingest cmd), `CHANGELOG:17` (claims dead narrative/report builders + scenario what-ifs ship), `market/README:22,86` (documents dead `regional_income` as public), `reports/README` (signatures omit `media_report`/`provenance`). Fixed in Mission 2 Wave 2. |
-| **`origin/main` has never received Mission 1.** Local `main` diverged at Mission 1's merge and every commit since compounds on top (7 at charter time → 9 at Mission 2 branch-point: + mission-zero `6147839`, + the Mission 2 docs commit; the mission branch adds more) | Any push; Mission 2 Wave Integrate | **Open 2026-08-03** — Roger decides push timing. Reconcile the delta, **never force-push `main`**. Check the live count with `git rev-list --count origin/main..main` rather than trusting a number written here. |
-| Report asserts false claims (`cap_rate_floor` unread → "respects the floor policy" always prints; lone `--listing` inherits default bundle financials) | Truthful reports | **Open 2026-08-03** — Mission 2 Wave 0; F1 decided (OPD-2 = wire the warning into `run_financial_model`; re-baselines goldens) |
+| Doc drift | Planning on stale docs | **Closed 2026-08-05** — Mission 2 T6 found `README:46-47` (no-op ingest cmd), `CHANGELOG:17` (claims dead narrative/report builders + scenario what-ifs ship), `market/README:22,86` (documents dead `regional_income` as public), `reports/README` (signatures omit `media_report`/`provenance`); fixed in Mission 2 Wave 2. **Re-opened and re-closed 2026-08-19** — a doc-maintainer audit against `main @ 8ed9397` found new drift introduced by the post-release CI fix (`ee023ee`, agent shells no longer built eagerly) and the dependency lock (`66ffacd`): `src/agents/README.md`, `src/orchestrators/README.md`, and root `README.md` still described all three CrewAI agent classes as building an Agent/Task shell, and the "Deps"/install sections omitted `requirements.lock`. Fixed the same day; see the `_Last reconciled` stamps in those files. |
+| **`origin/main` has never received Mission 1.** Local `main` diverged at Mission 1's merge and every commit since compounds on top (7 at charter time → 9 at Mission 2 branch-point: + mission-zero `6147839`, + the Mission 2 docs commit; the mission branch adds more) | Any push; Mission 2 Wave Integrate | **Resolved 2026-08-05** — Mission 2 merged (`8b2acf8`), released as v0.3.0 (`652acd7`), and pushed; CI green at `66ffacd`. Verified 2026-08-19: `main` and `origin/main` both resolve to `8ed9397` (`git rev-list --count origin/main..main` = 0). |
+| Report asserts false claims (`cap_rate_floor` unread → "respects the floor policy" always prints; lone `--listing` inherits default bundle financials) | Truthful reports | **Closed 2026-08-05** — OPD-2 shipped: `run_financial_model` now reads `market.cap_rate_floor` and emits the "cap rate below floor" warning (verified at `src/core/finance/engine.py:305-308` against `main @ 8ed9397` on 2026-08-19); the `--listing`-without-`--config` case now loud-fails (`main.py::resolve_config_path`) instead of borrowing the demo bundle's financials. |
 | OPD-1..4 (Mission 2 product decisions) | Mission 2 Waves 0.2 / 3 | **CLOSED 2026-08-03 (Roger):** OPD-1 reconcile-then-delete `strategist.py`; OPD-2 wire F1 into engine; OPD-3 wire-first Tier-4 (delete only un-wireable); OPD-4 populate Tier-5 fields into reports |
-| Transforms rebuild models field-by-field (silent field-drop); nothing tests end-to-end reachability | Any new schema field surviving to the report; truthful CLI/doc claims | **Open 2026-08-03** — Mission 2 anti-regression guard (Wave 1) + feature→reachable-path test (Wave 2) |
+| Transforms rebuild models field-by-field (silent field-drop); nothing tests end-to-end reachability | Any new schema field surviving to the report; truthful CLI/doc claims | **Closed 2026-08-05** — Mission 2 shipped the anti-regression sentinel-model builder (`tests/utils.py:659`) and feature→reachable-path guards (`tests/integration/test_cli_reachable_paths.py`, `tests/orchestrators/test_baseline_outlook.py:94`); verified present against `main @ 8ed9397` on 2026-08-19. |
 
 ---
 
@@ -305,6 +305,27 @@ cross-input building-mismatch validation (root cause 3 — new feature, logged h
 
 ## 6. Changelog
 
+* **2026-08-19** — **Doc-maintainer reconciliation against `main @ 8ed9397` (docs-only).** Closed
+  five §3 blocker rows found stale: `CITATION.cff` version (resolved at v0.3.0's release, `652acd7`),
+  "Doc drift" (T6 findings fixed in Mission 2 Wave 2; re-opened/re-closed same day for a fresh
+  round found by this pass — see below), "`origin/main` has never received Mission 1" (resolved —
+  `main`/`origin/main` both at `8ed9397`), "Report asserts false claims" (OPD-2 shipped;
+  `cap_rate_floor` now read at `src/core/finance/engine.py:305-308`), and "Transforms rebuild
+  models field-by-field" (anti-regression + reachable-path tests shipped in Mission 2 Waves 1-2).
+  Corrected the Mission 1 and Mission 2 rows in §2 (both read as in-flight; both are shipped,
+  merged, released, and pushed). New drift found and fixed the same pass, all introduced by
+  post-release commits `ee023ee` (agent construction no longer requires an API key —
+  `ListingAnalystAgent`'s shell is now lazy; `FinancialForecasterAgent`/`ChiefStrategistAgent`
+  build none) and `66ffacd` (hash-pinned `requirements.lock`, which CI installs instead of the
+  loose ranges): `src/agents/README.md` and `src/orchestrators/README.md` still described all
+  three CrewAI agent classes as constructing an Agent/Task shell; root `README.md`'s High-Level
+  Architecture section called the seam "a parity shell that validates the environment" without
+  naming that no shell is built by default, and its Tech Stack/Developer Setup sections omitted
+  `requirements.lock` and the `pip install -e .`/console-script fix that had already landed.
+  `CHANGELOG.md [Unreleased]` gained entries for both post-release fixes, which had shipped with
+  no changelog record. Did **not** touch §1's composite grade table or Mission-history one-liners
+  beyond the two status/date fixes above — those are editorial judgments this doc-maintainer pass
+  does not have the authority to re-grade.
 * **2026-08-03 (later)** — **Mission 2 kickoff decisions folded into the docs (docs-only, no code).**
   Roger resolved all four OPDs and approved the full mission (Waves 0–3 as one). OPD-1 =
   reconcile-then-delete `strategist.py` (port preferred thresholds into `chief_strategist` first,

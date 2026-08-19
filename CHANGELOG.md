@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Creating a deterministic agent no longer requires an OpenAI key** (`src/agents/crewai_components.py`). All three agent classes built a crewai `Agent` shell unconditionally in `__init__`; newer `crewai` (1.x) backfills a default model when `llm=None` and validates `OPENAI_API_KEY` at `Agent` **construction**, not at call time, so merely instantiating `FinancialForecasterAgent` or `ChiefStrategistAgent` — neither of which has any code path that ever calls `kickoff()` — began requiring a key. Locally invisible (a `.env` supplies one), so CI (no key, and `crewai>=0.28.0` with no ceiling resolving `1.15.11`) went red on tests whose whole premise is that no model is involved. `ListingAnalystAgent` now builds its shell lazily — a property, reached only from `_run_llm()` — and `FinancialForecasterAgent`/`ChiefStrategistAgent` build no shell at all.
+
+### Changed
+- **Dependencies locked.** Two hash-pinned lockfiles: **`requirements.lock`** (runtime only, so someone who just wants to run the tool does not also install `pytest`/`ruff`/`mypy`) and **`requirements-dev.lock`** (runtime + dev tooling). CI installs the dev lock (`pip install -r requirements-dev.lock`); regenerate both with `uv pip compile` — see CONTRIBUTING, and regenerate them together, since updating one alone leaves the two disagreeing about a shared package instead of resolving the loose ranges in `requirements.txt`/`requirements-dev.txt` fresh on every run, so a green suite on one machine means the same thing on another. `crewai` is now ceilinged at `crewai>=0.28.0,<1.0.0` — the previously-unbounded range is what let CI resolve `1.15.11` against a developer machine still on `0.193.2`, the 0.x → 1.x jump that caused the agent-construction regression above. `onnxruntime>=1.16.0,<2.0.0` is now declared directly: it is imported by `core/cv/amenities_defects.py`'s registered ONNX provider but previously arrived only as a transitive dependency of `crewai`, so downgrading or dropping the agent framework would have silently taken the ONNX CV seam with it.
+
 ## [v0.3.0] - 2026-08-05
 
 **The V3 generation, released.** `main.py` now announces V3 — it had been printing "V2" since
