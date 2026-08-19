@@ -7,7 +7,7 @@ Standing ledger owned by the mission-planner. Read first, update last, every run
 ## 1. Current state (as-built)
 
 **Composite grade: B-** _(planner-derived 2026-07-23; to be confirmed by app-evaluator when spawnable)_
-Base (this run): `main @ 8ed9397`, **in sync with `origin/main`** (verified 2026-08-19: `git rev-list --left-right --count origin/main...main` = `0 0`). Mission 2 has since been merged AND pushed; the earlier "origin has never received Mission 1" divergence is closed — origin now carries everything through `8ed9397`. _(Historical: the dirty working tree the Mission 1 charter described as its baseline had landed as `6147839` — sample bundle restore, parsing regex fixes, report identity/glossary/provenance wiring, `PASS`→`DECLINE` rename, `.env.example` rewrite.)_ The tree is now clean. Planner-verified, orchestrator-reproduced in the real `airedeal` env (`/home/rtokime/anaconda3`, NOT `~/miniconda3`): `pytest` green, coverage 81.87%, `ruff` + `mypy` clean. Graph rebuilt against the working tree (1631 nodes / 4013 edges).
+Base (Mission 3 charter run, 2026-08-19): `main @ a00a265`, tree clean, **1 commit ahead of `origin/main @ 0ea42fd`** — the unpushed docs backfill `a00a265` ("docs(missions): backfill Roger-facing manual-test + plain-English docs; reconcile roadmap ledger to as-shipped v0.3.0"); Roger controls the push. _(Prior run's base was `main @ 8ed9397`, **in sync with `origin/main`** at that time; verified 2026-08-19: `git rev-list --left-right --count origin/main...main` = `0 0` then.)_ Mission 2 has since been merged AND pushed; the earlier "origin has never received Mission 1" divergence is closed — origin now carries everything through `8ed9397`. _(Historical: the dirty working tree the Mission 1 charter described as its baseline had landed as `6147839` — sample bundle restore, parsing regex fixes, report identity/glossary/provenance wiring, `PASS`→`DECLINE` rename, `.env.example` rewrite.)_ The tree is now clean. Planner-verified, orchestrator-reproduced in the real `airedeal` env (`/home/rtokime/anaconda3`, NOT `~/miniconda3`): `pytest` green, coverage 81.87%, `ruff` + `mypy` clean. Graph rebuilt against the working tree (1631 nodes / 4013 edges).
 
 | Axis | Grade | One-liner |
 | --- | --- | --- |
@@ -121,7 +121,7 @@ counter-examples that undermine the rule.
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | ✅ 1 | **Scenario Intelligence** — wire `src/market` hypotheses/rejector into pipeline + report scenario section | **SHIPPED 2026-07-24 (Mission 1)** — delivered exactly as scoped; Market C→B+, Reports B+→A-; plus an authorized IRR-solver core fix | — | — | Market C→B+, Reports B+→A- | Market, Reports, Orchestration, Docs | — done |
 | ✅ 2 | Packaging metadata fix (`[project]` table) | **SHIPPED 2026-07-24 (Mission 1 Wave 0.2)** — Packaging D→B; `pip install -e .` + 3 console scripts verified | — | pyproject only | Packaging D→B | Packaging, Docs | — done |
-| 3 | **Real vision provider behind the existing CV seam** — see the detailed note below, added 2026-08-03 at Roger's request | High (makes the "AI" headline true) | Med-High (API keys, cost, non-determinism policy; guardian gate) | CV provider registry (`register_onnx_provider` **already exists**) | CV/AI C+→B+ | CV/AI, Orchestration | Determinism policy approved; Mission 2's honest-provenance labelling landed |
+| 3 | **Real vision provider behind the existing CV seam** — see the detailed note below, added 2026-08-03 at Roger's request. **Slice sub-1 (BYO ONNX model) CHARTERED as Mission 3, 2026-08-19** — the lowest-blast offering, wiring the existing `register_onnx_provider` to a real CLI/env path; offerings 2 (hosted API key) and 3 (shipped ViT) remain OPEN backlog. | High (makes the "AI" headline true) | **sub-1 (ONNX): near-zero** (additive CLI/env wiring + provider-selection at an existing seam; no finance/schema/ontology diff). sub-2/sub-3: Med-High (API keys, cost, non-determinism policy; training/licensing) | CV provider registry (`register_onnx_provider` **already exists**, `amenities_defects.py:382`; `build_photo_insights` selection seam `photo_insights.py:314-324`) | CV/AI C+→B (real user model path); unlocks the 6 filename labels | CV/AI, Orchestration, Docs | sub-1: none outstanding (Mission 2 honest-provenance + 70/30 rule landed). sub-2: determinism/key-hygiene policy. sub-3: training data + licensing |
 | 4 | Streamlit UI for interactive scenario exploration | High (portfolio wow) | Med (new surface, new deps) | Reads existing JSON artifacts | Distribution | Packaging, Portfolio | #1 (scenarios give the UI something to explore), #2 |
 | 5 | Live market data ingestion (comps, cap-rate drift) | Med | High (network, data licensing, freshness) | fetch/ policy | Market realism | Market | #1; compliance review |
 | 7 | **F3 "Adjustments Applied" note is unreachable on real data** (found in the 2026-08-19 manual-test pass; documented as Mission 2 case F3 / defect #4). The report renderer correctly ships whatever OPEX-adjustment notes the engine emits, but the engine's triggers test **pre-normalization** strings (`"old roof"`, `"water stain"`) that the CV/label layer normalizes away before the engine sees them (e.g. `"water stain"` → `water_leak_suspected`), so on any real pipeline run the notes are empty and the section never appears. **Real defect, survived Mission 2.** | Low-Med (report honesty — a shipped section that can never populate on real input misleads by omission) | Med (fixing the engine side is inside `src/core/finance/`; fixing the normalization map has CV/label blast — a product decision) | engine OPEX-modifier ↔ CV-label vocabulary | Reports/Finance honesty | Reports, CV/AI | Roger decides which side moves (trigger/label reconciliation) |
@@ -276,22 +276,34 @@ inherits for free.
 
 ## 5. Current recommendation
 
-**OPEN — next mission not yet chosen; awaiting Roger.** Mission 2 shipped (merged `8b2acf8`,
-released v0.3.0, pushed — `origin/main` in sync at `8ed9397`; see §2). No new mission has been
-chartered, and none should be selected until Roger asks: the leverage-ranked candidates in §4 have
-**not** been re-scored against the as-shipped `8ed9397` grade, and doing that scoring is the first
-step of the next planning run, not a decision to pre-empt here.
+**Mission 3 — Wire the bring-your-own ONNX model provider to a real user path (CHARTERED 2026-08-19,
+not yet built).** A scoped slice of backlog #3: **offering 1 of 3 only** (BYO ONNX model) — NOT the
+hosted-API-key offering, NOT a project-shipped ViT. Baseline `main @ a00a265`; branch
+`mission/3-byo-onnx-provider`. Artifacts: `docs/plans/MISSION_3_byo_onnx_provider.md` (charter),
+`docs/plans/MISSION_3_SPRINT_TRACKER.md`, `docs/plans/MISSION_3_HANDOFF.md` (pasteable prompt),
+`docs/plans/MISSION_3_PLAIN_ENGLISH.md`, `docs/manual testing/MISSION_3_MANUAL_TESTING.md`.
 
-**Where the backlog stands (for when Roger does ask — candidates, not a recommendation):**
-- **#3 Real vision provider behind the CV seam** — its stated pre-conditions are now met (Mission 2
-  landed the honest-provenance labelling and the 70/30 confirm-don't-fabricate rule); the ONNX
-  bring-your-own-model registry already exists and is Python-API-only.
-- **#6 "What would have to change?"** (Roger's actionable-recourse design, §4) — makes a near-miss
-  legible; Roger flagged the Year-1 CoC-floor / DECLINE-shortcut threshold calls (3.1c) should be
-  revisited *after* it ships, not before.
+**Why now / why this one.** Highest reward-to-blast on the board. The machinery is already built and
+tested — `register_onnx_provider(model_path, labels_path)` (`amenities_defects.py:382`), the
+capability-declaration mechanism, and `provider_kind` returning `"model"` — but it has **zero callers**:
+no CLI flag or env var reaches it, and `build_photo_insights` (`photo_insights.py:314-324`) hard-selects
+`"vision"|"local"`, never `"onnx"`. So this is wiring + a minimal provider-selection change, not new
+capability. Blast is near-zero (no `src/core/finance/`, no `src/schemas/models.py` breaking edit), it
+takes CV/AI from "honest stub only" toward a real user model path, and — because Mission 2 landed the
+honest-provenance labelling and the 70/30 confirm-don't-fabricate rule — it unlocks the six
+filename-inferred labels (`mold_suspected`, `water_leak_suspected`, `ev_charger`, `parking_garage`,
+`parking_driveway`, `dishwasher`) as confirmable observations with **no ontology change**. Pre-conditions
+are met; offerings 2 & 3 stay backlog because their blast (cost/non-determinism policy; training/
+licensing) is much higher. Backlog #8 (`pip install -e .` reinstall) folded in as one-line Wave 0
+housekeeping. Carried constraints: AI observes but never authors the verdict; security review of the
+user-supplied model-file surface; honest framing (no overclaim — it is the *user's* model).
+
+**Where the rest of the backlog stands (candidates, not the current pick):**
+- **#6 "What would have to change?"** (Roger's actionable-recourse design, §4) — the 3.1c threshold
+  calls should be revisited *after* it ships.
 - **#4 Streamlit UI**, **#5 live market data** — unchanged.
-- **#7 / #8** (this run) — the unreachable F3 "Adjustments Applied" note (real, report-honesty) and
-  the cosmetic stale editable-install version metadata.
+- **#7** the unreachable F3 "Adjustments Applied" note (real, report-honesty). **#8** stale
+  editable-install version metadata — folded into Mission 3 Wave 0 housekeeping.
 
 **Still-open blockers that gate certain futures (§3):** no real AI provider yet (gates any
 "AI-powered" claim); the GitHub SSH **signing** key remains unregistered (commits show Unverified);
@@ -302,6 +314,29 @@ the parked media-intelligence refactor (`parked/media-intelligence-refactor`) st
 
 ## 6. Changelog
 
+* **2026-08-19 (Mission 3 CHARTERED — Wire the bring-your-own ONNX model provider; docs-only, no code,
+  no git ops)** — Phase 0: verified baseline `main @ a00a265`, tree clean, **1 commit ahead of
+  `origin/main @ 0ea42fd`** (the unpushed docs backfill; Roger controls the push — noted for Wave
+  Sync/Integrate). Formalized the Sonnet-selected Mission 3: a scoped slice of backlog #3 — **offering
+  1 of 3 only (BYO ONNX model)**, explicitly NOT the hosted-API-key offering and NOT a shipped ViT.
+  Verified every `path:line` against the real files at `a00a265`: `register_onnx_provider`
+  (`amenities_defects.py:382`) has **zero prod/CLI callers** (only docs, tests, README); `--ai` lives
+  on `ingest-listing` (`ingest_cli.py:50`, sets `use_ai` at `:151`), and `build_photo_insights`
+  (`photo_insights.py:314-324`) hard-selects `"vision"|"local"` — never `"onnx"` (the crux seam);
+  `provider_kind` (`amenities_defects.py:644`) already returns `"model"` for a non-stub bound fn; the
+  six labels exist in the closed set (`schemas/labels.py`, `core/cv/ontology.py`) — no ontology change
+  needed; error paths confirmed (missing onnxruntime `:271`, bad labels `:283`, bad model `:288`).
+  Blast near-zero: no `src/core/finance/`, no `src/schemas/models.py` breaking edit. Wrote all five
+  artifacts: charter (`MISSION_3_byo_onnx_provider.md`), sprint tracker, handoff prompt (GRAPHIFY
+  CONTRACT embedded verbatim; every subagent prompt must carry it), plain-English brief
+  (CHARTERED-NOT-YET-BUILT), and the manual-testing acceptance plan (`docs/manual testing/
+  MISSION_3_MANUAL_TESTING.md` — 8 cases currently demonstrating the gap, VALIDATED boxes all
+  unchecked for Roger). Branch: `mission/3-byo-onnx-provider`. Agent roster co-designed with the
+  planner's proposal (task → agent → tier recorded in the charter/tracker; `staff-cost-aware-model-router`
+  to be invoked at dispatch time per §3a.1). Folded backlog #8 (`pip install -e .` reinstall) into
+  Wave 0 housekeeping. SSH signing-key blocker (§3) carries forward unchanged — does not gate this
+  work. Updated §1 baseline, §4 backlog #3 row (ONNX slice → CHARTERED), §5 → Mission 3 recommendation.
+  Files left uncommitted for Roger to review and commit; no git ops performed.
 * **2026-08-19 (manual-testing backfill + ledger reconcile, docs-only, no code, no git ops)** —
   **Backfilled four Roger-facing docs and reconciled the ledger to as-shipped reality.** Confirmed
   with Roger that Mission 2 shipping was intentional. Wrote two manual-testing handoffs under
