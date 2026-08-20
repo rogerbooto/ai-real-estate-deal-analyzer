@@ -26,8 +26,56 @@ _Author: mission-planner · Written & spot-run 2026-08-19 against `main @ 8ed939
 
 ---
 
-**Overall validation:** ☐ NOT VALIDATED ☐ VALIDATED (Roger, ______) ☐ VALIDATED WITH ISSUES
-**Blocking issues found:** ______________________________________________
+**Overall validation:** ☐ NOT VALIDATED ☑ **VALIDATED** (Roger, 2026-08-20) ☐ VALIDATED WITH ISSUES
+**Blocking issues found:** **None.** All 28 cases PASS, the full suite is green (638 passed, 86.09%
+coverage), and the DEFERRED table is reviewed and accepted. Two non-blocking documentation defects
+were raised during the pass and are recorded under "Findings raised by this pass" below.
+
+> ## ✅ Mission 2 is manually validated
+>
+> Every case in this doc was driven by hand by Roger on 2026-08-20 against `main @ 5dcdf1a` and
+> passed. Nothing in the shipped Mission 2 scope is outstanding. What remains open is the five
+> **deliberate deferrals** in the table at the end of this doc — they were never in scope and are
+> tracked as the forward acceptance list — plus the two documentation follow-ons noted below.
+
+### Validation record — 2026-08-20
+
+| | |
+| --- | --- |
+| **Validated by** | Roger Booto Tokime, driving every command manually |
+| **Date** | 2026-08-20 |
+| **Tree** | `main @ 5dcdf1a` (post-Mission-2; includes the backlog #7 fix `8e3eeed` and the Mission 3 charter) |
+| **Environment** | conda env `airedeal` (`/home/rtokime/anaconda3/envs/airedeal/bin/python`), `OUT=/tmp/m2` |
+| **Result** | **28 / 28 cases PASS**, 0 FAIL, 0 BLOCKED |
+| **Whole-suite sanity** | **638 passed**, 0 failed, coverage **86.09%** (80% gate met) |
+| **DEFERRED table** | Reviewed and accepted; the five deferrals remain open by decision |
+
+Each case below now carries its **Actual result observed**, transcribed from that session.
+
+### Findings raised by this pass
+
+Neither blocks the validation; both are documentation drift, not code defects.
+
+1. **This doc's W1.4 test count was wrong** — it claimed "24 collected"; the four guard suites
+   actually collect **17** (orchestration 3 + listing_analyst 4 + generator 6 + synthesis 4).
+   `git log` on all four files shows no test deletions since the mission, so 17 is the full set and
+   24 was a planner miscount. **Corrected in place** in W1.4 below.
+2. **This doc's W1.1 honesty caveat had gone stale, and was over-broad even when written.** It
+   claimed the "Adjustments Applied" section can never populate on real data. Two things are wrong
+   with that: (a) commit `8e3eeed` (ROADMAP_TRACKER backlog #7), which landed *after* this doc was
+   written, reconciled the `"water stain"` → `water_leak_suspected` half of the trigger mismatch, so
+   that path is now live (`"old roof"` remains genuinely unreachable — no roof concept exists in the
+   ontology to translate back from); and (b) `src/core/reports/README.md:49-58` documents a second,
+   always-live route via the *income* modifiers when `FinancialInputs.income_is_estimated` is set.
+   The demo bundle shows an empty section because it carries no defects and does not set
+   `income_is_estimated` — not because the section is unreachable. **Corrected in place** in W1.1
+   below.
+
+   > **Follow-on, outside this doc (not yet actioned):** the same staleness sits in two source-tree
+   > files that a reader would trust — `src/core/README.md:90` still asserts the OPEX modifiers are
+   > "**unreachable from the deterministic pipeline**", and `docs/plans/ROADMAP_TRACKER.md:127`
+   > still logs backlog #7 as fully open when `8e3eeed` closed half of it. Both need the same
+   > correction.
 
 ---
 
@@ -73,8 +121,8 @@ real breach warning that feeds the DECLINE path.
 **Pass/fail criterion:** Does the floor line name both the actual cap **and** the floor value,
 rather than the old unconditional "respects the floor policy"? Yes = PASS.
 
-**Status:** ☐ PASS ☐ FAIL ☐ BLOCKED · Validated by Roger: ☐ Date: ______
-**Actual result observed:** ______________________________________________
+**Status:** ☑ PASS ☐ FAIL ☐ BLOCKED · Validated by Roger: ☑ Date: 2026-08-20
+**Actual result observed:** Report line 94 reads `- Purchase cap rate is 6.35% (≥ the 5.00% floor you set).` — both the actual cap and the floor are named. The Run Provenance row is present at line 211 — `| Cap-rate floor | 5.00% | market.cap_rate_floor |`. The old unconditional "respects the floor policy" boast does not appear anywhere in the report.
 
 ---
 
@@ -113,8 +161,8 @@ succeed? Yes = PASS.
 > `AIREAL_LISTING=data/sample_listings/47_perrot_shediac/listing.txt python main.py --out $OUT/env.md`
 > — it produces a report (the Run Provenance appendix does at least name the inputs file used).
 
-**Status:** ☐ PASS ☐ FAIL ☐ BLOCKED · Validated by Roger: ☐ Date: ______
-**Actual result observed:** ______________________________________________
+**Status:** ☑ PASS ☐ FAIL ☐ BLOCKED · Validated by Roger: ☑ Date: 2026-08-20
+**Actual result observed:** `--listing` without `--config` exited **1** and printed the full refusal naming the demo bundle (`36_kelly_moncton/inputs.json`) and both remedies (pass `--config`, or run bare `python main.py`). The matching `--config` + `--listing` pairing wrote `ok.md` and exited 0. The env vector (`AIREAL_LISTING`) was **not** retested — it remains DEFERRED, see the table at the end.
 
 ---
 
@@ -136,8 +184,8 @@ Roger directed be raised so the known-vulnerable `< 6.1.0` range is excluded).
 
 **Pass/fail criterion:** Is `lxml>=6.1.0` present in `requirements.txt`? Yes = PASS.
 
-**Status:** ☐ PASS ☐ FAIL ☐ BLOCKED · Validated by Roger: ☐ Date: ______
-**Actual result observed:** ______________________________________________
+**Status:** ☑ PASS ☐ FAIL ☐ BLOCKED · Validated by Roger: ☑ Date: 2026-08-20
+**Actual result observed:** `requirements.txt:16` carries the transitive-only explanatory comment; `:20` declares `lxml>=6.1.0`.
 
 ---
 
@@ -165,8 +213,8 @@ appears only as an optional extra, not a hard runtime requirement.
 **Pass/fail criterion:** Do the render-path tests pass and `playwright` show up only as optional?
 Yes = PASS. (If you have `playwright` + network, a real failed `--render` should print a warning.)
 
-**Status:** ☐ PASS ☐ FAIL ☐ BLOCKED · Validated by Roger: ☐ Date: ______
-**Actual result observed:** ______________________________________________
+**Status:** ☑ PASS ☐ FAIL ☐ BLOCKED · Validated by Roger: ☑ Date: 2026-08-20
+**Actual result observed:** 8 render tests passed. `playwright>=1.40.0` appears **only** as the optional `render` extra (`pyproject.toml:30`, with the install note at `:27-29`); it is absent from `requirements.txt`. The live `--render` path was not exercised (no playwright + network in this checkout), as the case anticipates.
 
 ---
 
@@ -190,8 +238,8 @@ is absent.
 **Pass/fail criterion:** Do the docs describe ONNX as an optional, Python-API-only provider?
 Yes = PASS.
 
-**Status:** ☐ PASS ☐ FAIL ☐ BLOCKED · Validated by Roger: ☐ Date: ______
-**Actual result observed:** ______________________________________________
+**Status:** ☑ PASS ☐ FAIL ☐ BLOCKED · Validated by Roger: ☑ Date: 2026-08-20
+**Actual result observed:** `README.md:381-400` and `src/core/README.md:191-196` both describe ONNX as an opt-in, Python-API-only provider — `README.md:400` states plainly "no CLI command automatically loads ONNX models", and `src/core/README.md:196` records the clear error raised when `onnxruntime` is absent, plus why it is deliberately undeclared in `requirements.txt`.
 
 ---
 ---
@@ -206,17 +254,31 @@ sees *why* an expense changed, instead of the note being computed and dropped.
 **Current behaviour (before):** the generator rendered `insights.notes` and `analysis.notes` but
 never `forecast.years[*].notes`, so OPEX-mutation explanations never shipped.
 
-> **⚠ Honesty caveat you must know before testing (documented defect #4).** On real pipeline data
-> the section is **currently empty**, because the engine's OPEX-adjustment triggers test
-> pre-normalization strings (`"old roof"`, `"water stain"`) that the CV layer normalizes away before
-> the engine sees them. F3 renders whatever the engine puts in `notes`; today, on real data, that is
-> nothing. So the demo report is byte-identical before/after F3. The rendering is correct; the
-> upstream trigger/label mismatch is a logged follow-on, not a Mission 2 fix.
+> **⚠ Honesty caveat — CORRECTED 2026-08-20 (see "Findings raised by this pass" at the top).**
+> The original text here said the section "can never populate on real data" because the engine's
+> OPEX triggers test pre-normalization strings (`"old roof"`, `"water stain"`) that the CV layer
+> normalizes away. That was over-broad when written and is now partly out of date:
+>
+> * **The OPEX half was half-closed after this doc was written.** Commit `8e3eeed`
+>   (ROADMAP_TRACKER backlog #7) reconciled `water_leak_suspected` back to the `"water stain"`
+>   literal the engine watches for, on a copy used only for the engine call — so that trigger is
+>   now reachable from the deterministic pipeline. `"old roof"` is still unreachable and was left
+>   so deliberately: no roof-condition concept exists in the CV/label layer to translate back from,
+>   so closing it means inventing ontology vocabulary — a separate decision.
+> * **A second route was always live.** Per `src/core/reports/README.md:49-58`, the engine's
+>   *income* modifiers fire whenever `FinancialInputs.income_is_estimated` is `True` and the listing
+>   yields `parking` or `in-unit laundry` — no AI, no `--engine crewai`.
+>
+> **What to expect from `python main.py`:** still an empty section — but because the *demo bundle*
+> carries no defects (its "Condition & Defects" list is `move-in ready` / `renovated`) and does not
+> set `income_is_estimated`, not because the section is unreachable. Verify the mechanism with the
+> tests below.
 
 **Command(s)** (prove the renderer works using a hand-built forecast that trips the triggers — the
 mission verified this programmatically):
 ```
 python -m pytest tests/core/reports/test_generator_field_guard.py --no-cov -q
+python -m pytest tests/unit/test_financial_forecaster_insights.py --no-cov -q   # backlog #7 (8e3eeed)
 ```
 
 **Expected result:** the generator field-guard tests pass, including the one that constructs a
@@ -225,8 +287,8 @@ forecast with year notes and asserts they render under "Adjustments Applied."
 **Pass/fail criterion:** Do the generator guard tests pass? Yes = PASS. (Do **not** expect the
 section to appear in `python main.py` output — see the caveat.)
 
-**Status:** ☐ PASS ☐ FAIL ☐ BLOCKED · Validated by Roger: ☐ Date: ______
-**Actual result observed:** ______________________________________________
+**Status:** ☑ PASS ☐ FAIL ☐ BLOCKED · Validated by Roger: ☑ Date: 2026-08-20
+**Actual result observed:** 6 generator field-guard tests passed — the renderer is correct. The section is correctly **absent** from `python main.py` output, but for a narrower reason than this case originally stated (caveat corrected above): the demo bundle carries no defects at all (its "Condition & Defects" list is `move-in ready` / `renovated`) and does not set `income_is_estimated`, so no trigger fires. Separately, `tests/unit/test_financial_forecaster_insights.py` — 6 tests, green — covers the post-mission `8e3eeed` reconciliation of the `water stain` trigger.
 
 ---
 
@@ -255,8 +317,8 @@ notes=3
 **Pass/fail criterion:** Are `title/price/sqft/bedrooms/bathrooms/year_built` all shown with real
 values? Yes = PASS.
 
-**Status:** ☐ PASS ☐ FAIL ☐ BLOCKED · Validated by Roger: ☐ Date: ______
-**Actual result observed:** ______________________________________________
+**Status:** ☑ PASS ☐ FAIL ☐ BLOCKED · Validated by Roger: ☑ Date: 2026-08-20
+**Actual result observed:** Output matched the expected line exactly: `title`, `price=219900.0`, `sqft=1016`, `bedrooms=3.0`, `bathrooms=1.0`, `year_built=2015` all present and populated alongside address/amenities/tags/defects/notes.
 
 ---
 
@@ -281,8 +343,8 @@ both `--media-report` and `--provenance` options.
 **Pass/fail criterion:** Do the guard tests pass and both flags appear in `deal-report --help`?
 Yes = PASS.
 
-**Status:** ☐ PASS ☐ FAIL ☐ BLOCKED · Validated by Roger: ☐ Date: ______
-**Actual result observed:** ______________________________________________
+**Status:** ☑ PASS ☐ FAIL ☐ BLOCKED · Validated by Roger: ☑ Date: 2026-08-20
+**Actual result observed:** 3 orchestration-result guard tests passed; `deal-report --help` lists both `--media-report` and `--provenance` (usage line + option entries).
 
 ---
 
@@ -300,13 +362,14 @@ could be silently dropped by any transform with no test going red.
 python -m pytest tests/orchestrators/test_orchestration_result_field_guard.py tests/integration/test_listing_analyst_field_guard.py tests/core/reports/test_generator_field_guard.py tests/core/insights/test_synthesis_field_guard.py --no-cov -q
 ```
 
-**Expected result:** all guard tests pass (24 collected in the set the planner ran). The guard
+**Expected result:** all guard tests pass — **17 collected** (orchestration 3 + listing_analyst 4 +
+generator 6 + synthesis 4; the "24" in the original draft was a miscount, corrected 2026-08-20). The guard
 enumerates model fields dynamically, so it cannot itself carry the defect it guards against.
 
 **Pass/fail criterion:** Do all four guard suites pass? Yes = PASS.
 
-**Status:** ☐ PASS ☐ FAIL ☐ BLOCKED · Validated by Roger: ☐ Date: ______
-**Actual result observed:** ______________________________________________
+**Status:** ☑ PASS ☐ FAIL ☐ BLOCKED · Validated by Roger: ☑ Date: 2026-08-20
+**Actual result observed:** All four guard suites passed — **17/17** (orchestration 3 + listing_analyst 4 + generator 6 + synthesis 4). The "24 collected" figure in the original text was a planner miscount, corrected above; `git log` on all four files shows no test deletions since the mission, so 17 is the full set, not a shrunken one.
 
 ---
 ---
@@ -331,8 +394,8 @@ is available under `--pretty 1`).
 
 **Pass/fail criterion:** Are both summary lines printed? Yes = PASS.
 
-**Status:** ☐ PASS ☐ FAIL ☐ BLOCKED · Validated by Roger: ☐ Date: ______
-**Actual result observed:** ______________________________________________
+**Status:** ☑ PASS ☐ FAIL ☐ BLOCKED · Validated by Roger: ☑ Date: 2026-08-20
+**Actual result observed:** Both `listing insights:` and `photo insights:` summary lines printed. (The payload sits on the line *after* each header, so a bare `grep -E` shows the headers with empty tails — the W1.2 run confirms the listing payload is fully populated.)
 
 ---
 
@@ -358,8 +421,8 @@ photo directory instead.
 
 **Pass/fail criterion:** Is the limitation stated explicitly? Yes = PASS.
 
-**Status:** ☐ PASS ☐ FAIL ☐ BLOCKED · Validated by Roger: ☐ Date: ______
-**Actual result observed:** ______________________________________________
+**Status:** ☑ PASS ☐ FAIL ☐ BLOCKED · Validated by Roger: ☑ Date: 2026-08-20
+**Actual result observed:** The note is the **first** line of output, verbatim as expected, followed by `media: 0 assets (images: 0)` — the empty bundle is now explained rather than silent.
 
 ---
 
@@ -381,8 +444,8 @@ to the compact table"; the run prints that JSON payload to stdout.
 
 **Pass/fail criterion:** Does `--debug` emit the JSON payload? Yes = PASS.
 
-**Status:** ☐ PASS ☐ FAIL ☐ BLOCKED · Validated by Roger: ☐ Date: ______
-**Actual result observed:** ______________________________________________
+**Status:** ☑ PASS ☐ FAIL ☐ BLOCKED · Validated by Roger: ☑ Date: 2026-08-20
+**Actual result observed:** Help reads "Print the full ranked/portfolio JSON payload to stdout, in addition to the compact table." The run printed that payload to stdout (tail showed the closing `total_cashflow` / `risk_items` block) ahead of `Wrote /tmp/m2/adv.json`.
 
 ---
 
@@ -407,8 +470,8 @@ instead, to avoid overwriting the JSON at …/clob.md." — `clob.md` still pars
 
 **Pass/fail criterion:** Does the JSON survive and the markdown land in a separate file? Yes = PASS.
 
-**Status:** ☐ PASS ☐ FAIL ☐ BLOCKED · Validated by Roger: ☐ Date: ______
-**Actual result observed:** ______________________________________________
+**Status:** ☑ PASS ☐ FAIL ☐ BLOCKED · Validated by Roger: ☑ Date: 2026-08-20
+**Actual result observed:** The note named both paths: "--out ends in .md, so writing Markdown to /tmp/m2/clob_report.md instead, to avoid overwriting the JSON at /tmp/m2/clob.md." `clob.md` still parsed as valid JSON, and both `clob.md` and `clob_report.md` exist on disk. No data loss.
 
 ---
 
@@ -435,8 +498,8 @@ project just never fabricates them.
 
 **Pass/fail criterion:** Unrelated JSON refused, sparse-but-real JSON accepted? Yes = PASS.
 
-**Status:** ☐ PASS ☐ FAIL ☐ BLOCKED · Validated by Roger: ☐ Date: ______
-**Actual result observed:** ______________________________________________
+**Status:** ☑ PASS ☐ FAIL ☐ BLOCKED · Validated by Roger: ☑ Date: 2026-08-20
+**Actual result observed:** Unrelated JSON exited **1** with the expected message, enumerating all 12 recognized `ListingInsights` fields. The sparse-but-real `{"address":"12 Real St"}` exited **0** and wrote `r2.md` — absent facts stay legitimate.
 
 ---
 
@@ -458,8 +521,8 @@ change the output (the description continues to enumerate the effect).
 
 **Pass/fail criterion:** Does the `--ai` help state it changes output? Yes = PASS.
 
-**Status:** ☐ PASS ☐ FAIL ☐ BLOCKED · Validated by Roger: ☐ Date: ______
-**Actual result observed:** ______________________________________________
+**Status:** ☑ PASS ☐ FAIL ☐ BLOCKED · Validated by Roger: ☑ Date: 2026-08-20
+**Actual result observed:** Help states the switch from `local` to `vision` (`core.cv.build_photo_insights(use_ai=True)`) and "This DOES change the output: image_detections, amenity_counts, …" — the corrected text, not the earlier false "output does not change" claim.
 
 ---
 
@@ -482,8 +545,8 @@ ingest-listing --help 2>&1 | grep -B0 -A2 -E "save-screenshot"
 
 **Pass/fail criterion:** Is `--save-screenshot` a distinct, documented flag? Yes = PASS.
 
-**Status:** ☐ PASS ☐ FAIL ☐ BLOCKED · Validated by Roger: ☐ Date: ______
-**Actual result observed:** ______________________________________________
+**Status:** ☑ PASS ☐ FAIL ☐ BLOCKED · Validated by Roger: ☑ Date: 2026-08-20
+**Actual result observed:** `--save-screenshot {0,1}` is listed as its own flag in both the usage line and the options block. The `-A2` window truncated the description; read in full it ends "Previously this was silently tied to --pretty; it is now its own flag. Default 1 matches the historical --pretty-driven behavior."
 
 ---
 
@@ -506,8 +569,8 @@ pointing at real `36_kelly_moncton` assets; the advisor run exits 0 and writes a
 
 **Pass/fail criterion:** Does the cited example exist and run cleanly? Yes = PASS.
 
-**Status:** ☐ PASS ☐ FAIL ☐ BLOCKED · Validated by Roger: ☐ Date: ______
-**Actual result observed:** ______________________________________________
+**Status:** ☑ PASS ☐ FAIL ☐ BLOCKED · Validated by Roger: ☑ Date: 2026-08-20
+**Actual result observed:** `data/examples/advisor_deal_config.json` carries `listing_path`, `photos_dir`, `finance_inputs_path`, `title`, all pointing at real `36_kelly_moncton` assets (`finance.json` confirmed present in that bundle). The advisor run exited **0**, printed the ranked table, and wrote `adv2.json`.
 
 ---
 
@@ -533,8 +596,8 @@ No Python traceback.
 
 **Pass/fail criterion:** Clean usage error, no traceback? Yes = PASS.
 
-**Status:** ☐ PASS ☐ FAIL ☐ BLOCKED · Validated by Roger: ☐ Date: ______
-**Actual result observed:** ______________________________________________
+**Status:** ☑ PASS ☐ FAIL ☐ BLOCKED · Validated by Roger: ☑ Date: 2026-08-20
+**Actual result observed:** argparse usage error: `ingest-listing: error: argument --media-kinds: invalid media kind: 'bogus' (choose from: ['document', 'floorplan', 'image', 'other', 'video'])`, exit **2**, no Python traceback.
 
 ---
 
@@ -559,8 +622,8 @@ No Python traceback.
 
 **Pass/fail criterion:** Clean message, no traceback? Yes = PASS.
 
-**Status:** ☐ PASS ☐ FAIL ☐ BLOCKED · Validated by Roger: ☐ Date: ______
-**Actual result observed:** ______________________________________________
+**Status:** ☑ PASS ☐ FAIL ☐ BLOCKED · Validated by Roger: ☑ Date: 2026-08-20
+**Actual result observed:** `/tmp/does_not_exist.json: file not found. Check the path passed to this flag.`, exit **1**, no Python traceback.
 
 ---
 
@@ -586,8 +649,8 @@ address_structure: {'address_line': '47 Perrot Street', 'civic_number': '47', 'u
 
 **Pass/fail criterion:** Does a populated `address_structure` block print? Yes = PASS.
 
-**Status:** ☐ PASS ☐ FAIL ☐ BLOCKED · Validated by Roger: ☐ Date: ______
-**Actual result observed:** ______________________________________________
+**Status:** ☑ PASS ☐ FAIL ☐ BLOCKED · Validated by Roger: ☑ Date: 2026-08-20
+**Actual result observed:** A fully populated `address_structure` block printed, matching the expected dict field-for-field (`address_line`/`civic_number`/`unit_suite`/`city`/`state_province`/`postal_code`/`country_hint`).
 
 ---
 
@@ -613,8 +676,8 @@ unreachable); reconciled living docs carry `_Last reconciled_` stamps.
 
 **Pass/fail criterion:** Does the reachability test pass? Yes = PASS.
 
-**Status:** ☐ PASS ☐ FAIL ☐ BLOCKED · Validated by Roger: ☐ Date: ______
-**Actual result observed:** ______________________________________________
+**Status:** ☑ PASS ☐ FAIL ☐ BLOCKED · Validated by Roger: ☑ Date: 2026-08-20
+**Actual result observed:** 7 reachable-path tests passed. Both living docs carry `_Last reconciled_` stamps (`src/core/reports/README.md:134`, `src/market/README.md:185`).
 
 ---
 ---
@@ -643,8 +706,8 @@ for the `ls`); the strategist/spread tests pass with the reconciled threshold.
 **Pass/fail criterion:** Is `strategist.py` deleted and the spread-threshold contradiction closed?
 Yes = PASS.
 
-**Status:** ☐ PASS ☐ FAIL ☐ BLOCKED · Validated by Roger: ☐ Date: ______
-**Actual result observed:** ______________________________________________
+**Status:** ☑ PASS ☐ FAIL ☐ BLOCKED · Validated by Roger: ☑ Date: 2026-08-20
+**Actual result observed:** `ls src/core/strategy/strategist.py` → "No such file or directory", exit 2 (deleted). 35 strategist/spread tests passed with the reconciled threshold.
 
 ---
 
@@ -672,8 +735,8 @@ were pulled with the toy engine).
 **Pass/fail criterion:** Are the un-wireable/toy modules gone, `--regional-income` kept,
 `--what-if`/`--narrative` removed? Yes = PASS.
 
-**Status:** ☐ PASS ☐ FAIL ☐ BLOCKED · Validated by Roger: ☐ Date: ______
-**Actual result observed:** ______________________________________________
+**Status:** ☑ PASS ☐ FAIL ☐ BLOCKED · Validated by Roger: ☑ Date: 2026-08-20
+**Actual result observed:** All three files report "No such file or directory" (`orchestrator.py`, `agents/listing_ingest.py`, `core/advisor/scenarios.py`). `deal-advisor --help` shows `--regional-income` and **neither** `--what-if` nor `--narrative`.
 
 ---
 
@@ -699,8 +762,8 @@ Run Provenance appendix with `Cap-rate floor | 5.00%`, `Media report schema | me
 **Pass/fail criterion:** Do the floor value and the media provenance rows appear in the report?
 Yes = PASS.
 
-**Status:** ☐ PASS ☐ FAIL ☐ BLOCKED · Validated by Roger: ☐ Date: ______
-**Actual result observed:** ______________________________________________
+**Status:** ☑ PASS ☐ FAIL ☐ BLOCKED · Validated by Roger: ☑ Date: 2026-08-20
+**Actual result observed:** All five expected lines present: the floor line at 94, and Run Provenance rows `Cap-rate floor | 5.00%` (211), `Media report schema | media_report_v1` (218), `CV ontology | amenities_defects_v1` (219), `Photo pipeline — provider_kind | heuristic_stub` (221).
 
 ---
 
@@ -727,8 +790,8 @@ active code line that returns that label. The corroboration/contested CV tests p
 **Pass/fail criterion:** Is the geometry-derived parking emission removed and the CV tests green?
 Yes = PASS.
 
-**Status:** ☐ PASS ☐ FAIL ☐ BLOCKED · Validated by Roger: ☐ Date: ______
-**Actual result observed:** ______________________________________________
+**Status:** ☑ PASS ☐ FAIL ☐ BLOCKED · Validated by Roger: ☑ Date: 2026-08-20
+**Actual result observed:** 3 remaining mentions, all inside the "What it deliberately does NOT emit" docstring block at `src/core/cv/amenities_defects.py:568-585` — verified to be prose recording the removal (including why the label was one registration away from moving money), with no active code line returning it. 30 CV corroboration/contested/filename/stub tests passed.
 
 ---
 
@@ -756,8 +819,8 @@ additive `source` field. The contested claim now records as a flagged hint with 
 **Pass/fail criterion:** Do the contested-label tests pass (claim flagged, not monetized)?
 Yes = PASS.
 
-**Status:** ☐ PASS ☐ FAIL ☐ BLOCKED · Validated by Roger: ☐ Date: ______
-**Actual result observed:** ______________________________________________
+**Status:** ☑ PASS ☐ FAIL ☐ BLOCKED · Validated by Roger: ☑ Date: 2026-08-20
+**Actual result observed:** 28 tests passed across the corroboration and synthesis guard suites. `DetectedLabelModel` carries the additive `source: DetectionSource` field at `src/schemas/models.py:594`, so the marker survives the `extra="ignore"` schema boundary.
 
 ---
 
@@ -779,8 +842,8 @@ python -m pytest tests/ -k "tag_images or promotion or kitchen_island" --no-cov 
 
 **Pass/fail criterion:** Do the tests pass with the promotion flagged? Yes = PASS.
 
-**Status:** ☐ PASS ☐ FAIL ☐ BLOCKED · Validated by Roger: ☐ Date: ______
-**Actual result observed:** ______________________________________________
+**Status:** ☑ PASS ☐ FAIL ☐ BLOCKED · Validated by Roger: ☑ Date: 2026-08-20
+**Actual result observed:** 2 tests passed — the promotion is flagged and no money moves. (Noted for the record: 2 tests is thin coverage for a money-adjacent guard, though it meets this case's bar.)
 
 ---
 
@@ -806,8 +869,8 @@ parking" / "not measured" wording for uncovered capabilities, gated on whether a
 **Pass/fail criterion:** Does the report say "not checked/not measured" rather than asserting a
 negative sighting? Yes = PASS.
 
-**Status:** ☐ PASS ☐ FAIL ☐ BLOCKED · Validated by Roger: ☐ Date: ______
-**Actual result observed:** ______________________________________________
+**Status:** ☑ PASS ☐ FAIL ☐ BLOCKED · Validated by Roger: ☑ Date: 2026-08-20
+**Actual result observed:** Both honesty lines present at `rep.md:81-82`, and each carries its *reason* rather than a bare hedge: "Quality Proxies (0-1 scale): curb_appeal_score not measured, …" and "Parking (from photos): not checked — no photo check in this run looks for parking · EV charging not checked — no photo check in this run looks for chargers".
 
 ---
 ---
@@ -825,7 +888,12 @@ These were **not** fixed in Mission 2, by decision. They are the real remaining 
 | **`strict_dom` bypass** on rendered-HTML DOM-parse failure | **BACKLOG** | Pre-existing; a `strict_dom=True` caller gets a fallback instead of the raise they asked for. Follow-on. |
 | **Report plain-language pass** | **BACKLOG** | Raw ontology ids (`mold_suspected`), undefined `bps`, unglossed "cap-rate spread"/"seasoning", 64-char SHA in an investor doc. |
 
-**Status:** ☐ Reviewed and understood (Roger) · Date: ______
+**Status:** ☑ Reviewed and understood (Roger) · Date: 2026-08-20
+
+> Reviewed and accepted in the 2026-08-20 validation session. Note for the record: the W0.2 env
+> vector (`AIREAL_LISTING` with no `--config`) was **not** re-reproduced during that session — it is
+> carried forward as still-open on the strength of the mission record, not on a fresh observation.
+> The other four rows are documentation/decision state, verifiable by reading.
 
 ---
 
@@ -835,9 +903,22 @@ These were **not** fixed in Mission 2, by decision. They are the real remaining 
 python -m pytest -q
 ```
 **Expected:** ~630 tests pass, coverage ≥ 80% (the mission closed at 630 tests / 86.09% @ `fbc3179`).
+Note that the tree has moved on since (`5dcdf1a` adds the backlog #7 fix and its 6 tests), so expect
+a slightly higher count than 630.
 
-**Status:** ☐ PASS ☐ FAIL ☐ BLOCKED · Validated by Roger: ☐ Date: ______
+**Status:** ☑ PASS ☐ FAIL ☐ BLOCKED · Validated by Roger: ☑ Date: 2026-08-20
+**Actual result observed:** **638 tests collected, 638 passed, 0 failed.** Coverage **86.09%**
+(4122 stmts / 446 missed / 1372 branches), against the 80% gate — "Required test coverage of 80%
+reached." The count is up from the mission-close 630 by the 8 tests the post-mission commits added
+(`8e3eeed`'s backlog #7 suite among them), and total coverage held at 86.09%. Three
+`CoverageWarning`s appeared (`src/tools` never imported; two `src/schemas/README.md::` doctest-style
+items unparseable) — pre-existing reporting noise, not failures, and not in scope for this doc.
 
 ---
 
 _End of Mission 2 manual testing handoff._
+
+_**Mission 2: MANUALLY VALIDATED.** Pass recorded 2026-08-20 by Roger Booto Tokime against
+`main @ 5dcdf1a` — 28/28 cases PASS, 0 FAIL, 0 BLOCKED; whole suite 638 passed at 86.09% coverage;
+DEFERRED table reviewed and accepted. Two documentation defects found and corrected in place (W1.1
+caveat, W1.4 count); two source-tree follow-ons logged at the top and not yet actioned._
