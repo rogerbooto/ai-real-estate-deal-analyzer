@@ -276,9 +276,10 @@ inherits for free.
 
 ## 5. Current recommendation
 
-**Mission 3 — Wire the bring-your-own ONNX model provider to a real user path (BUILT; Gate D + Gate V
-cleared 2026-08-20; **manually validated by Roger 2026-08-29, 9/9 cases PASS**; merge + push to `main`
-still open at Roger's word).** A scoped slice of backlog #3: **offering 1 of 3 only** (BYO ONNX model) — NOT the
+**Mission 3 — Wire the bring-your-own ONNX model provider to a real user path — ✅ SHIPPED 2026-08-29.**
+Gate D + Gate V cleared 2026-08-20; manually validated by Roger 2026-08-29 (**9/9 cases PASS**); merged
+`--no-ff` as **`8b59399`** and pushed to `origin/main`. All four gates cleared. **The next mission is
+Mission 4** (planning artifacts drafted under `docs/plans/MISSION_4_*`, not yet committed). A scoped slice of backlog #3: **offering 1 of 3 only** (BYO ONNX model) — NOT the
 hosted-API-key offering, NOT a project-shipped ViT. Baseline `main @ a00a265`; branch
 `mission/3-byo-onnx-provider`. Artifacts: `docs/plans/MISSION_3_byo_onnx_provider.md` (charter),
 `docs/plans/MISSION_3_SPRINT_TRACKER.md`, `docs/plans/MISSION_3_HANDOFF.md` (pasteable prompt),
@@ -315,7 +316,7 @@ the parked media-intelligence refactor (`parked/media-intelligence-refactor`) st
 
 ## 6. Changelog
 
-* **2026-08-29 (Mission 3 MANUALLY VALIDATED — Roger's 9/9 pass; docs-only, no code, no git ops)** —
+* **2026-08-29 (Mission 3 SHIPPED — Roger's 9/9 manual pass, then merged and pushed)** —
   Roger drove every case in `docs/manual testing/MISSION_3_MANUAL_TESTING.md` by hand in the `airedeal`
   env on branch `mission/3-byo-onnx-provider` (tree on top of `main @ 6d9c000`, `OUT=/tmp/m3`):
   **9 / 9 PASS, 0 FAIL, 0 BLOCKED, no blocking issues.** Confirmed end-to-end — a self-built ONNX
@@ -329,10 +330,15 @@ the parked media-intelligence refactor (`parked/media-intelligence-refactor`) st
   byte-identical on both streams; whole suite green (**684 passed**, coverage **87.20%**, ruff format
   216 files + ruff check + mypy 214 files all clean). The DEFERRED table (offerings 2 hosted-API-key and
   3 project-trained model, both deliberately unbuilt) was reviewed and accepted. DoD box 12 flipped;
-  all 12 now ticked. **Still open and Roger's call:** the `--no-ff` merge to `main` and the push
-  (plus the still-unpushed `6d9c000`). Updated the manual-testing doc (case-by-case observed results),
-  `MISSION_3_SPRINT_TRACKER.md` (status block, wave summary, DoD item 12, mission-gate record), and
-  §5 here. No git ops performed.
+  all 12 now ticked. **Then, at Roger's instruction, the mission shipped:** committed as `bfb9cc2` on
+  `mission/3-byo-onnx-provider`, merged `--no-ff` into `main` as **`8b59399`**, and pushed
+  (`5dcdf1a..8b59399`) — which also carried the previously-unpushed `6d9c000` (Mission 2's validation
+  record), closing both outstanding pushes; `origin/main...main` is now `0 0`, no force-push. Post-merge
+  battery re-run on `main`: **684 passed / 0 failed / 0 skipped**, coverage **87.20%**, ruff (216 files)
+  + mypy (214 files) clean, and `python main.py` on a cold cache still hashes `545e22b2…`. The Mission 4
+  planning artifacts were deliberately left untracked and are not part of this merge. Updated the
+  manual-testing doc (case-by-case observed results), `MISSION_3_SPRINT_TRACKER.md` (status block, wave
+  summary, DoD item 12, INT.1, mission-gate record), and §5 here.
 * **2026-08-19 (Mission 3 CHARTERED — Wire the bring-your-own ONNX model provider; docs-only, no code,
   no git ops)** — Phase 0: verified baseline `main @ a00a265`, tree clean, **1 commit ahead of
   `origin/main @ 0ea42fd`** (the unpushed docs backfill; Roger controls the push — noted for Wave

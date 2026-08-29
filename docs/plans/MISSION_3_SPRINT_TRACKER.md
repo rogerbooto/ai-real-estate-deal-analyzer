@@ -94,7 +94,7 @@ orchestrator verifying) · `DONE` (verified inline) · `DEFERRED`
   confirmed: two consecutive `python main.py` runs byte-identical
   (`545e22b20b967b37c5b7ba20477f9df7c85f5b5a7c151f2e0d79b543d69d31f0`) — this is the pre-mission
   reference the "default stays byte-identical" constraint is measured against.
-- Gates cleared: **3 / 4** — ☑ Pre-D product call · ☑ Gate D pre-impl · ☑ **Gate V post-impl (2026-08-20)** · ◐ **Mission gate — Roger's manual validation ☑ CLEARED 2026-08-29 (9/9 PASS); merge + push still OPEN, his call**
+- Gates cleared: **4 / 4** — ☑ Pre-D product call · ☑ Gate D pre-impl · ☑ **Gate V post-impl (2026-08-20)** · ☑ **Mission gate — CLEARED 2026-08-29** (Roger's manual pass 9/9, then merged `--no-ff` as **`8b59399`** and pushed to `origin/main` at his instruction). **Mission 3 is SHIPPED.**
 - Product calls outstanding: **0** — the one bounded call is **CLOSED**, see the PD.1 decision
   record. It covered flag name(s) / `AIREAL_*` env-var convention /
   whether the offering extends to `main.py`, plus the flag-vs-env precedence rule and the
@@ -124,7 +124,7 @@ orchestrator verifying) · `DONE` (verified inline) · `DEFERRED`
 | Impl | Implementation (wire + tests + docs) | 3 | 3 | **DONE** (+2 unplanned blocker fixes) | — |
 | Val | Validation | 1 | 1 | **DONE** | **Gate V** |
 | GV | Gate V (review + guardian) | 2 | 2 | **DONE — CLEARED** | ✅ 2026-08-20 |
-| Int | Wave Integrate | 1 | 0 | TODO — manual validation ☑ cleared 2026-08-29; merge/push awaiting Roger's word | Mission gate: Roger |
+| Int | Wave Integrate | 1 | 1 | **DONE 2026-08-29** — merged `8b59399`, pushed | ✅ Mission gate cleared |
 
 ## Wave Sync
 
@@ -983,19 +983,23 @@ the discrepancy recorded here rather than quietly reconciled.
 
 | ID | Task | Agent → tier | Status |
 | --- | --- | --- | --- |
-| INT.1 | **Precondition:** Roger runs `docs/manual testing/MISSION_3_MANUAL_TESTING.md`; document-level box reads VALIDATED. Then: `git fetch`; rebase/merge onto latest `main`; re-run full battery post-rebase; `git merge --no-ff mission/3-byo-onnx-provider`; push at Roger's instruction (reconcile the origin delta — as of the branch cut that is **`6d9c000`**, the Mission 2 validation record, **not** the `a00a265` the charter named; never force-push). Record merge sha + push result | orchestrator (inline) + Roger → n/a | TODO |
+| INT.1 | **DONE 2026-08-29** — merge **`8b59399`**, pushed to `origin/main` (`5dcdf1a..8b59399`), which also carried the previously-unpushed `6d9c000`; `origin/main...main` now `0 0`. Post-merge battery re-run on `main` in `airedeal`: **684 passed / 0 failed / 0 skipped** (JUnit-verified), coverage **87.20%**, `ruff format --check` 216 files clean, `ruff check` clean, `mypy .` clean (214 files), and `python main.py` on a cold `.cache/cv` still hashes **`545e22b2…`**. Never force-pushed. _Original task text:_ **Precondition:** Roger runs `docs/manual testing/MISSION_3_MANUAL_TESTING.md`; document-level box reads VALIDATED. Then: `git fetch`; rebase/merge onto latest `main`; re-run full battery post-rebase; `git merge --no-ff mission/3-byo-onnx-provider`; push at Roger's instruction (reconcile the origin delta — as of the branch cut that is **`6d9c000`**, the Mission 2 validation record, **not** the `a00a265` the charter named; never force-push). Record merge sha + push result | orchestrator (inline) + Roger → n/a | TODO |
 
 ### Mission gate decision record
 
-**Status: MANUAL VALIDATION CLEARED 2026-08-29 — merge + push still awaiting Roger's word.**
-All 12 DoD boxes are now ticked: the 11 orchestrator-owned ones verified against the tree, and box 12
-flipped by Roger's own 9/9 manual pass.
+**Status: CLEARED 2026-08-29 — Mission 3 is SHIPPED.** All 12 DoD boxes ticked: the 11
+orchestrator-owned ones verified against the tree, and box 12 flipped by Roger's own 9/9 manual pass.
 
-· Manual-testing doc VALIDATED by Roger: ☑ · Date: **2026-08-29** · Merge sha: ______ ·
-Pushed: ☐ yes ☐ no (Roger deferred) · Notes: validation ran against the uncommitted working tree, as
-designed — Roger validated exactly what he will merge.
+· Manual-testing doc VALIDATED by Roger: ☑ · Date: **2026-08-29** · Mission commit: **`bfb9cc2`** ·
+Merge sha: **`8b59399`** (`--no-ff` into `main`) · Pushed: ☑ **yes** (`5dcdf1a..8b59399`, at Roger's
+instruction; no force-push) · Notes: validation ran against the uncommitted working tree, as designed —
+Roger validated exactly the tree that was then committed and merged, unchanged. The push also carried
+the previously-unpushed `6d9c000` (Mission 2's validation record), so `origin/main` and `main` are now
+in sync (`0 0`). The Mission 4 planning artifacts in the working tree were deliberately left
+untracked and are **not** part of this merge.
 
-**Nothing is committed.** The entire mission sits uncommitted in the working tree by design, so Roger
-validates exactly what he will merge. **Two `main` pushes are outstanding and both are Roger's call:**
-`6d9c000` (his Mission 2 validation record, committed at his instruction, still unpushed — `main` is
-1 ahead of `origin/main`), and this mission's eventual merge.
+**Committed and shipped 2026-08-29.** _(Historical: the entire mission sat uncommitted in the working
+tree by design, so Roger validated exactly what he would merge — that held right up to the commit.)_
+Mission commit `bfb9cc2` on `mission/3-byo-onnx-provider`, merged `--no-ff` as `8b59399`, pushed at
+Roger's instruction. Both previously-outstanding `main` pushes are now closed: `6d9c000` (Mission 2's
+validation record) rode along with this push, and `origin/main...main` is `0 0`.
