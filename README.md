@@ -376,17 +376,31 @@ uv pip compile requirements.txt requirements-dev.txt \
   --output-file requirements-dev.lock --python-version 3.10 --generate-hashes
 ```
 
-### Optional Dependencies
+### Optional: Bring Your Own ONNX Classifier
 
 **ONNX Runtime** (for custom computer-vision models)
 
-If you want to bring your own trained ONNX image classification model to detect amenities and defects, install `onnxruntime`:
+`onnxruntime` ships by default with every documented installation path. You can bring your own trained ONNX image classification model to detect amenities and defects via the CLI or the Python API.
+
+**Via CLI (for `ingest-listing` only):**
 
 ```bash
-pip install onnxruntime
+ingest-listing --file listing.txt --photos ./photos \
+  --onnx-model path/to/your_model.onnx \
+  --onnx-labels path/to/labels.json
 ```
 
-Then register your model in Python before running your analysis:
+Or set environment variables instead (CLI flags take precedence per field):
+
+```bash
+export AIREAL_ONNX_MODEL=path/to/your_model.onnx
+export AIREAL_ONNX_LABELS=path/to/labels.json
+ingest-listing --file listing.txt --photos ./photos
+```
+
+Supplying only one of model/labels is a configuration error and exits with a clean message.
+
+**Via Python API:**
 
 ```python
 from src.core.cv import register_onnx_provider
@@ -395,9 +409,10 @@ register_onnx_provider(
     model_path="path/to/your_model.onnx",
     labels_path="path/to/labels.json"
 )
+# Then call your analysis pipeline
 ```
 
-This is a **Python-API-only feature** — no CLI command automatically loads ONNX models. The ONNX provider is lazy-loaded and optional; if not installed, the default providers (`local` heuristics, `vision`/`llm` stubs) continue to work. See [`src/core/README.md`](src/core/README.md#dependencies--optional-providers) for details.
+**Important:** This is **your own model** — the project does not vouch for its accuracy. Only load model files from sources you trust — a model file is executed by a native runtime; a malicious one can exhaust memory or crash the process. When an ONNX provider is registered, it outranks `--ai` and the default `local` provider, even without the `--ai` flag. The ONNX provider is not used by `python main.py`'s pipeline (which routes photo tagging through a separate call site). See [`src/core/README.md`](src/core/README.md#dependencies--optional-providers) for details.
 
 ---
 
@@ -472,4 +487,4 @@ testpaths = tests
 
 ---
 
-_Last reconciled: 2026-08-19 against main @ 8ed9397 (post-release fixes `ee023ee`/`66ffacd`: corrected the High-Level Architecture claim that the CrewAI seam "validates the environment" as a shell-construction step — with `AIREAL_LLM_MODE` unset no Agent shell is built at all, only fail-fast env checks run; fixed the Tech Stack "Deps"/"Packaging" bullets to name `requirements.lock` as what CI actually installs and to reflect that `pip install -e .` and the console scripts work; fixed a duplicated `git clone git clone` typo and added the `requirements.lock` install path + regeneration command to Developer Setup). Earlier note: 2026-08-04 against mission/2-wiring-gaps @ d18ee1a (Gate 2 VETO remediation: corrected the High-Level Architecture / Technical Architecture / V4-roadmap claims that `crew.kickoff()` is not yet called — it is, opt-in, for the Listing Analyst's observations only; the verdict is always deterministic, in every mode. Earlier note: 2026-08-03 @ 74c985c, ingest CLI example corrected to reflect F10/F11 media-flag reachability)._
+_Last reconciled: 2026-08-20 against mission/3-byo-onnx-provider: rewrote the "Optional Dependencies → ONNX Runtime" section into "Optional: Bring Your Own ONNX Classifier"; documented both the new CLI path (`--onnx-model` / `--onnx-labels` and env vars, with examples) and the Python API; corrected two actively false claims (that onnxruntime must be "installed separately" and that it is a "Python-API-only feature — no CLI command automatically loads ONNX models"). Added the GD-5 trust-boundary warning about model files being executed by native runtime. Earlier note: 2026-08-19 against main @ 8ed9397 (post-release fixes `ee023ee`/`66ffacd`: corrected the High-Level Architecture claim that the CrewAI seam "validates the environment" as a shell-construction step — with `AIREAL_LLM_MODE` unset no Agent shell is built at all, only fail-fast env checks run; fixed the Tech Stack "Deps"/"Packaging" bullets to name `requirements.lock` as what CI actually installs and to reflect that `pip install -e .` and the console scripts work; fixed a duplicated `git clone git clone` typo and added the `requirements.lock` install path + regeneration command to Developer Setup). Earlier note: 2026-08-04 against mission/2-wiring-gaps @ d18ee1a (Gate 2 VETO remediation: corrected the High-Level Architecture / Technical Architecture / V4-roadmap claims that `crew.kickoff()` is not yet called — it is, opt-in, for the Listing Analyst's observations only; the verdict is always deterministic, in every mode. Earlier note: 2026-08-03 @ 74c985c, ingest CLI example corrected to reflect F10/F11 media-flag reachability)._

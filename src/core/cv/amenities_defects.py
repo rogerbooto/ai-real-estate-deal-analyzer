@@ -111,6 +111,31 @@ def contested_hint_note(label: str) -> str:
     return CONTESTED_HINT_NOTE.format(label=label)
 
 
+#: Gate V (Mission 3, blocker B-2 follow-up). `UNCONFIRMED_HINT_NOTE` says "no registered detector
+#: can examine the pixels for it" -- true when nothing was ever registered for the label, but
+#: understated when a covering detector WAS registered and its per-image inference call raised
+#: (see `runner.tag_amenities_and_defects`'s `on_provider_failure` / B-2). `_covered_labels` is
+#: resolved once per call, outside the per-image loop (`runner.py`), so within a single run a given
+#: label's unconfirmed entries are either all genuinely-uncovered or all covered-but-crashed, never
+#: mixed -- which is what makes a run-level (not per-label/per-image) note true. The guardian
+#: explicitly ruled out reworking `UNCONFIRMED_HINT_NOTE` itself and out of per-label/per-image
+#: plumbing: this is the whole fix, appended once per run, only when `provider_examination_failures`
+#: is present in provenance. "May reflect" -- not "does reflect" -- is deliberate: this note cannot
+#: tell the reader WHICH unconfirmed-hint labels above were affected, only that the possibility
+#: exists this run.
+PROVIDER_FAILURE_NOTE = (
+    "Note: a registered detector failed to examine {count} photo(s) during this run and could not "
+    "report on them (see 'provider_examination_failures' in the Run Provenance appendix). Any "
+    "'Unconfirmed photo hint' note above may reflect a detector that could not be run, not one "
+    "that was never registered."
+)
+
+
+def provider_failure_note(count: int) -> str:
+    """Render :data:`PROVIDER_FAILURE_NOTE` for the number of images a provider failed to examine."""
+    return PROVIDER_FAILURE_NOTE.format(count=count)
+
+
 def is_unconfirmed_hint(det: Mapping[str, Any]) -> bool:
     """True when nothing examined the pixels for this label, so it carries no confidence.
 
@@ -278,14 +303,28 @@ class _OnnxModel:
 
         with open(labels_path, encoding="utf-8") as f:
             meta = json.load(f)
-        labels = meta.get("labels")
+        # `meta` is only guaranteed to be a dict when labels.json is object-rooted (the
+        # documented shape, `{"labels": [...]}`). A JSON root that parses cleanly but isn't an
+        # object (a bare list, string, or number) must still funnel into the ValueError below,
+        # not raise AttributeError from `.get()` on a non-dict -- see
+        # docs/plans/MISSION_3_DISCOVERY_SPEC.md §0.3 and MISSION_3_GATE_D_SECURITY.md GD-2.
+        labels = meta.get("labels") if isinstance(meta, dict) else None
         if not isinstance(labels, list) or not labels:
             raise ValueError("labels.json must contain a non-empty 'labels' list")
         self.labels: list[str] = [str(x) for x in labels]
 
-        # init session (CPU-only)
+        # init session (CPU-only). Pinned to single-threaded, sequential execution: a
+        # multi-threaded default leaves floating-point reduction order across threads
+        # non-associative, which would make "identical input -> identical output" not actually
+        # hold for a real InferenceSession -- reproducibility is an integrity control this
+        # project's deterministic-core invariant relies on, not a nicety (see
+        # docs/plans/MISSION_3_GATE_D_SECURITY.md GD-4).
         self._ort = ort
-        self.sess = ort.InferenceSession(model_path, providers=["CPUExecutionProvider"])
+        sess_options = ort.SessionOptions()
+        sess_options.intra_op_num_threads = 1
+        sess_options.inter_op_num_threads = 1
+        sess_options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+        self.sess = ort.InferenceSession(model_path, sess_options=sess_options, providers=["CPUExecutionProvider"])
 
         # Detect input
         inputs = self.sess.get_inputs()
@@ -304,6 +343,17 @@ class _OnnxModel:
             # default to NCHW if ambiguous
             self.nchw = True
 
+        # This wrapper's contract is "single-image float32 classifier" -- `_preprocess` always
+        # builds a float32 tensor (see below), so a graph declaring anything else can never be
+        # fed correctly. Validate that fail-closed, HERE, at registration time: letting a model
+        # file's own declared type select which numpy cast `_preprocess` runs would hand a
+        # hostile model control over the conversion path, for zero legitimate benefit (security
+        # ruling, docs/plans/MISSION_3_GATE_D_SECURITY.md follow-on). Rejecting an unsupported
+        # declared type here also converts what used to be a silently-swallowed per-image
+        # inference failure into a loud, load-time config error the user can act on.
+        if inputs[0].type != "tensor(float)":
+            raise RuntimeError(f"ONNX model input type {inputs[0].type} not supported; expected tensor(float)")
+
         # Detect output
         outs = self.sess.get_outputs()
         if not outs:
@@ -313,11 +363,20 @@ class _OnnxModel:
     def _preprocess(self, img: Image.Image) -> Any:
         img = img.convert("RGB").resize(self.image_size)
         arr = np.asarray(img).astype("float32") / 255.0  # HWC
-        # normalize
-        arr = (arr - self.mean) / self.std
+        # normalize -- `self.mean`/`self.std` are plain Python-float tuples; subtracting them
+        # from a float32 array without casting first promotes the RESULT to float64 (NumPy's
+        # standard array-array type-promotion rule, confirmed against numpy 1.26.4), which
+        # `InferenceSession.run` then rejects (the graph's declared input type is validated
+        # `tensor(float)`-only in __init__, above). Casting mean/std to float32 up front, and
+        # both operands to the subtraction/division being float32, keeps the arithmetic in
+        # float32 throughout with no float64 intermediate -- verified against a real
+        # onnxruntime session, not just in isolation.
+        mean = np.asarray(self.mean, dtype=np.float32)
+        std = np.asarray(self.std, dtype=np.float32)
+        arr = ((arr - mean) / std).astype("float32")
         if self.nchw:
-            arr = arr.transpose(2, 0, 1)  # CHW
-        # add batch dim
+            arr = arr.transpose(2, 0, 1)  # CHW -- dtype-preserving, still float32
+        # add batch dim -- dtype-preserving, still float32
         arr = arr[None, ...]
         return arr
 
@@ -387,11 +446,12 @@ def register_onnx_provider(
     """
     Runtime registration for provider='onnx'.
 
-    Python-API opt-in hook only: nothing in the shipped CLIs (`ingest-listing`,
-    `deal-report`, `deal-advisor`) or `main.py` calls this. A caller that wants
-    an ONNX-backed detector must invoke it explicitly before requesting
-    provider='onnx' (e.g. from a notebook, script, or a future user-supplied
-    model integration -- see roadmap backlog).
+    Opt-in hook: nothing in `main.py`'s pipeline calls this (that path reaches photo tagging
+    through `CvTaggingOrchestrator`, a separate seam that does not read this registry -- see
+    `src/core/README.md`). `ingest-listing` (`src/cli/ingest_cli.py`) calls this when its
+    `--onnx-model`/`--onnx-labels` flags (or `AIREAL_ONNX_MODEL`/`AIREAL_ONNX_LABELS`) resolve.
+    Any other caller that wants an ONNX-backed detector -- a notebook, a script -- can also
+    invoke it explicitly before requesting provider='onnx'.
 
     ``labels_path`` doubles as the capability declaration; see :func:`register_provider`.
     """
@@ -639,6 +699,24 @@ ProviderKind = Literal["heuristic_stub", "model"]
 #: model. Membership is checked by identity against the *current* binding, so a slot that gets
 #: overwritten reports "model" from that moment on without anyone remembering to update a list.
 _BUILTIN_STUB_FNS: frozenset[ProviderFn] = frozenset({_provider_local, _provider_vision_stub, _provider_llm_stub})
+
+
+def is_provider_registered(provider: ProviderName) -> bool:
+    """True when ``provider`` is currently bound in the registry.
+
+    The non-raising sibling of :func:`provider_kind`/:func:`provider_capabilities` (both raise
+    ``ValueError`` for an unregistered provider -- correct when a caller already believes the
+    provider exists and wants to know about it). A caller that needs to ASK whether a slot is
+    bound at all -- e.g. :func:`~src.core.cv.photo_insights.build_photo_insights` deciding whether
+    a registered ONNX provider should outrank ``vision``/``local`` -- needs a predicate that never
+    raises, so selection logic can read it as an ordinary boolean.
+
+    Queries in-process registry state only (the same ``_PROVIDERS`` dict every other function in
+    this module reads/writes). No network call, no filesystem access, no CLI/env awareness --
+    this keeps ``core/cv`` from depending on how a provider *got* registered, only on whether it
+    is.
+    """
+    return provider in _PROVIDERS
 
 
 def provider_kind(provider: ProviderName) -> ProviderKind:

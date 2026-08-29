@@ -32,14 +32,14 @@ Migration Notes
 
 from __future__ import annotations
 
-from src.core.cv.amenities_defects import contested_hint_note, unconfirmed_hint_note
+from src.core.cv.amenities_defects import contested_hint_note, provider_failure_note, unconfirmed_hint_note
 from src.core.ingest.listing_parser import parse_listing_string, parse_listing_text
 from src.core.insights.provenance import attach
 from src.orchestrators.cv_tagging_orchestrator import CvTaggingOrchestrator
 from src.schemas.models import ListingInsights, ObservationProvenance
 
 
-def _hint_notes(hints: set[str], contested: set[str]) -> list[str]:
+def _hint_notes(hints: set[str], contested: set[str], *, provider_failure_count: int = 0) -> list[str]:
     """Turn unconfirmed and contested filename hints into reader-facing notes.
 
     ``notes`` is the carrier on purpose. The three tag lists (``amenities``/``condition_tags``/
@@ -53,8 +53,19 @@ def _hint_notes(hints: set[str], contested: set[str]) -> list[str]:
     Two different sentences, not one: "nothing could check this" and "something checked and
     disagreed" are different facts, and a reader told the second must not come away believing the
     first (see ``core.cv.amenities_defects.CONTESTED_HINT_NOTE``).
+
+    ``provider_failure_count``, when > 0, appends one further note (Gate V, Mission 3, B-2
+    follow-up): a run where a registered detector's inference crashed on at least one image
+    routes that image's filename matches to ``unconfirmed_hint_note`` too (see B-2), but that
+    note's wording -- "no registered detector can examine the pixels" -- understates the crash
+    case, where a detector *is* registered and *did* declare the capability. One additive,
+    run-level note says so without rewording ``UNCONFIRMED_HINT_NOTE`` itself or threading the
+    distinction per label/per image, both of which the guardian ruled out of scope.
     """
-    return [unconfirmed_hint_note(label) for label in sorted(hints)] + [contested_hint_note(label) for label in sorted(contested)]
+    notes = [unconfirmed_hint_note(label) for label in sorted(hints)] + [contested_hint_note(label) for label in sorted(contested)]
+    if provider_failure_count:
+        notes.append(provider_failure_note(provider_failure_count))
+    return notes
 
 
 def analyze_listing(
@@ -99,6 +110,7 @@ def analyze_listing(
     photo_hints: set[str] = set()
     photo_contested: set[str] = set()
     photo_observations: list[ObservationProvenance] = []
+    photo_provider_failure_count = 0
     try:
         if photos_folder:
             cv = CvTaggingOrchestrator()
@@ -118,6 +130,14 @@ def analyze_listing(
             # Per-tag provenance for those same photo tags (provider, kind, confidence, evidence).
             raw_obs = cv_out.get("observations", []) if isinstance(cv_out, dict) else []
             photo_observations = [o for o in (raw_obs or []) if isinstance(o, ObservationProvenance)]
+            # Gate V (Mission 3, B-2 follow-up): additive, present only when a provider's
+            # inference call actually raised on at least one image this run -- see
+            # `CvTaggingOrchestrator.analyze_paths`, which mirrors
+            # `photo_insights.build_photo_insights`'s `provenance["provider_examination_failures"]`
+            # shape so the two producers' sibling notes stay consistent.
+            raw_failures = cv_out.get("provider_examination_failures") if isinstance(cv_out, dict) else None
+            if isinstance(raw_failures, dict):
+                photo_provider_failure_count = int(raw_failures.get("count", 0) or 0)
     except Exception:
         # Defensive: never crash due to image folder issues.
         photo_condition = set()
@@ -126,6 +146,7 @@ def analyze_listing(
         photo_hints = set()
         photo_contested = set()
         photo_observations = []
+        photo_provider_failure_count = 0
 
     # --- Merge ---
     # Address, title, amenities, notes and facts come from text. Condition and defects are the
@@ -141,7 +162,10 @@ def analyze_listing(
             "amenities": sorted(set(text_insights.amenities) | photo_amenities),
             "condition_tags": sorted(photo_condition | set(text_insights.condition_tags)),
             "defects": sorted(photo_defects | set(text_insights.defects)),
-            "notes": sorted(set(text_insights.notes) | set(_hint_notes(photo_hints, photo_contested))),
+            "notes": sorted(
+                set(text_insights.notes)
+                | set(_hint_notes(photo_hints, photo_contested, provider_failure_count=photo_provider_failure_count))
+            ),
         }
     )
     # The tag lists are a union, so the ledger is too: a tag both sources saw keeps BOTH records,

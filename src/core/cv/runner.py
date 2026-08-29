@@ -4,7 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any, Literal, NamedTuple
 
@@ -56,7 +56,15 @@ AssetLike = str | Path | MediaAsset
 # shrank with the emission, so the key changes anyway -- but the version is the segment a human
 # reads and reasons about, and "a provider's detection payload changed" is exactly what it is for.
 # Belt and suspenders, at a cost of one recompute.
-_CACHE_BEHAVIOUR_VERSION = "v5"
+#
+# v5 → v6: fixed the B-2 honesty defect -- `tag_amenities_and_defects` swallowed a per-image
+# provider crash (`except Exception: pass`) and then still classified filename matches against
+# the provider's declared vocabulary as if the image had been looked at, emitting
+# `filename_contested` ("a detector examined this and disagreed") for an image nothing actually
+# examined. Fixed to fall back to `filename_unconfirmed` ("nothing measured this") for any image
+# whose inference call raised. A v5 entry computed while a provider was failing on that image may
+# hold the fabricated `filename_contested` claim; this segment stops it being served forever.
+_CACHE_BEHAVIOUR_VERSION = "v6"
 
 
 def _cache_root() -> Path:
@@ -422,6 +430,7 @@ def tag_amenities_and_defects(
     *,
     provider: ProviderName,
     use_cache: bool = True,
+    on_provider_failure: Callable[[str], None] | None = None,
 ) -> dict[str, list[DetectedLabel]]:
     """
     Produce per-image amenity/defect detections as {sha256: [DetectedLabel]}.
@@ -433,6 +442,21 @@ def tag_amenities_and_defects(
       are three different facts and are recorded as three different things.
     - IMPORTANT: Empty cache entries no longer short-circuit; we recompute to
       populate deterministic filename-based fallbacks.
+    - Resilient to a broken provider: a per-image inference failure (hostile model, OOM, a
+      corrupt image, a provider bug) is caught so one bad image cannot abort the whole run. But a
+      provider's **capability declaration** (what it says it can detect) is independent of
+      whether it actually examined THIS image, so a failed image is never classified against that
+      declaration as "examined" -- see ``on_provider_failure`` and B-2 in
+      ``docs/plans/MISSION_3_SPRINT_TRACKER.md``. Without this, a filename match for a label the
+      provider covers landed as ``filename_contested`` ("a detector examined this and disagreed")
+      for an image the detector never successfully looked at.
+
+    ``on_provider_failure``, if given, is called once per image (with its sha256) for which the
+    provider's own inference call raised on this run. Purely a diagnostics hook -- optional,
+    side-effect only, does not change what is returned. A cache hit never triggers it: nothing was
+    invoked this run to fail. ``build_photo_insights`` uses it so a provider that is failing on
+    every image is self-describing in ``PhotoInsights.provenance`` instead of being
+    indistinguishable from "this property has no amenities/defects".
     """
     results: dict[str, list[DetectedLabel]] = {}
     # Resolved once per call, not per image: it is a property of the provider binding, and the
@@ -468,14 +492,28 @@ def tag_amenities_and_defects(
 
         # 2) Provider inference (best-effort)
         dets: list[DetectedLabel] = []
+        provider_examined_image = True
         try:
             pil_img = img if img is not None else Image.new("RGB", (8, 8), color=(240, 240, 240))
             dets = detect_from_image(pil_img, provider=provider, ontology=DEFAULT_ONTOLOGY)
         except Exception:
             dets = []
+            provider_examined_image = False
+            if on_provider_failure is not None:
+                on_provider_failure(sha)
 
-        # 3) Always classify the file name's suggestions against what this provider can see
-        _augment_from_filename(dets, lname=lname, covered=covered)
+        # 3) Always classify the file name's suggestions against what this provider can see.
+        # B-2: `covered` is the provider's DECLARATION (what it says it can detect), independent
+        # of whether it actually examined THIS image. When inference just raised for this image,
+        # nothing examined it, so no label may be scored `filename_contested` ("a detector
+        # examined this and disagreed") on that provider's behalf -- narrow the covered set to
+        # empty for this call only, which routes every match to `filename_unconfirmed` ("nothing
+        # measured this") instead, the true statement about what happened to this image.
+        _augment_from_filename(
+            dets,
+            lname=lname,
+            covered=covered if provider_examined_image else frozenset(),
+        )
 
         # 4) Persist cache
         if use_cache:

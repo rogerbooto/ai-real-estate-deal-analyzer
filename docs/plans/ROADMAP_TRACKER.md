@@ -43,7 +43,7 @@ Base (Mission 3 charter run, 2026-08-19): `main @ a00a265`, tree clean, **1 comm
 | Media-intelligence API refactor incomplete/broken (caller `insights.py` + tests not propagated to new signatures; ruff/mypy/tests red; env-dependent `_dct2` pHash) | Any work touching `src/core/media/` | **Open 2026-07-24** — orphaned WIP parked in `git stash@{0}`; deferred to its own branch `feat/media-intelligence-refactor` (NOT Mission 1). Fix list in `MISSION_1_SPRINT_TRACKER.md` parking note |
 | GitHub SSH **signing** key not registered ("Dell Laptop" key is an auth key only) | Verified commits; clean pushes without admin bypass | **Open 2026-07-24** — commits SSH-signed locally (git 2.55 shim, `~/.gitmodern-bin`) but show Unverified; Roger to add the key as a Signing key in GitHub settings |
 | `CITATION.cff` version `1.0.0` ≠ `pyproject`/CHANGELOG `0.1.0` | Any version tag / release cut | **Closed 2026-08-05** — the v0.3.0 release (`652acd7`) reconciled both to `0.3.0`; verified against `main @ 8ed9397` on 2026-08-19 (`CITATION.cff` and `pyproject.toml` both read `0.3.0`). |
-| No real AI provider (vision/LLM stubs only) | Any "AI-powered" marketing claim; CrewAI kickoff mission | Open — deferred (backlog #3) |
+| No real AI provider (vision/LLM stubs only) | Any "AI-powered" marketing claim; CrewAI kickoff mission | **Partially closed 2026-08-20** — backlog #3, offering 1 (bring-your-own ONNX model) documented and shipped via Mission 3 Wave I.3. Users can now pass `--onnx-model` / `--onnx-labels` (or env vars) to `ingest-listing` to register their own classifier. The six filename-inferred labels become detector-adjudicated (confirmed or contested) when a real model is registered. Offerings 2 (hosted API key) and 3 (project-shipped ViT) remain OPEN backlog. |
 | Doc drift | Planning on stale docs | **Closed 2026-08-05** — Mission 2 T6 found `README:46-47` (no-op ingest cmd), `CHANGELOG:17` (claims dead narrative/report builders + scenario what-ifs ship), `market/README:22,86` (documents dead `regional_income` as public), `reports/README` (signatures omit `media_report`/`provenance`); fixed in Mission 2 Wave 2. **Re-opened and re-closed 2026-08-19** — a doc-maintainer audit against `main @ 8ed9397` found new drift introduced by the post-release CI fix (`ee023ee`, agent shells no longer built eagerly) and the dependency lock (`66ffacd`): `src/agents/README.md`, `src/orchestrators/README.md`, and root `README.md` still described all three CrewAI agent classes as building an Agent/Task shell, and the "Deps"/install sections omitted `requirements.lock`. Fixed the same day; see the `_Last reconciled` stamps in those files. |
 | **`origin/main` has never received Mission 1.** Local `main` diverged at Mission 1's merge and every commit since compounds on top (7 at charter time → 9 at Mission 2 branch-point: + mission-zero `6147839`, + the Mission 2 docs commit; the mission branch adds more) | Any push; Mission 2 Wave Integrate | **Resolved 2026-08-05** — Mission 2 merged (`8b2acf8`), released as v0.3.0 (`652acd7`), and pushed; CI green at `66ffacd`. Verified 2026-08-19: `main` and `origin/main` both resolve to `8ed9397` (`git rev-list --count origin/main..main` = 0). |
 | Report asserts false claims (`cap_rate_floor` unread → "respects the floor policy" always prints; lone `--listing` inherits default bundle financials) | Truthful reports | **Closed 2026-08-05** — OPD-2 shipped: `run_financial_model` now reads `market.cap_rate_floor` and emits the "cap rate below floor" warning (verified at `src/core/finance/engine.py:305-308` against `main @ 8ed9397` on 2026-08-19); the `--listing`-without-`--config` case now loud-fails (`main.py::resolve_config_path`) instead of borrowing the demo bundle's financials. |
@@ -125,7 +125,7 @@ counter-examples that undermine the rule.
 | 4 | Streamlit UI for interactive scenario exploration | High (portfolio wow) | Med (new surface, new deps) | Reads existing JSON artifacts | Distribution | Packaging, Portfolio | #1 (scenarios give the UI something to explore), #2 |
 | 5 | Live market data ingestion (comps, cap-rate drift) | Med | High (network, data licensing, freshness) | fetch/ policy | Market realism | Market | #1; compliance review |
 | 7 | **F3 "Adjustments Applied" note is unreachable on real data** (found in the 2026-08-19 manual-test pass; documented as Mission 2 case F3 / defect #4). The report renderer correctly ships whatever OPEX-adjustment notes the engine emits, but the engine's triggers test **pre-normalization** strings (`"old roof"`, `"water stain"`) that the CV/label layer normalizes away before the engine sees them (e.g. `"water stain"` → `water_leak_suspected`), so on any real pipeline run the notes are empty and the section never appears. **Real defect, survived Mission 2.** | Low-Med (report honesty — a shipped section that can never populate on real input misleads by omission) | Med (fixing the engine side is inside `src/core/finance/`; fixing the normalization map has CV/label blast — a product decision) | engine OPEX-modifier ↔ CV-label vocabulary | Reports/Finance honesty | Reports, CV/AI | Roger decides which side moves (trigger/label reconciliation) |
-| 8 | **Stale editable-install metadata** (found 2026-08-19): `pip show ai-real-estate-deal-analyzer` reports `Version: 0.1.0` while `pyproject.toml` reads `0.3.0`, because an earlier `pip install -e .` cached the old metadata. Cosmetic; console scripts resolve and run correctly. Refreshed by re-running `pip install -e .`. | Very low (cosmetic; no functional impact) | Minimal (no source change; a re-install, or a docs note) | packaging | Packaging polish | Packaging | — |
+| 8 | **Stale editable-install metadata** (found 2026-08-19): `pip show ai-real-estate-deal-analyzer` reports `Version: 0.1.0` while `pyproject.toml` reads `0.3.0`, because an earlier `pip install -e .` cached the old metadata. **Refreshed 2026-08-20** by re-running `pip install -e .`; `pip show` now reads `0.3.0`. Cosmetic; console scripts resolve and run correctly. | Very low (cosmetic; no functional impact) | Minimal (no source change; a re-install) | packaging | Packaging polish | Packaging | — |
 
 ### Backlog #6 — "What would have to change?" (Roger's design, 2026-08-05)
 
@@ -276,8 +276,9 @@ inherits for free.
 
 ## 5. Current recommendation
 
-**Mission 3 — Wire the bring-your-own ONNX model provider to a real user path (CHARTERED 2026-08-19,
-not yet built).** A scoped slice of backlog #3: **offering 1 of 3 only** (BYO ONNX model) — NOT the
+**Mission 3 — Wire the bring-your-own ONNX model provider to a real user path (BUILT; Gate D + Gate V
+cleared 2026-08-20; **manually validated by Roger 2026-08-29, 9/9 cases PASS**; merge + push to `main`
+still open at Roger's word).** A scoped slice of backlog #3: **offering 1 of 3 only** (BYO ONNX model) — NOT the
 hosted-API-key offering, NOT a project-shipped ViT. Baseline `main @ a00a265`; branch
 `mission/3-byo-onnx-provider`. Artifacts: `docs/plans/MISSION_3_byo_onnx_provider.md` (charter),
 `docs/plans/MISSION_3_SPRINT_TRACKER.md`, `docs/plans/MISSION_3_HANDOFF.md` (pasteable prompt),
@@ -314,6 +315,24 @@ the parked media-intelligence refactor (`parked/media-intelligence-refactor`) st
 
 ## 6. Changelog
 
+* **2026-08-29 (Mission 3 MANUALLY VALIDATED — Roger's 9/9 pass; docs-only, no code, no git ops)** —
+  Roger drove every case in `docs/manual testing/MISSION_3_MANUAL_TESTING.md` by hand in the `airedeal`
+  env on branch `mission/3-byo-onnx-provider` (tree on top of `main @ 6d9c000`, `OUT=/tmp/m3`):
+  **9 / 9 PASS, 0 FAIL, 0 BLOCKED, no blocking issues.** Confirmed end-to-end — a self-built ONNX
+  fixture registers and runs (`version=onnx-byo-v1`, `selected_provider='onnx'`,
+  `provider_kind='model'`); **both** adjudication branches reproduce in one run (a confirmed
+  `mold_suspected` hint and a *contested* `parking_garage` hint absent from every counted total);
+  flag-over-env precedence holds per field (bogus env paths never touched when flags are present);
+  ONNX outranks `--ai`, and `--ai` alone still falls back to `vision-stub-v1`; `python main.py` stays
+  byte-identical (`545e22b2…`) even with the ONNX env vars set — the documented, intended scope
+  boundary; all 8 error paths exit 1 with one clean line and no traceback; cold-vs-warm-cache output is
+  byte-identical on both streams; whole suite green (**684 passed**, coverage **87.20%**, ruff format
+  216 files + ruff check + mypy 214 files all clean). The DEFERRED table (offerings 2 hosted-API-key and
+  3 project-trained model, both deliberately unbuilt) was reviewed and accepted. DoD box 12 flipped;
+  all 12 now ticked. **Still open and Roger's call:** the `--no-ff` merge to `main` and the push
+  (plus the still-unpushed `6d9c000`). Updated the manual-testing doc (case-by-case observed results),
+  `MISSION_3_SPRINT_TRACKER.md` (status block, wave summary, DoD item 12, mission-gate record), and
+  §5 here. No git ops performed.
 * **2026-08-19 (Mission 3 CHARTERED — Wire the bring-your-own ONNX model provider; docs-only, no code,
   no git ops)** — Phase 0: verified baseline `main @ a00a265`, tree clean, **1 commit ahead of
   `origin/main @ 0ea42fd`** (the unpushed docs backfill; Roger controls the push — noted for Wave

@@ -533,6 +533,134 @@ def test_the_upgrade_changes_the_hint_wording_not_the_tag_lists(mold_photo: Path
 
 
 # ---------------------------------------------------------------------------------
+# Case 4 (B-2) — a covering detector is registered but CRASHES on this image
+# ---------------------------------------------------------------------------------
+#
+# Case 1 above ("a detector covers the label and did not report it") assumes the detector
+# actually ran. `_covered_labels`/`covered` is the provider's DECLARATION -- the vocabulary it
+# says it can produce -- and that declaration is a property of the provider binding, computed
+# once per call, independent of what happens to any one image. A per-image inference failure
+# (hostile model, OOM, a corrupt image, a provider bug) is caught by
+# `tag_amenities_and_defects` so one bad image cannot abort a whole run -- but before B-2, the
+# broad `except Exception: pass` around that call let a crashed image still be classified against
+# the declaration as though it had been looked at, producing `filename_contested` ("a detector
+# examined the pixels and did not report it") for an image nothing examined. Reproduced literally
+# by `test_a_provider_that_raises_on_every_image_never_produces_a_contested_hint` below: a
+# provider declaring `mold_suspected` that raises on every call, against `mold_basement.jpg`,
+# pre-fix produced exactly the artifact quoted in the mission report --
+# ``{'name': 'mold_suspected', 'source': 'filename_contested', 'confidence': 0.3, 'rationale':
+# 'Only the file name suggests this. A detector that can recognise this label examined the image
+# and did not report it...'}`` -- despite the detector never having examined a single pixel.
+
+
+def _raises_on_every_image(_img: Image.Image) -> list[Any]:
+    """A registered detector that crashes every time it is called (hostile model, OOM, a bug)."""
+    raise RuntimeError("simulated provider crash: this detector never examined any pixels")
+
+
+def test_a_provider_that_raises_on_every_image_never_produces_a_contested_hint(mold_photo: Path, restore_providers: None) -> None:
+    """RED on revert -- see the mission report for the exact pre-fix artifact this reproduces.
+
+    The provider DECLARES ``mold_suspected`` (so, pre-fix, ``rule.label in covered`` was True)
+    and raises on every call (so nothing ever examined a pixel). The record must land as
+    "nothing measured this" (``filename_unconfirmed``), never "a detector examined this and
+    disagreed" (``filename_contested``) -- and every string on the record must be true of what
+    actually happened: no confidence (nothing produced one), and no claim that a detector
+    examined or rejected anything.
+    """
+    _bind("onnx", _raises_on_every_image, detects=[_MOLD])
+
+    det = _only(tag_amenities_and_defects([mold_photo / "mold_basement.jpg"], provider="onnx", use_cache=False), _MOLD)
+
+    assert det["source"] != "filename_contested", f"a crashed detector was reported as having examined the image: {det}"
+    assert det["source"] == "filename_unconfirmed"
+    assert "confidence" not in det, f"a label nothing measured was given a confidence: {det}"
+    assert ad.is_unconfirmed_hint(det)
+
+    rationale = str(det.get("rationale", ""))
+    assert "did not report it" not in rationale, f"rationale claims a detector examined and disagreed, which never happened: {rationale}"
+    assert "confirmed or contradicted" in rationale
+
+
+def test_a_provider_that_raises_on_every_image_produces_no_contested_hints_anywhere_in_the_pipeline(
+    mold_photo: Path, restore_providers: None
+) -> None:
+    """End-to-end: the crash must not surface as a contested claim through any consumer.
+
+    Mirrors ``test_uncovered_hint_is_not_counted_as_a_detection_in_photo_insights`` (Case 2) and
+    ``test_the_upgrade_changes_the_hint_wording_not_the_tag_lists`` (Case 1), but for a provider
+    that is registered, DOES declare the label, and fails on every call -- the exact combination
+    B-2 left unguarded.
+    """
+    _bind("onnx", _raises_on_every_image, detects=[_MOLD])
+
+    photos = build_photo_insights(mold_photo)
+    assert photos.contested_hint_counts == {}, f"a crashed detector's declaration produced a contested hint: {photos.contested_hint_counts}"
+    assert photos.unconfirmed_hint_counts.get(_MOLD) == 1
+    assert photos.defect_counts == {}
+
+    insights = synthesize_listing_insights(ListingNormalized(address="1 Test St"), photos)
+    assert _MOLD not in insights.defects
+    contested_notes = [n for n in insights.notes if "Contested photo hint" in n and _MOLD in n]
+    assert not contested_notes, f"a note told the reader a detector examined and disagreed, which never happened: {contested_notes}"
+    assert any("Unconfirmed photo hint" in n and _MOLD in n for n in insights.notes)
+
+
+def test_provider_failure_is_reported_once_per_image_via_the_diagnostics_hook(mold_photo: Path, restore_providers: None) -> None:
+    """``on_provider_failure`` fires once per image whose inference call actually raised THIS run.
+
+    Not invoked on a cache hit: nothing was invoked this run to fail. This is the hook
+    ``build_photo_insights`` uses to make a failing provider self-describing in ``provenance``
+    instead of indistinguishable from "found nothing" (see ``photo_insights.py``).
+    """
+    _bind("onnx", _raises_on_every_image, detects=[_MOLD])
+    img = mold_photo / "mold_basement.jpg"
+    sha = runner_mod._get_asset_sha(img)
+
+    failed: list[str] = []
+    tag_amenities_and_defects([img], provider="onnx", use_cache=True, on_provider_failure=failed.append)
+    assert failed == [sha]
+
+    # Cache hit on the second call -- the provider function is not invoked again, so the hook
+    # must not fire again either.
+    failed.clear()
+    tag_amenities_and_defects([img], provider="onnx", use_cache=True, on_provider_failure=failed.append)
+    assert failed == []
+
+
+def test_a_failing_provider_is_self_describing_in_photo_insights_provenance(mold_photo: Path, restore_providers: None) -> None:
+    """The other sanctioned shape: a provider failing on every image must not be silent.
+
+    Without this, a completely broken registered provider (wrong model file, every call raising)
+    produces an artifact indistinguishable from "this property has no amenities or defects".
+    Additive and conditional: the key is present only when a failure actually occurred this run,
+    so the default (nothing ever fails) path's provenance shape -- and therefore the rendered
+    report -- is unchanged. See ``core/reports/generator.py::_flatten_provenance``, which walks
+    ``PhotoInsights.provenance`` generically and would otherwise have surfaced an always-present
+    key even when empty.
+    """
+    _bind("onnx", _raises_on_every_image, detects=[_MOLD])
+    img = mold_photo / "mold_basement.jpg"
+    sha = runner_mod._get_asset_sha(img)
+
+    photos = build_photo_insights(mold_photo)
+
+    failures = photos.provenance.get("provider_examination_failures")
+    assert failures is not None, f"a provider that raised on every image left no trace in provenance: {photos.provenance}"
+    assert failures["count"] == 1
+    assert failures["images"] == [sha]
+
+
+def test_provenance_omits_the_failure_key_entirely_when_nothing_failed(mold_photo: Path, restore_providers: None) -> None:
+    """The conditional-key design must not leak an empty/zero entry into the default path."""
+    _bind("onnx", _silent, detects=[_MOLD])
+
+    photos = build_photo_insights(mold_photo)
+
+    assert "provider_examination_failures" not in photos.provenance
+
+
+# ---------------------------------------------------------------------------------
 # The declarations themselves
 # ---------------------------------------------------------------------------------
 

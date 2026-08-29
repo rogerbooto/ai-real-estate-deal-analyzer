@@ -3,13 +3,21 @@
 from __future__ import annotations
 
 import argparse
+import json
+import os
 import sys
 from pathlib import Path
 from pprint import pprint
 from typing import Final, cast
 
+from src.core.cv.amenities_defects import register_onnx_provider
 from src.core.ingest.listing_ingest import ingest_listing
 from src.schemas.models import FetchPolicy, MediaKind
+
+#: GD-1 (docs/plans/MISSION_3_GATE_D_SECURITY.md): cap on --onnx-labels file size. A labels.json
+#: is a short list of strings; 1 MiB is generous headroom while still bounding the read a
+#: character-device or maliciously large file could otherwise force.
+_ONNX_LABELS_MAX_BYTES: Final[int] = 1_048_576
 
 #: Media-discovery flags that only have an effect when the pipeline has an HTML source
 #: (a `--url` fetch, with or without `--render`) to scan for `<img>`/`og:image`/JSON-LD
@@ -61,6 +69,36 @@ def _build_parser() -> argparse.ArgumentParser:
             "provenance.provider_kind='heuristic_stub'. Treat its labels as a placeholder, not "
             "as observations. The flag exists so a real classifier can be registered behind "
             "that seam later; provider_kind flips to 'model' when one is."
+        ),
+    )
+    p.add_argument(
+        "--onnx-model",
+        type=str,
+        default=None,
+        help=(
+            "Path to a user-supplied ONNX classifier to register as the photo-insight detection "
+            "provider (core.cv.amenities_defects.register_onnx_provider). Must be paired with "
+            "--onnx-labels (or set AIREAL_ONNX_MODEL and AIREAL_ONNX_LABELS) -- supplying only "
+            "one half is a configuration error and exits non-zero. Pointing at a model is itself "
+            "the activation signal: this does NOT require --ai, and when both --onnx-model/"
+            "--onnx-labels resolve, the onnx provider is selected ahead of vision/local. This is "
+            "YOUR OWN model -- the project does not vouch for its accuracy. "
+            "provenance.provider_kind is stamped 'model' to say a real classifier ran, not that "
+            "its output is trustworthy. A model file is executed by a native runtime when "
+            "loaded -- only point this at a model you trust; a malicious one can exhaust memory "
+            "or crash the process. Applies to `ingest-listing` only: `python main.py`'s "
+            "pipeline reaches photo tagging through a separate seam and does not read this flag."
+        ),
+    )
+    p.add_argument(
+        "--onnx-labels",
+        type=str,
+        default=None,
+        help=(
+            "Path to the labels.json declaring --onnx-model's label vocabulary -- this file IS "
+            "the provider's capability declaration (see register_onnx_provider), not optional "
+            "metadata. Must be paired with --onnx-model (or AIREAL_ONNX_MODEL/AIREAL_ONNX_LABELS). "
+            "Same `python main.py` caveat as --onnx-model: this flag has no effect there."
         ),
     )
     p.add_argument("--render", type=int, default=0, help="Render JS via a headless browser before parsing (requires --url).")
@@ -115,6 +153,78 @@ def _build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     p = _build_parser()
     args = p.parse_args(argv)
+
+    # --onnx-model/--onnx-labels (or AIREAL_ONNX_MODEL/AIREAL_ONNX_LABELS): per-field precedence,
+    # CLI flag > env > unset. Resolved and registered here, before any other startup work, so a
+    # misconfigured pair fails loudly before a network fetch or cache directory is touched.
+    onnx_model_env = os.getenv("AIREAL_ONNX_MODEL")
+    onnx_labels_env = os.getenv("AIREAL_ONNX_LABELS")
+    onnx_model: str | None = args.onnx_model or onnx_model_env
+    onnx_labels: str | None = args.onnx_labels or onnx_labels_env
+    onnx_model_source = "--onnx-model" if args.onnx_model else "AIREAL_ONNX_MODEL"
+    onnx_labels_source = "--onnx-labels" if args.onnx_labels else "AIREAL_ONNX_LABELS"
+
+    if bool(onnx_model) != bool(onnx_labels):
+        if onnx_model:
+            present, missing_flag, missing_env = "--onnx-model/AIREAL_ONNX_MODEL", "--onnx-labels", "AIREAL_ONNX_LABELS"
+        else:
+            present, missing_flag, missing_env = "--onnx-labels/AIREAL_ONNX_LABELS", "--onnx-model", "AIREAL_ONNX_MODEL"
+        raise SystemExit(
+            f"{present} was supplied but {missing_flag} (or {missing_env}) was not. A "
+            "bring-your-own ONNX model needs BOTH the model file and its labels.json -- the "
+            "labels file is the model's capability declaration, not optional metadata. Pass "
+            f"{missing_flag} (or set {missing_env}), or omit both to use the default local/"
+            "vision provider."
+        )
+
+    if onnx_model and onnx_labels:
+        # GD-1 (docs/plans/MISSION_3_GATE_D_SECURITY.md): reject anything that is not a regular
+        # file for BOTH paths before opening either -- Path.is_file() (unlike .exists()) returns
+        # False for FIFOs, character devices, and directories, closing off an indefinite open()
+        # hang (FIFO) and an unbounded read (device) before either is attempted. Also cap the
+        # labels file's size -- it is always a short list of strings, never legitimately large.
+        for flag_name, raw_path in (("--onnx-model", onnx_model), ("--onnx-labels", onnx_labels)):
+            if not Path(raw_path).is_file():
+                raise SystemExit(f"{flag_name} {raw_path}: not a regular file (missing, a directory, or a special file). Check the path.")
+        labels_size = Path(onnx_labels).stat().st_size
+        if labels_size > _ONNX_LABELS_MAX_BYTES:
+            raise SystemExit(f"--onnx-labels {onnx_labels}: implausibly large for a labels file (limit 1 MiB).")
+
+        try:
+            register_onnx_provider(onnx_model, onnx_labels)
+        except FileNotFoundError as e:
+            raise SystemExit(f"--onnx-labels {onnx_labels}: file not found. Check the path passed to this flag.") from e
+        except RecursionError as e:
+            # GD-3: RecursionError subclasses RuntimeError, so it must be caught here, BEFORE the
+            # broader `except RuntimeError` below -- otherwise a deeply-nested labels.json gets
+            # misattributed to --onnx-model by that clause's message prefix.
+            raise SystemExit(f"--onnx-labels {onnx_labels}: nested too deeply to be a labels file.") from e
+        except OSError as e:
+            raise SystemExit(f"--onnx-labels {onnx_labels}: could not be read ({e}).") from e
+        except json.JSONDecodeError as e:
+            raise SystemExit(f"--onnx-labels {onnx_labels}: not valid JSON ({e}).") from e
+        except ValueError as e:
+            raise SystemExit(f"--onnx-labels {onnx_labels}: {e}") from e
+        except RuntimeError as e:
+            # Covers both "onnxruntime not available" and "ONNX model has no inputs/outputs" --
+            # the underlying message from _OnnxModel already says which.
+            raise SystemExit(f"--onnx-model {onnx_model}: {e}") from e
+        except Exception as e:
+            # onnxruntime raises its own exception hierarchy for a missing/corrupt model file
+            # (onnxruntime.capi.onnxruntime_pybind11_state.NoSuchFile/InvalidProtobuf/Fail/...),
+            # none of which subclass RuntimeError/ValueError/OSError. This is the only reliable
+            # way to guarantee no raw traceback reaches the user for a bad --onnx-model file.
+            raise SystemExit(f"--onnx-model {onnx_model}: failed to load ONNX model ({e}).") from e
+
+        # GD-6: a lingering AIREAL_ONNX_MODEL/AIREAL_ONNX_LABELS would otherwise silently reroute
+        # every subsequent run through the user's model -- outranking --ai -- with no visible
+        # signal in the default console summary (photo insights: provider= always prints the
+        # schema constant "cv_v2"). Name the resolved source for each field so registration is
+        # never silent.
+        print(
+            f"note: onnx provider registered (model: {onnx_model_source}, labels: {onnx_labels_source})",
+            file=sys.stderr,
+        )
 
     policy = FetchPolicy(
         allow_network=bool(args.online),

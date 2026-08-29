@@ -188,12 +188,16 @@ The marker itself now survives validation: `DetectedLabelModel.source` (see `sch
 * Consumes types from [`../schemas/README.md`](../schemas/README.md).
 * AI vision/LLM providers are seams — deterministic stubs unless a user registers an ONNX model.
 
-  **ONNX provider (optional):** The `register_onnx_provider()` function allows you to bring your own trained ONNX classification model to the amenities/defects detector. This is a **Python-API-only, opt-in feature** — it is never invoked by any CLI command, only through direct Python code. To use it:
-  1. Install `onnxruntime` separately: `pip install onnxruntime`
-  2. Call `register_onnx_provider(model_path, labels_path)` once during your app initialization (not built into the default pipeline)
-  3. Pass `provider="onnx"` to `tag_amenities_and_defects()` or `detect_from_image()`
+  **ONNX provider (bring-your-own model):** The `register_onnx_provider()` function allows you to bring your own trained ONNX classification model to the amenities/defects detector. It is wired into the pipeline at two levels:
 
-  If `onnxruntime` is not installed, calling `register_onnx_provider()` raises a clear error message. The package is intentionally not declared in `requirements.txt` because it is an opt-in dependency for advanced users only.
+  **Python API (for programmatic use):**
+  1. Call `register_onnx_provider(model_path, labels_path)` once during your app initialization (not built into the default pipeline)
+  2. Pass `provider="onnx"` to `tag_amenities_and_defects()` or `detect_from_image()`
+
+  **Command-line (via `ingest-listing`):**
+  * Pass `--onnx-model <path>` and `--onnx-labels <path>` flags, or set `AIREAL_ONNX_MODEL` and `AIREAL_ONNX_LABELS` environment variables (CLI flags take precedence per field). Supplying only one half is a hard configuration error. When both are provided, the ONNX provider is automatically registered and selected ahead of `vision`/`local` providers — no `--ai` flag required. This is **your own model** — the project does not vouch for its accuracy.
+
+  **Note on dependencies:** `onnxruntime` is included in the standard installation (it ships with `requirements.txt` and every documented install path). If it is not available in your environment (e.g. via monkeypatch in a test), calling `register_onnx_provider()` raises a clear error message.
 
 * Network/FS access is isolated in `fetch/` and `media/` for mocking in tests.
 
@@ -223,7 +227,7 @@ The marker itself now survives validation: `DetectedLabelModel.source` (see `sch
 
 ---
 
-_Last reconciled: 2026-08-05 against mission/2-wiring-gaps (Gate 3 remediation): the
+_Last reconciled: 2026-08-20 against mission/3-byo-onnx-provider: rewrote the "Dependencies / Optional Providers" section to document both the Python API and the new CLI path (`--onnx-model` / `--onnx-labels` and env vars); corrected the false claim that `onnxruntime` is "intentionally not declared in requirements.txt" — it is pinned unconditionally at `requirements.txt:27`. Earlier note: 2026-08-05 against mission/2-wiring-gaps (Gate 3 remediation): the
 `narrative_builder.py`/`report_builder.py` and `advisor/scenarios.py` bullets above now describe
 their deletion, not their wiring — the founder-proxy blocked both at Gate 3 for printing figures
 the finance engine never computed, and the task-3.1b stamp this note supersedes (below) described

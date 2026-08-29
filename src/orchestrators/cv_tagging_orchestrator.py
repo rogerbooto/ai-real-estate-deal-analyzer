@@ -52,7 +52,18 @@ class CvTaggingOrchestrator:
 
         # 2) Closed-set detections for rollups (provider based on vision flag)
         provider: ProviderName = "vision" if _VISION_ENABLED else "local"  # typed as Literal union
-        dets = tag_amenities_and_defects(cast(Sequence[str], normalized), provider=provider, use_cache=True)
+        # `provider_failed_shas` mirrors `photo_insights.build_photo_insights`'s B-2 provenance
+        # hook exactly: the sha256 of every image whose provider inference raised THIS run. Kept
+        # here rather than only on the `build_photo_insights` producer so this producer's own
+        # sibling reader-facing note (`_hint_notes` in `agents.listing_analyst`) can say the same
+        # true thing -- see Gate V (Mission 3, blocker B-2 follow-up).
+        provider_failed_shas: list[str] = []
+        dets = tag_amenities_and_defects(
+            cast(Sequence[str], normalized),
+            provider=provider,
+            use_cache=True,
+            on_provider_failure=provider_failed_shas.append,
+        )
 
         # Per-tag provenance for everything this rollup produces. The detections already carry
         # confidence/evidence/rationale and the provider is known here; collapsing them to a bare
@@ -195,6 +206,17 @@ class CvTaggingOrchestrator:
         # every existing consumer reads, `observations` carries why each of those strings is there.
         # Typed ObservationProvenance objects, not dicts -- this crosses a pipeline boundary.
         out_dict["observations"] = dedupe_and_sort(observations)
+        # Additive, and only present when it happened -- exactly `build_photo_insights`'s
+        # `provenance["provider_examination_failures"]` shape (Gate V, Mission 3, B-2 follow-up),
+        # so `agents.listing_analyst` can render the identical run-level note as its sibling
+        # producer `core.insights.synthesis` without inventing a second shape for the same fact.
+        # An omitted key means "the provider's inference call did not raise for any image this
+        # run" -- the only case the pre-existing, byte-identical default path exercises.
+        if provider_failed_shas:
+            out_dict["provider_examination_failures"] = {
+                "count": len(provider_failed_shas),
+                "images": sorted(set(provider_failed_shas)),
+            }
 
         return out_dict
 

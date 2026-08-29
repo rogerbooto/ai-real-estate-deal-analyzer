@@ -12,6 +12,7 @@ from typing import Any, NamedTuple, cast
 from src.core.cv.amenities_defects import (
     ProviderName,
     is_contested_hint,
+    is_provider_registered,
     is_unconfirmed_hint,
     is_uncorroborated_filename_claim,
     provider_kind,
@@ -48,6 +49,18 @@ VISION_STUB_VERSION = "vision-stub-v1"
 #: `PhotoInsights.version` for the default (`use_ai=False`) path. Unchanged: the local provider
 #: is also a heuristic, but this label claims only determinism, which is true.
 DETERMINISTIC_VERSION = "deterministic"
+
+#: `PhotoInsights.version` for a registered `"onnx"` provider (a user-supplied bring-your-own
+#: model; see `core.cv.amenities_defects.register_onnx_provider`). Deliberately NOT
+#: `VISION_STUB_VERSION` -- that name says "stub", and a registered ONNX provider is a real model
+#: (`provenance["provider_kind"] == "model"`, computed by `provider_kind`, unaffected by this
+#: constant). Also deliberately NOT a per-model fingerprint (no hash of the `.onnx` file, no
+#: path) -- `version` here names WHICH CODE PATH produced the artifact, the same coarse
+#: producer-TYPE meaning `VISION_STUB_VERSION`/`DETERMINISTIC_VERSION` already carry. A
+#: per-model identifier would be new information, not a repurposing of this field, and is out of
+#: this mission's scope (no schema change; `provenance` already carries `selected_provider` and
+#: is the right place for that if a future mission wants it).
+ONNX_BYO_VERSION = "onnx-byo-v1"
 
 # Sanity thresholds
 _MIN_BYTES = 1024  # 1 KiB
@@ -319,8 +332,23 @@ def build_photo_insights(photo_dir: Path, *, use_ai: bool = False) -> PhotoInsig
 
     # Provider selection and its provenance labels are computed once so the empty-folder
     # early return and the main path can never disagree about what produced the artifact.
-    provider: ProviderName = "vision" if use_ai else "local"
-    version = VISION_STUB_VERSION if use_ai else DETERMINISTIC_VERSION
+    # Precedence: a registered "onnx" provider outranks "vision" (--ai), which outranks the
+    # "local" default. Registration is a process-global side effect performed by a caller BEFORE
+    # this function runs (today: ingest_cli.py's --onnx-model/--onnx-labels or
+    # AIREAL_ONNX_MODEL/AIREAL_ONNX_LABELS, via register_onnx_provider); is_provider_registered
+    # is how this module learns about it without importing CLI state -- see
+    # amenities_defects.is_provider_registered. With nothing registered, is_provider_registered
+    # is False and this reduces to the original two-way choice unchanged.
+    provider: ProviderName
+    if is_provider_registered("onnx"):
+        provider = "onnx"
+        version = ONNX_BYO_VERSION
+    elif use_ai:
+        provider = "vision"
+        version = VISION_STUB_VERSION
+    else:
+        provider = "local"
+        version = DETERMINISTIC_VERSION
     kind = provider_kind(provider)
 
     if not paths:
@@ -385,7 +413,18 @@ def build_photo_insights(photo_dir: Path, *, use_ai: bool = False) -> PhotoInsig
             image_index[sha] = p
 
     # 2) Closed-set detections (for rollups and quality)
-    raw_dets = tag_amenities_and_defects(cast(Sequence[AssetLike], paths), provider=provider, use_cache=True)
+    # `provider_failed_shas` collects the sha256 of every image whose provider inference raised
+    # on THIS run (see runner.tag_amenities_and_defects's B-2 fix: a per-image failure is caught
+    # and never lets a filename match masquerade as `filename_contested`). Without surfacing it
+    # here, a provider that fails on every image would be indistinguishable in the artifact from
+    # "this property has no amenities or defects" -- silent in a different way.
+    provider_failed_shas: list[str] = []
+    raw_dets = tag_amenities_and_defects(
+        cast(Sequence[AssetLike], paths),
+        provider=provider,
+        use_cache=True,
+        on_provider_failure=provider_failed_shas.append,
+    )
     # Filename claims no detector emitted -- both the unmeasured and the contradicted kind -- are
     # pulled out here, once, before anything derives a number from them. `dets` from this point on
     # is exactly "what a detector reported".
@@ -453,5 +492,21 @@ def build_photo_insights(photo_dir: Path, *, use_ai: bool = False) -> PhotoInsig
                 "dropped_count": len(paths_all) - len(paths),
                 "drop_reasons": drop_reasons,
             },
+            # Additive, and only present when it happened: an omitted key here means "the
+            # provider's inference call did not raise for any image this run" (the only case
+            # the pre-existing, byte-identical default path exercises). See B-2 --
+            # `_render_provenance`/`_flatten_provenance` in `core/reports/generator.py` surface
+            # any key added here generically, so a failing provider is self-describing in the
+            # rendered report instead of being indistinguishable from "found nothing".
+            **(
+                {
+                    "provider_examination_failures": {
+                        "count": len(provider_failed_shas),
+                        "images": sorted(set(provider_failed_shas)),
+                    }
+                }
+                if provider_failed_shas
+                else {}
+            ),
         },
     )
