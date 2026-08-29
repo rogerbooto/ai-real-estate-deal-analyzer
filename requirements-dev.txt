@@ -2,6 +2,14 @@
 pytest>=8.3.2
 pytest-cov>=5.0.0
 
+# Dev-only: builds the synthetic .onnx fixtures for the bring-your-own ONNX provider tests
+# (tests/core/cv/_onnx_fixtures.py) at test time rather than committing a binary blob --
+# see docs/plans/MISSION_3_DISCOVERY_SPEC.md §8.2 Option A and
+# docs/plans/MISSION_3_GATE_D_SECURITY.md ruling B-4 (floor pin approved, not the resolved
+# version -- CVE-2024-7776/CVE-2024-27318/CVE-2022-25882 fix lines). Never used to parse an
+# untrusted model in this suite -- only to author self-built fixtures via onnx.helper.
+onnx>=1.17.0
+
 # Linters & Type Checking
 ruff==0.6.9
 mypy>=1.10.0

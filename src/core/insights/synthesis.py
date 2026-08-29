@@ -26,6 +26,7 @@ from urllib.parse import urlparse
 from src.core.cv.amenities_defects import (
     contested_hint_note,
     is_uncorroborated_filename_claim,
+    provider_failure_note,
     unconfirmed_hint_note,
 )
 from src.core.insights.provenance import (
@@ -435,6 +436,19 @@ def _notes_from(listing: ListingNormalized, photos: PhotoInsights) -> list[str]:
     # The other half of the same rule, and the stronger case: a detector that CAN see the label
     # looked and did not report it. Same channel, same reason, different sentence.
     notes.extend(contested_hint_note(label) for label in sorted(photos.contested_hint_counts or {}))
+
+    # Gate V (B-2 follow-up): `UNCONFIRMED_HINT_NOTE` says "no registered detector can examine the
+    # pixels for it" -- true when nothing was ever registered, but understated when a covering
+    # detector WAS registered and crashed on that image (see `runner.tag_amenities_and_defects`'s
+    # `on_provider_failure`). One additive note, appended once per run, only when a provider
+    # failure actually happened -- not a reword of the note above, and not per-label/per-image
+    # (the guardian ruled both out of scope). Gated on the key's presence rather than truthiness so
+    # the default (no provider ever fails) path emits nothing here and stays byte-identical: see
+    # `photo_insights.build_photo_insights`, the sole producer of this provenance key, which sets
+    # it only when `provider_failed_shas` is non-empty.
+    failures = photos.provenance.get("provider_examination_failures") if photos.provenance else None
+    if failures:
+        notes.append(provider_failure_note(int(failures.get("count", 0))))
 
     return notes
 
