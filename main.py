@@ -331,6 +331,13 @@ def main() -> None:
             # to synthesize_thesis), so the report can name the cap-rate floor it cleared or
             # breached instead of alluding to "the configured floor".
             market=inputs.market,
+            # "What would have to change?" (Mission 4). getattr keeps third-party/older
+            # OrchestrationResult shapes working, as the media/baseline fields do above. Renders a
+            # section adjacent to the Investment Thesis whenever the orchestrator's own
+            # pre-computation `is_genuinely_close` gate found this deal worth attempting recourse
+            # for (see `src/market/recourse.py`); stays None (no section, byte-identical output)
+            # for a BUY or a deal too far gone to be "genuinely close".
+            recourse=getattr(result, "recourse", None),
         )
 
         print(f"Report written to {out_path}")

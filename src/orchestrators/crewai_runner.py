@@ -52,7 +52,7 @@ from src.core.media.insights import analyze_media
 from src.core.media.local import collect_local_assets
 from src.core.reports.photo_report import build_media_report
 from src.core.reports.report_models import MediaReport
-from src.orchestrators.crew import OrchestrationResult, build_baseline_outlook
+from src.orchestrators.crew import OrchestrationResult, build_baseline_outlook, build_recourse
 from src.schemas.models import FinancialInputs, MediaInsights
 
 
@@ -117,6 +117,11 @@ def run_orchestration(
     # depend on them. Shared with the deterministic orchestrator so the two cannot diverge.
     baseline = build_baseline_outlook(inputs, forecast, horizon_years=horizon_years)
 
+    # "What would have to change?" (Mission 4). Shared with the deterministic orchestrator so the
+    # two engines cannot diverge; operates only on `inputs` (FinancialInputs), never on the
+    # analyst's insights, so it is unaffected by which mode produced `thesis` above.
+    recourse = build_recourse(inputs, horizon_years=horizon_years)
+
     # Note: there is deliberately no single Crew spanning all three agents. Only the analyst
     # may reason, and it owns its own one-agent Crew inside `ListingAnalystAgent._run_llm`.
     # Building a shared sequential Crew over all three Agent shells here would put the
@@ -150,4 +155,5 @@ def run_orchestration(
         media_insights=media_insights,
         media_report=media_report,
         baseline=baseline,
+        recourse=recourse,
     )

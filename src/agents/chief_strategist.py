@@ -29,6 +29,9 @@ This is intentionally simple for V1. In V2+, you can:
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
+from src.core.finance.engine import ForecastMetrics, metrics_of
 from src.schemas.models import FinancialForecast, InvestmentThesis, MarketAssumptions
 
 # ----------------------------
@@ -73,6 +76,76 @@ def spread_target_for(market: MarketAssumptions | None) -> float:
     if market is None:
         return MIN_SPREAD
     return market.cap_rate_spread_target
+
+
+@dataclass(frozen=True)
+class GuardrailChecks:
+    """
+    The seven live pass/fail booleans ``synthesize_thesis`` judges a forecast against.
+
+    Extracted as a single source of truth (Mission 4 Gate D ruling, "Option B") so a second call
+    site (``src/market/recourse.py``) can read exactly the same test ``synthesize_thesis`` uses on
+    every perturbed re-run, instead of a second, independently-maintained comparison that could
+    silently drift from the verdict. This codebase has hit that exact bug shape twice before and
+    fixed it with a shared function both times -- see ``spread_target_for``'s docstring above (a
+    report could print "cap-rate spread below target" under Warnings while the thesis said the
+    spread met target, until both call sites tested the same number) and the cap-floor comment
+    block in ``synthesize_thesis`` below ("the breach/clear decision always comes from the
+    engine's warning, never from a comparison re-done here").
+    """
+
+    dscr_ok: bool
+    spread_ok: bool
+    irr_ok: bool
+    coc_ok: bool
+    cf_y1_ok: bool
+    cf_all_ok: bool
+    no_cap_floor_breach: bool
+
+
+def guardrail_checks(forecast: FinancialForecast, market: MarketAssumptions | None = None) -> GuardrailChecks:
+    """
+    Compute the seven live underwriting guardrail booleans for ``forecast``.
+
+    Pure and side-effect free: reads only already-computed engine outputs (``forecast.purchase``,
+    ``forecast.years[0]``, ``forecast.irr_10yr``, ``forecast.warnings``) and the caller-supplied
+    guardrails (``market``). Computes no money number and overrides none -- every value tested
+    here was produced once, deterministically, by ``run_financial_model``.
+
+    Args:
+        forecast: The forecast to judge. Same contract as ``synthesize_thesis``.
+        market: Same optional guardrails ``synthesize_thesis`` takes; ``None`` falls back to
+            ``MIN_SPREAD`` for the spread test and treats the cap-rate floor as unset.
+
+    Returns:
+        The same seven booleans ``synthesize_thesis`` has always computed
+        (historically local variables at this module's ``:172-179``), now computed once here so
+        every caller reads identical results.
+    """
+    return guardrail_checks_from_metrics(metrics_of(forecast), market)
+
+
+def guardrail_checks_from_metrics(metrics: ForecastMetrics, market: MarketAssumptions | None = None) -> GuardrailChecks:
+    """The seven booleans, computed from the small `ForecastMetrics` record.
+
+    THIS IS THE ONE IMPLEMENTATION. ``guardrail_checks`` above is a thin adapter that projects a
+    full ``FinancialForecast`` onto the same record and calls straight through, so the report path
+    and the recourse SEARCH path (which never builds a ``FinancialForecast`` at all -- see
+    ``engine.forecast_metrics``) cannot answer this question differently. That is the same "one
+    shared function, not two comparisons" ruling that produced ``GuardrailChecks`` in the first
+    place, extended to cover the new, cheaper way of getting here.
+    """
+    spread_target = spread_target_for(market)
+    return GuardrailChecks(
+        dscr_ok=metrics.year1_dscr >= MIN_DSCR_Y1,
+        spread_ok=metrics.spread_vs_rate >= spread_target,
+        irr_ok=metrics.irr_10yr >= MIN_IRR_10YR,
+        # Inclusive at the bar, exactly like every sibling above: a deal landing on 3.00% clears it.
+        coc_ok=metrics.coc >= MIN_COC_Y1,
+        cf_y1_ok=(metrics.cash_flow_y1 >= 0.0) if REQUIRE_POSITIVE_CF_Y1 else True,
+        cf_all_ok=metrics.all_cash_flows_nonneg if REQUIRE_POSITIVE_CF_ALL else True,
+        no_cap_floor_breach=not any("cap rate" in w.lower() and "below floor" in w.lower() for w in metrics.warnings),
+    )
 
 
 def _flag(condition: bool, msg: str, rationale: list[str]) -> None:
@@ -168,15 +241,18 @@ def synthesize_thesis(forecast: FinancialForecast, *, market: MarketAssumptions 
 
     rationale: list[str] = []
 
-    # Evaluate guardrails
-    dscr_ok = y1.dscr >= MIN_DSCR_Y1
-    spread_ok = purchase.spread_vs_rate >= spread_target
-    irr_ok = forecast.irr_10yr >= MIN_IRR_10YR
-    # Inclusive at the bar, exactly like every sibling above: a deal landing on 3.00% clears it.
-    coc_ok = purchase.coc >= MIN_COC_Y1
-    cf_y1_ok = (y1.cash_flow >= 0.0) if REQUIRE_POSITIVE_CF_Y1 else True
-    cf_all_ok = all(y.cash_flow >= 0.0 for y in forecast.years) if REQUIRE_POSITIVE_CF_ALL else True
-    no_cap_floor_breach = not any("cap rate" in w.lower() and "below floor" in w.lower() for w in forecast.warnings)
+    # Evaluate guardrails. Delegated to `guardrail_checks` (Mission 4 Gate D, "Option B") so this
+    # is the ONLY place the seven tests are performed -- `src/market/recourse.py` calls the same
+    # function on every perturbed re-run, and a golden/parity test pins that this refactor changed
+    # no observable output (see tests/agents/test_guardrail_checks_parity.py).
+    checks = guardrail_checks(forecast, market)
+    dscr_ok = checks.dscr_ok
+    spread_ok = checks.spread_ok
+    irr_ok = checks.irr_ok
+    coc_ok = checks.coc_ok
+    cf_y1_ok = checks.cf_y1_ok
+    cf_all_ok = checks.cf_all_ok
+    no_cap_floor_breach = checks.no_cap_floor_breach
 
     # Rationale lines (pros/cons)
     _flag(dscr_ok, f"DSCR (Y1) is healthy at {y1.dscr:.2f} (≥ {MIN_DSCR_Y1:.2f}).", rationale)

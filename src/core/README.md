@@ -91,7 +91,7 @@
 * `amortization_schedule(principal, rate, amort_years, *, io_years=0, horizon_years) -> list[YearDebt]`
   Deterministic annual schedule; interest-only years precede amortization; padded to horizon.
 * `irr(cash_flows, *, max_iter=100, tol=1e-6) -> float | None`
-  Date-aware IRR (Newton + bisection fallback); expects signed cash flows.
+  Date-aware IRR; expects signed cash flows. **Mission 4:** the solver was replaced (a domain-bounded bracket search followed by Brent's method, not Newton-Raphson + bisection) because Newton could converge to a spurious root outside `(-100%, +inf)`. Returns `None` when no valid root exists in the bracket (e.g. cash flows that never change sign). **`run_financial_model` does not preserve that `None`**: `engine.py:589` does `irr(cashflows) or 0.0`, so a deal with no defined IRR gets `FinancialForecast.irr_10yr = 0.0` and the report prints "IRR (10yr): 0.00%" as if a real 0% return had been computed. Verified concretely on golden case `units_1_horizon_10` (an all-negative-cash-flow deal): `irr()` returns `None`, both the old and new solver, and the coalesce is why that golden case's `irr_10yr` is the one of 34 that did *not* move when the solver was swapped (see `CHANGELOG.md`). Known gap, not fixed.
 
 ### Ingest & Normalize
 
@@ -173,6 +173,7 @@ The marker itself now survives validation: `DetectedLabelModel.source` (see `sch
 * Thesis formation lives **outside** `core/`, at `agents.chief_strategist.synthesize_thesis`. There is
   no second implementation: `core/strategy/form_thesis` was deleted in Mission 2 task 3.1a after its
   guardrails were reconciled into that function (see the `strategy/` note under Structure above).
+* **Guardrail checks** (`agents.chief_strategist.guardrail_checks_from_metrics`) extracted as a single shared implementation (Mission 4 Gate D, "Option B") and called by both `synthesize_thesis` and the recourse module (`src/market/recourse.py`). Pinned by a parity test (`tests/agents/test_guardrail_checks_parity.py`) that ensures they stay in sync — a structural guard against the drift that happened twice in this codebase before.
 
 ## Design Notes / Invariants
 
@@ -227,7 +228,7 @@ The marker itself now survives validation: `DetectedLabelModel.source` (see `sch
 
 ---
 
-_Last reconciled: 2026-08-20 against mission/3-byo-onnx-provider: rewrote the "Dependencies / Optional Providers" section to document both the Python API and the new CLI path (`--onnx-model` / `--onnx-labels` and env vars); corrected the false claim that `onnxruntime` is "intentionally not declared in requirements.txt" — it is pinned unconditionally at `requirements.txt:27`. Earlier note: 2026-08-05 against mission/2-wiring-gaps (Gate 3 remediation): the
+_Last reconciled: 2026-08-29 against mission/4-actionable-recourse (doc-audit correction): the `irr()` bullet still described the pre-Mission-4 solver ("Newton + bisection fallback") after the Mission 4 solver swap to a bracket search + Brent's method; corrected, and added the `engine.py:589 irr(cashflows) or 0.0` coalesce as a documented known gap (verified concretely against golden case `units_1_horizon_10`: `irr()` returns `None`, both solvers, cash flows never change sign). Earlier note (2026-08-29, same mission): added `guardrail_checks_from_metrics` note explaining the Mission 4 Gate D extraction of the seven live guardrails into a single shared implementation, pinned by parity test. Earlier note: 2026-08-20 against mission/3-byo-onnx-provider: rewrote the "Dependencies / Optional Providers" section to document both the Python API and the new CLI path (`--onnx-model` / `--onnx-labels` and env vars); corrected the false claim that `onnxruntime` is "intentionally not declared in requirements.txt" — it is pinned unconditionally at `requirements.txt:27`. Earlier note: 2026-08-05 against mission/2-wiring-gaps (Gate 3 remediation): the
 `narrative_builder.py`/`report_builder.py` and `advisor/scenarios.py` bullets above now describe
 their deletion, not their wiring — the founder-proxy blocked both at Gate 3 for printing figures
 the finance engine never computed, and the task-3.1b stamp this note supersedes (below) described

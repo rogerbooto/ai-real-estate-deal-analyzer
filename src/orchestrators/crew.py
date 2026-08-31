@@ -35,12 +35,14 @@ from src.core.media.local import collect_local_assets
 from src.core.reports.baseline import BaselineOutlook
 from src.core.reports.photo_report import build_media_report
 from src.core.reports.report_models import MediaReport
+from src.market.recourse import compute_recourse, is_genuinely_close
 from src.schemas.models import (
     FinancialForecast,
     FinancialInputs,
     InvestmentThesis,
     ListingInsights,
     MediaInsights,
+    RecourseAnalysis,
 )
 
 
@@ -60,6 +62,12 @@ class OrchestrationResult:
     #: pictures. None whenever no observation moved a number — which is the common case, and what
     #: keeps a run with no live insight modifiers byte-identical to one from before this existed.
     baseline: BaselineOutlook | None = None
+    #: "What would have to change?" (Mission 4). None whenever `is_genuinely_close` (a
+    #: pre-computation scoping gate on the baseline forecast alone) says this deal is not a near
+    #: miss — which keeps a run with no near-miss byte-identical to one from before this existed.
+    #: Never a blanked-out result: once computed, it is always the full analysis, honest_null and
+    #: all (see `src/market/recourse.py` module docstring).
+    recourse: RecourseAnalysis | None = None
 
 
 def build_baseline_outlook(
@@ -96,6 +104,27 @@ def build_baseline_outlook(
     return BaselineOutlook(forecast=base_forecast, thesis=synthesize_thesis(base_forecast, market=inputs.market))
 
 
+def build_recourse(inputs: FinancialInputs, *, horizon_years: int) -> RecourseAnalysis | None:
+    """
+    "What would have to change?" (Mission 4) — shared by both orchestrators, mirroring
+    ``build_baseline_outlook``'s exact shape.
+
+    Args:
+        inputs: The exact inputs the observed forecast was produced from.
+        horizon_years: Same horizon as the observed forecast.
+
+    Returns:
+        A full ``RecourseAnalysis`` when ``is_genuinely_close`` (a pre-computation scoping gate
+        evaluated on a fresh baseline forecast alone) says this deal is worth attempting recourse
+        for, otherwise ``None``. Never a blanked-out analysis: once the gate opens, whatever
+        ``compute_recourse`` finds — including an honest "nothing realistic closes this" — is
+        returned in full.
+    """
+    if not is_genuinely_close(inputs, horizon_years=horizon_years):
+        return None
+    return compute_recourse(inputs, horizon_years=horizon_years)
+
+
 def run_orchestration(
     inputs: FinancialInputs,
     listing_txt_path: str | None = None,
@@ -116,7 +145,9 @@ def run_orchestration(
         OrchestrationResult with insights, forecast, investment thesis, and — when photos
         were supplied — media insights over that folder. Also carries a ``baseline`` outlook
         whenever a listing observation actually moved a number, so the report can show the
-        same deal with and without those observations.
+        same deal with and without those observations. Also carries a ``recourse`` analysis
+        whenever the deal is a genuine near-miss (see ``build_recourse``); ``None`` otherwise,
+        which keeps report output byte-identical for a BUY or a deep DECLINE.
 
     Notes:
         - This is a clean seam to swap in a CrewAI-based orchestrator in V2+.
@@ -128,6 +159,7 @@ def run_orchestration(
     # the same number the engine tests when it warns "cap-rate spread below target".
     thesis = synthesize_thesis(forecast, market=inputs.market)
     baseline = build_baseline_outlook(inputs, forecast, horizon_years=horizon_years)
+    recourse = build_recourse(inputs, horizon_years=horizon_years)
 
     # Descriptive media stats over the same folder the analyst tagged. Defensive by the same
     # rule as the agents: a bad photo folder degrades the report, it never fails the run.
@@ -152,4 +184,5 @@ def run_orchestration(
         media_insights=media_insights,
         media_report=media_report,
         baseline=baseline,
+        recourse=recourse,
     )

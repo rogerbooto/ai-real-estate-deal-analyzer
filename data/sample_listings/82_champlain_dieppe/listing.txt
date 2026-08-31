@@ -1,0 +1,43 @@
+82 Champlain Street
+Dieppe, New Brunswick E1A 5R2
+Price: $605,000
+Square Feet: 3,600 (building total)
+Lot Size: 2,340 m²
+Taxes: $7,200 (2024)
+Assessment: $498,000
+
+--- Property Overview ---
+Type: Residential Fourplex (purpose-built, 1987)
+Units: 4 (two 2-bedroom, two 1-bedroom)
+Unit 1: 2 bedrooms, 1 bathroom, eat-in kitchen, in-suite laundry hookup
+Unit 2: 2 bedrooms, 1 bathroom, eat-in kitchen, in-suite laundry hookup
+Unit 3: 1 bedroom, 1 bathroom, galley kitchen
+Unit 4: 1 bedroom, 1 bathroom, galley kitchen
+Basement: Shared coin laundry, mechanical room, storage lockers
+Condition: Common areas and roof (2019) updated; units original but well maintained
+Occupancy: Fully tenanted, month-to-month
+Utilities: Individually metered hydro (tenant-paid); water/sewer landlord-paid
+Garage: No — gravel parking pad, 4 spaces
+Heating: Electric baseboard (tenant-paid)
+Water: Municipal
+Exterior: Vinyl
+Driveway: Gravel, shared
+
+--- Rent Roll (current) ---
+Unit 1: $1,450/month
+Unit 2: $1,450/month
+Unit 3: $1,400/month
+Unit 4: $1,350/month
+
+--- Key Features ---
+- Four self-contained units, individually metered hydro
+- Shared coin laundry (owner-owned machines)
+- Roof replaced 2019
+- Walking distance to schools and the Dieppe boardwalk
+- Long-term tenants, low turnover
+
+--- Notes ---
+Listing Agent: Fictional Realty Group (sample data — not a real listing)
+Status: Sample fixture for the AI Real Estate Deal Analyzer's recourse ("What would have to
+change?") report section — see README.md in this directory for why these specific numbers were
+chosen.

@@ -19,6 +19,8 @@ class FinancingTerms(BaseModel):
     Acquisition and loan parameters. All money amounts are assumed to use the same currency.
     """
 
+    model_config = ConfigDict(validate_assignment=True)
+
     purchase_price: float = Field(..., description="Total contract price for the property (currency units).")
     closing_costs: float = Field(
         0.0, description="One-time buyer costs at closing (title, fees, transfer taxes). Added to initial cash outlay."
@@ -43,6 +45,8 @@ class OperatingExpenses(BaseModel):
     Annual operating expense inputs for Year 1. A uniform growth rate (expense_growth) is applied each year.
     """
 
+    model_config = ConfigDict(validate_assignment=True)
+
     insurance: float = Field(..., description="Annual property insurance.")
     taxes: float = Field(..., description="Annual property taxes.")
     utilities: float = Field(..., description="Annual utilities paid by owner (electric/gas/common areas if applicable).")
@@ -66,6 +70,8 @@ class OperatingExpenses(BaseModel):
 class UnitIncome(BaseModel):
     """One unit's monthly revenue."""
 
+    model_config = ConfigDict(validate_assignment=True)
+
     rent_month: float = Field(..., description="Monthly rent for this unit at Year 1 start (pre-growth).")
     other_income_month: float = Field(0.0, description="Other monthly income attributable to this unit (parking, storage, laundry).")
 
@@ -77,6 +83,8 @@ class IncomeModel(BaseModel):
     - Rents and other income are MONTHLY inputs; the model annualizes internally.
     - occupancy and bad_debt_factor reduce GSI to GOI.
     """
+
+    model_config = ConfigDict(validate_assignment=True)
 
     units: list[UnitIncome] = Field(..., description="List of units with per-unit monthly rent and other income.")
     occupancy: float = Field(0.97, ge=0, le=1, description="Economic occupancy fraction (1 - vacancy). 0.97 = 97%.")
@@ -91,6 +99,8 @@ class RefinancePlan(BaseModel):
     Refinance assumptions (optional). If enabled, computes value from NOI and exit cap, then applies refi LTV.
     Timing convention: refi occurs at the END of 'year_to_refi' (after that year's cash flows).
     """
+
+    model_config = ConfigDict(validate_assignment=True)
 
     do_refi: bool = Field(True, description="Whether to model a refinance event.")
     year_to_refi: int = Field(5, description="Refinance occurs at the END of this year (e.g., 5 = after Year 5 cash flows).")
@@ -114,6 +124,8 @@ class RefinancePlan(BaseModel):
 class MarketAssumptions(BaseModel):
     """Market / risk guardrails used for purchase metrics and strategist rules."""
 
+    model_config = ConfigDict(validate_assignment=True)
+
     cap_rate_purchase: float | None = Field(
         None, description="If provided, use this as the purchase cap rate; else compute NOI/P for Year 1."
     )
@@ -128,6 +140,8 @@ class MarketAssumptions(BaseModel):
 
 class FinancialInputs(BaseModel):
     """Top-level input bundle consumed by the financial model tool."""
+
+    model_config = ConfigDict(validate_assignment=True)
 
     financing: FinancingTerms = Field(
         ..., description="Purchase and loan terms (price, down payment, rate, amortization, IO, mortgage insurance)."
@@ -1300,6 +1314,89 @@ class ScenarioAnalysis(BaseModel):
     irr_10yr: ScenarioMetricBand | None = Field(None, description="Prior-weighted IRR band; None iff n_accepted == 0.")
     equity_multiple_10yr: ScenarioMetricBand | None = Field(None, description="Prior-weighted equity-multiple band; None if 0 accepted.")
     notes: str | None = Field(None, description="Rejector notes / 'no admissible scenarios'.")
+
+
+class RecourseLever(BaseModel):
+    """
+    One candidate single-lever fix for one currently-failing guardrail (Mission 4 —
+    "What would have to change?"), found by re-running ``run_financial_model`` on a perturbed
+    deep copy of ``FinancialInputs`` -- NEVER by inverting the guardrail's own formula.
+
+    The levers are not independent (a price cut shrinks the loan, lifts the cap rate, and changes
+    cash-in all at once), so every ``target_value``/``delta`` here is read off a real engine
+    re-run, never solved for algebraically. See ``src/market/recourse.py`` module docstring for
+    the concrete trap case (the CoC guardrail via the purchase-price lever) this discipline
+    guards against.
+    """
+
+    guardrail: Literal["dscr", "spread", "irr", "coc", "cf_y1", "cf_all", "cap_floor"] = Field(
+        ..., description="Which of the seven live chief_strategist.py guardrails this row targets."
+    )
+    lever: Literal["rent_per_unit_month", "purchase_price", "interest_rate", "annual_opex"] = Field(
+        ..., description="Which investor-movable input this row perturbs, holding all others fixed."
+    )
+    baseline_value: float = Field(..., description="The lever's current value before perturbation, in its own native unit.")
+    target_value: float | None = Field(
+        None,
+        description="The lever's value at the flip point, rounded away from zero to a human-facing "
+        "step and re-confirmed by one more engine re-run at that rounded value. None when no flip "
+        "was found within the search bound (honest-null for this row).",
+    )
+    delta: float | None = Field(None, description="target_value - baseline_value, signed. None alongside target_value.")
+    relative_change: float | None = Field(
+        None,
+        ge=0,
+        description="abs(delta) / abs(baseline_value) -- the cross-currency cheapness score. "
+        "None when delta is None or baseline_value is 0.",
+    )
+    closes_guardrail: bool = Field(..., description="True iff a flip point was found within this lever's search bound.")
+    structurally_hopeless: bool = Field(
+        ...,
+        description="True iff the reachability probe found this guardrail's underlying metric does not move at "
+        "all with this lever, for this deal (e.g. interest_rate vs. cap_floor, always; or any lever vs. "
+        "spread/cap_floor when market.cap_rate_purchase is overridden).",
+    )
+    plausible: bool = Field(..., description="True iff the plausibility check raised no flag. Always True when closes_guardrail is False.")
+    plausibility_reason: str | None = Field(None, description="Human-readable reason when plausible is False. None otherwise.")
+    also_closes: tuple[Literal["dscr", "spread", "irr", "coc", "cf_y1", "cf_all", "cap_floor"], ...] = Field(
+        default_factory=tuple,
+        description="Other currently-failing guardrails also closed by this same target_value, read off the "
+        "same re-run at zero extra engine-call cost.",
+    )
+
+    model_config = ConfigDict(frozen=True, extra="ignore")
+
+
+class RecourseAnalysis(BaseModel):
+    """
+    Recourse ("what would have to change?") attached to a near-miss ``InvestmentThesis``.
+    Additive: lives beside ``InvestmentThesis``, never inside it; ``InvestmentThesis.levers``
+    (free-text) is unchanged and is a different, pre-existing concept from the structured levers
+    here.
+    """
+
+    verdict: str = Field(..., description="The InvestmentThesis.verdict this analysis is attached to (BUY never gets one).")
+    failing_guardrails: tuple[Literal["dscr", "spread", "irr", "coc", "cf_y1", "cf_all", "cap_floor"], ...] = Field(
+        ...,
+        description="Machine names of the guardrails that failed on this forecast, in the fixed lexicographic "
+        "order of the live-guardrail table, and for which recourse was attempted.",
+    )
+    levers: tuple[RecourseLever, ...] = Field(
+        ..., description="Every (lever, guardrail) row attempted, including structurally-hopeless and honest-null rows."
+    )
+    cheapest: RecourseLever | None = Field(None, description="The single lead recommendation. None iff honest_null is True.")
+    remaining_after_cheapest: tuple[Literal["dscr", "spread", "irr", "coc", "cf_y1", "cf_all", "cap_floor"], ...] = Field(
+        default_factory=tuple,
+        description="failing_guardrails minus {cheapest.guardrail} minus cheapest.also_closes. Empty tuple when "
+        "cheapest is None or fixes everything.",
+    )
+    honest_null: bool = Field(
+        ...,
+        description="True iff no row in `levers` has closes_guardrail=True -- nothing realistic (within the "
+        "search bounds) closes any failing guardrail.",
+    )
+
+    model_config = ConfigDict(frozen=True, extra="ignore")
 
 
 # =========================

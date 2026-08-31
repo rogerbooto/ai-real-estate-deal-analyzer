@@ -8,24 +8,25 @@
   * Generate a small **Cartesian grid** of “what-if” `MarketHypothesis` deltas around a snapshot.
   * Apply **rejector** rules to prune unrealistic combos and renormalize priors.
   * Produce **regional income tables** for sanity-checks and scenario seeding. As of 2026-08-05
-    (Mission 2 task 3.1b, OPD-3 "wire-first") `build_regional_income` (`regional_income.py`) is
+    (Mission 2 task 3.1b, OPD-3 “wire-first”) `build_regional_income` (`regional_income.py`) is
     reachable in production via `deal-advisor`'s `--regional-income <path>` flag: a JSON file
-    `{"region": ..., "bedrooms": ..., "comps": [rent, ...]}` is loaded, built into a
+    `{“region”: ..., “bedrooms”: ..., “comps”: [rent, ...]}` is loaded, built into a
     `RegionalIncomeTable`, and its real comps-derived fields (median/p25/p75 rent) are embedded in
     the advisor's JSON/`--markdown` output as a portfolio-level sanity-check (it is not per-deal —
     comps describe a market, not one listing). It is a deliberately separate entry point from the
     scenario overlay below: it needs only comps, not a `FinancialInputs`/engine run. **Gate 3
     correction (2026-08-05):** `RegionalIncomeTable.str_multiplier`/`turnover_cost` were found
     fabricated (a hardcoded 1.5x STR uplift gated by a policy hook that always returned `True`, and
-    an uncited "median rent × 0.5" rule of thumb) and neither reaches `deal-advisor`'s output;
+    an uncited “median rent × 0.5” rule of thumb) and neither reaches `deal-advisor`'s output;
     `build_regional_income` no longer computes an STR multiplier at all (`str_multiplier` is always
     `None`) and `RegionalIncomeTable.summary()` no longer renders either field or the
     `[RegionalIncomeTable]` class-name prefix it used to print. `turnover_cost` remains a required
     schema field computed internally for validity; `advisor_cli.py`'s `_regional_income_payload`
     additionally keeps it out of `--out`'s JSON specifically (the field-removal question is left to
-    a follow-up schema decision — see `CHANGELOG.md` "Removed").
-  * **NEW — Wave 2:** Perturb financial inputs per hypothesis and re-run the frozen finance engine to produce prior-weighted scenario outcomes (`adapter.py`, `scenario_runner.py`).
-* **Current status**: fully implemented and tested; wired into the pipeline as an **opt-in** “Market Scenarios” overlay behind `--scenarios` / `AIREAL_SCENARIOS` / `run.scenarios`. When OFF (default), the hot path adds zero scenario imports and produces byte-identical output. Scenarios are deterministic what-if calculations, not predictions.
+    a follow-up schema decision — see `CHANGELOG.md` “Removed”).
+  * **Perturb financial inputs per hypothesis and re-run the frozen finance engine** to produce prior-weighted scenario outcomes (`adapter.py`, `scenario_runner.py`).
+  * **Actionable recourse for near-miss deals (Mission 4):** The gate is verdict-independent — `is_genuinely_close` runs a fail-count test on the baseline forecast alone: `0 < num_fails <= GENUINELY_CLOSE_MAX_FAILS` (currently 3), over the same seven live `chief_strategist.py` guardrails the verdict itself is computed from. It never inspects the verdict string. In practice this means: `BUY` (0 fails, by the verdict rule's own definition) never opens the gate; `CONDITIONAL` deals (1–2 fails, without the cap-floor+DSCR DECLINE shortcut) always do; and `DECLINE` deals open it too whenever they still land in the 1–3 range (either via the cap-floor+DSCR shortcut at low fail counts, or via exactly 3 fails). (The shipped fixture `data/sample_listings/82_champlain_dieppe/` is a **DECLINE** with the gate open — 3 of 6 live guardrails failing — chosen deliberately so this section has real, non-CONDITIONAL data to render against.) When it opens, compute what single investor-movable change (rent, price, interest rate, annual opex) would close each failing guardrail — by re-running the engine, never by inverting formulas, because the levers are not independent. (`recourse.py` with `is_genuinely_close()` and `compute_recourse()`).
+* **Current status**: fully implemented and tested; wired into the pipeline as an **opt-in** “Market Scenarios” overlay behind `--scenarios` / `AIREAL_SCENARIOS` / `run.scenarios`. When OFF (default), the hot path adds zero scenario imports and produces byte-identical output. Scenarios are deterministic what-if calculations, not predictions. **Recourse is not opt-in** — there is no flag or env var; `compute_recourse` runs automatically, unconditionally, whenever `is_genuinely_close` returns `True` for the baseline forecast, and its result is appended to `OrchestrationResult` and rendered by the report layer.
 
 ## Public APIs / Contracts
 
@@ -38,6 +39,7 @@
   from src.market.regional_income import build_regional_income
   from src.market.adapter import perturb_inputs
   from src.market.scenario_runner import resolve_snapshot, run_scenarios
+  from src.market.recourse import is_genuinely_close, compute_recourse
   ```
 * **Key Types** (see ../schemas/README.md):
 
@@ -64,6 +66,10 @@
     (Wave 2) Resolves the `MarketSnapshot` for scenario generation. Source priority: (1) explicit `market` block if provided (parsed by `build_snapshot`); (2) fallback derivation from `FinancialInputs`; (3) loud-fail if no cap is derivable. Never silently invents a cap (invariant §5).
   * `run_scenarios(inputs: FinancialInputs, snapshot: MarketSnapshot, *, seed: int = 42) -> ScenarioAnalysis`
     (Wave 2) Runs the full scenario pipeline: baseline engine pass (for `base_cap`) → generate hypotheses → reject unrealistic → per-scenario engine re-run → prior-weighted aggregation. Deterministic; returns `ScenarioAnalysis` with prior-weighted bands (p25/p50/mean/min/max) per metric.
+  * `is_genuinely_close(inputs: FinancialInputs, *, horizon_years: int = DEFAULT_HORIZON_YEARS) -> bool`
+    (Mission 4) Pre-computation scoping gate. Evaluates a fresh baseline forecast of `inputs` alone (no search, no bisection, no lever perturbation) and counts how many of the *live* guardrails (the seven from `chief_strategist.py`, minus any not applicable to this deal's `market` config) currently fail. Returns `True` iff `0 < num_fails <= GENUINELY_CLOSE_MAX_FAILS` (`GENUINELY_CLOSE_MAX_FAILS = 3`). There is no per-guardrail margin or "closeness tolerance" — this is a pure fail-count test, verdict-independent (a DECLINE with 1–3 failing guardrails opens the gate exactly as a CONDITIONAL would; a BUY with 0 fails never opens it; a DECLINE with 4+ fails never opens it either). Does not peek at whether any lever could actually close a gap — that is `compute_recourse`'s job, run only after this gate opens.
+  * `compute_recourse(inputs: FinancialInputs, *, horizon_years: int = DEFAULT_HORIZON_YEARS) -> RecourseAnalysis`
+    (Mission 4) For each failing guardrail, find the single most impactful investor-movable change (rent/price/rate/opex) that would close it — by bisecting on each lever and re-running the engine, never by inverting a formula. Returns a fully populated `RecourseAnalysis` with one row per lever/guardrail pair; implausible levers are flagged with a reason but not removed. Cheapest-fix rows are ranked first; remaining-gap counts prevent partial-fix confusion. Does not itself check `is_genuinely_close` — callers gate before calling this.
 
 ## Usage Examples
 
@@ -182,7 +188,7 @@ print(tbl.summary())  # region/bedrooms/P25/Median/P75 rent -- same string deal-
 
 ---
 
-_Last reconciled: 2026-08-05 against mission/2-wiring-gaps (Gate 3 remediation): corrected the
+_Last reconciled: 2026-08-29 against mission/4-actionable-recourse (doc-audit correction): the same-mission pass that first added `recourse.py` to this file mis-described the feature twice — the Purpose bullet said recourse only fires "for deals with a `CONDITIONAL` verdict" (false: `is_genuinely_close` is a verdict-independent fail-count test, `0 < num_fails <= GENUINELY_CLOSE_MAX_FAILS = 3`, and the shipped fixture `data/sample_listings/82_champlain_dieppe/` is a DECLINE with the gate open), and `is_genuinely_close`'s row invented a per-guardrail "closeness tolerance" margin that does not exist in `src/market/recourse.py`. Both corrected against the source (`grep -n GENUINELY_CLOSE_MAX_FAILS src/market/recourse.py`; `python -c "from src.market.recourse import is_genuinely_close; ..."` against the fixture, verified `is_genuinely_close(...) == True`, `verdict == "DECLINE"`, on 2026-08-29). Also corrected the status note: recourse is not opt-in (no flag/env var exists for it; only Market Scenarios is). Earlier note: 2026-08-05 against mission/2-wiring-gaps (Gate 3 remediation): corrected the
 `build_regional_income`/`RegionalIncomeTable` bullets above — `str_multiplier`/`turnover_cost` were
 fabricated and no longer reach `deal-advisor`'s output (`str_multiplier` is no longer computed at
 all); every code sample and reachability note updated to say so. See `CHANGELOG.md` "Removed".

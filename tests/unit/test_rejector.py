@@ -118,6 +118,66 @@ def test_soft_penalty_and_renormalization():
     assert math.isclose(sum(h.prior for h in out.items), 1.0, rel_tol=0.0, abs_tol=1e-12)
 
 
+def test_large_rate_cut_is_rejected_symmetric_bound():
+    """
+    Mission 4 Gate D fix: `_rates_vs_cap_ok` used to be one-sided (`delta - cap_delta <= 0.02`),
+    so a rate CUT (negative `interest_rate_delta`) always passed regardless of magnitude -- a
+    -280 bps cut with `cap_rate_delta=0` satisfied `-0.028 <= 0.02` trivially. RED on reversion to
+    the one-sided formula: a -280 bps cut must now be rejected, the same as a +280 bps hike is.
+    """
+    snap = make_snapshot(region="UnitTest-Region")
+
+    big_cut = make_hypothesis(
+        interest_rate_delta=-0.028,  # -280 bps: comfortably outside recourse's own 100 bps flag,
+        cap_rate_delta=0.00,  # and -- before this fix -- unconditionally accepted here.
+        rent_delta=0.00,
+        expense_growth_delta=0.00,
+        vacancy_delta=0.00,
+        str_viability=False,
+        prior=1.0,
+        rationale="large rate cut",
+    )
+    hs = make_hypothesis_set(region=snap.region, seed=5, n=0)
+    hs = type(hs)(snapshot_region=hs.snapshot_region, seed=hs.seed, items=(big_cut,))
+
+    out = reject_unrealistic(hs, snap)
+    assert len(out.items) == 0
+
+    # A symmetric, equally large rate HIKE was already rejected before this fix -- confirm it
+    # still is (the fix must not have accidentally loosened the existing upper bound).
+    big_hike = make_hypothesis(
+        interest_rate_delta=0.028,
+        cap_rate_delta=0.00,
+        rent_delta=0.00,
+        expense_growth_delta=0.00,
+        vacancy_delta=0.00,
+        str_viability=False,
+        prior=1.0,
+        rationale="large rate hike",
+    )
+    hs2 = make_hypothesis_set(region=snap.region, seed=6, n=0)
+    hs2 = type(hs2)(snapshot_region=hs2.snapshot_region, seed=hs2.seed, items=(big_hike,))
+    out2 = reject_unrealistic(hs2, snap)
+    assert len(out2.items) == 0
+
+    # A small, realistic rate cut (within the symmetric bound) is still accepted -- the fix must
+    # not have made every cut unrealistic.
+    small_cut = make_hypothesis(
+        interest_rate_delta=-0.01,
+        cap_rate_delta=0.00,
+        rent_delta=0.00,
+        expense_growth_delta=0.00,
+        vacancy_delta=0.00,
+        str_viability=False,
+        prior=1.0,
+        rationale="small rate cut",
+    )
+    hs3 = make_hypothesis_set(region=snap.region, seed=7, n=0)
+    hs3 = type(hs3)(snapshot_region=hs3.snapshot_region, seed=hs3.seed, items=(small_cut,))
+    out3 = reject_unrealistic(hs3, snap)
+    assert len(out3.items) == 1
+
+
 def test_integration_with_generator_invariants():
     snap = make_snapshot(region="UnitTest-Region")
     gen = generate_hypotheses(snap, seed=42)
