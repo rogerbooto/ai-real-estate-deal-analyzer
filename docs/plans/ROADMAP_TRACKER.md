@@ -7,7 +7,8 @@ Standing ledger owned by the mission-planner. Read first, update last, every run
 ## 1. Current state (as-built)
 
 **Composite grade: B-** _(planner-derived 2026-07-23; to be confirmed by app-evaluator when spawnable)_
-Base (Mission 3 charter run, 2026-08-19): `main @ a00a265`, tree clean, **1 commit ahead of `origin/main @ 0ea42fd`** — the unpushed docs backfill `a00a265` ("docs(missions): backfill Roger-facing manual-test + plain-English docs; reconcile roadmap ledger to as-shipped v0.3.0"); Roger controls the push. _(Prior run's base was `main @ 8ed9397`, **in sync with `origin/main`** at that time; verified 2026-08-19: `git rev-list --left-right --count origin/main...main` = `0 0` then.)_ Mission 2 has since been merged AND pushed; the earlier "origin has never received Mission 1" divergence is closed — origin now carries everything through `8ed9397`. _(Historical: the dirty working tree the Mission 1 charter described as its baseline had landed as `6147839` — sample bundle restore, parsing regex fixes, report identity/glossary/provenance wiring, `PASS`→`DECLINE` rename, `.env.example` rewrite.)_ The tree is now clean. Planner-verified, orchestrator-reproduced in the real `airedeal` env (`/home/rtokime/anaconda3`, NOT `~/miniconda3`): `pytest` green, coverage 81.87%, `ruff` + `mypy` clean. Graph rebuilt against the working tree (1631 nodes / 4013 edges).
+**Current baseline (Mission 5 charter run, 2026-08-31): `main @ 7cfd449`, tree clean, in sync with `origin/main`** — Mission 4 merged (`7cfd449`, Roger-validated 9/9 2026-08-31); Mission 3 merged (`8b59399`, Roger-validated 9/9 2026-08-29). `git status` clean at charter time; charter planned read-only against `7cfd449`.
+_Historical base (Mission 3 charter run, 2026-08-19): `main @ a00a265`, tree clean, **1 commit ahead of `origin/main @ 0ea42fd`**_ — the unpushed docs backfill `a00a265` ("docs(missions): backfill Roger-facing manual-test + plain-English docs; reconcile roadmap ledger to as-shipped v0.3.0"); Roger controls the push. _(Prior run's base was `main @ 8ed9397`, **in sync with `origin/main`** at that time; verified 2026-08-19: `git rev-list --left-right --count origin/main...main` = `0 0` then.)_ Mission 2 has since been merged AND pushed; the earlier "origin has never received Mission 1" divergence is closed — origin now carries everything through `8ed9397`. _(Historical: the dirty working tree the Mission 1 charter described as its baseline had landed as `6147839` — sample bundle restore, parsing regex fixes, report identity/glossary/provenance wiring, `PASS`→`DECLINE` rename, `.env.example` rewrite.)_ The tree is now clean. Planner-verified, orchestrator-reproduced in the real `airedeal` env (`/home/rtokime/anaconda3`, NOT `~/miniconda3`): `pytest` green, coverage 81.87%, `ruff` + `mypy` clean. Graph rebuilt against the working tree (1631 nodes / 4013 edges).
 
 | Axis | Grade | One-liner |
 | --- | --- | --- |
@@ -31,6 +32,8 @@ Base (Mission 3 charter run, 2026-08-19): `main @ a00a265`, tree clean, **1 comm
 | — | (pre-tracker) v0.1.0 MVP, media pipeline, CV v2, advisor/intelligence, address parsing | Shipped organically | 2025-09 → 2025-11 |
 | 1 | Scenario Intelligence (wire `src/market` into pipeline + reports; Wave 0 packaging fix; authorized IRR-solver core fix) | **Shipped and pushed** — Roger's mission gate approved; merged to `main`, and `main`'s subsequent history (including Mission 2) reached `origin/main` on 2026-08-05 (see §3, "`origin/main` has never received Mission 1" row) | 2026-07-23 → 2026-07-24 |
 | 2 | Close the end-to-end wiring gaps (Tier 0 false-report fixes, Tier 1 silent-drop wiring + anti-regression guard, Tier 3 CLI honesty, T4/T5 wire-first disposition) | **Shipped, merged, released, pushed** — Gate 3 passed (principles-guardian VETO lifted, staff code review approved); merged `--no-ff` as `8b2acf8` ("Merge Mission 2: close the end-to-end wiring gaps"), released as v0.3.0 (`652acd7`), CI fixed and green at `66ffacd`, mission closed at `8ed9397`. **Merged AND pushed — local `main` in sync with `origin/main`** (verified 2026-08-19: `git rev-list --left-right --count origin/main...main` = `0 0`). 27/28 tasks done; the remainder (3.1c) is a threshold decision for Roger, not engineering work (branch `mission/2-wiring-gaps`) | 2026-08-03 → 2026-08-05 |
+| 3 | Bring-your-own ONNX photo provider (offering 1 of backlog #3: wire `register_onnx_provider` to a real `--onnx-model`/`--onnx-labels` CLI + env path; adjudicated 70/30 labels; docs) | **Shipped, merged, pushed** — all four gates cleared; **Roger's manual validation 9/9 PASS 2026-08-29**; merged `--no-ff` as **`8b59399`** and pushed (also carried the previously-unpushed Mission 2 validation record `6d9c000`); `origin/main...main` = `0 0`. Branch `mission/3-byo-onnx-provider` | 2026-08-19 → 2026-08-29 |
+| 4 | Actionable Recourse ("What would have to change?") — near-miss recourse via re-run-the-engine bisection (backlog #6); plus the finance-core perf work it forced (charter amendment: `engine.py`/`irr.py`/`amortization.py` rewritten for perf + a real solver-crash fix; golden re-baselined) | **Shipped, merged, pushed** — Gate D + Gate V cleared 2026-08-20; **Roger's manual validation 9/9 PASS 2026-08-31** (one defect found and fixed in-pass: Case 7 benchmark; `BUDGET_MS` re-baselined 120→250 ms, ratified); merged `--no-ff` as **`7cfd449`**. Branch `mission/4-actionable-recourse` | 2026-08-29 → 2026-08-31 |
 
 ---
 
@@ -126,6 +129,11 @@ counter-examples that undermine the rule.
 | 5 | Live market data ingestion (comps, cap-rate drift) | Med | High (network, data licensing, freshness) | fetch/ policy | Market realism | Market | #1; compliance review |
 | 7 | **F3 "Adjustments Applied" note is unreachable on real data** (found in the 2026-08-19 manual-test pass; documented as Mission 2 case F3 / defect #4). The report renderer correctly ships whatever OPEX-adjustment notes the engine emits, but the engine's triggers test **pre-normalization** strings (`"old roof"`, `"water stain"`) that the CV/label layer normalizes away before the engine sees them (e.g. `"water stain"` → `water_leak_suspected`), so on any real pipeline run the notes are empty and the section never appears. **Real defect, survived Mission 2.** | Low-Med (report honesty — a shipped section that can never populate on real input misleads by omission) | Med (fixing the engine side is inside `src/core/finance/`; fixing the normalization map has CV/label blast — a product decision) | engine OPEX-modifier ↔ CV-label vocabulary | Reports/Finance honesty | Reports, CV/AI | Roger decides which side moves (trigger/label reconciliation) |
 | 8 | **Stale editable-install metadata** (found 2026-08-19): `pip show ai-real-estate-deal-analyzer` reports `Version: 0.1.0` while `pyproject.toml` reads `0.3.0`, because an earlier `pip install -e .` cached the old metadata. **Refreshed 2026-08-20** by re-running `pip install -e .`; `pip show` now reads `0.3.0`. Cosmetic; console scripts resolve and run correctly. | Very low (cosmetic; no functional impact) | Minimal (no source change; a re-install) | packaging | Packaging polish | Packaging | — |
+| 9 | **Adjoint (algorithmic) differentiation + optimized recourse search** — **(Half A)** replace Mission 4's ~10–20-probe bisection with exact derivatives + Newton on the guardrail (~3–4 probes), the remaining path to Roger's 30 ms target for 5,000u/100y, shipping a **tolerance rule first** (relax bit-exact golden to ~1e-9 relative, anchored to the ORIGINAL golden, catches ~9.4e-8); **(Half B, EXPANDED IN by Roger 2026-08-31)** the **multi-lever recourse optimizer** — a second "top-3 actionable combinations" report section via constrained optimization (Lagrangian/KKT + deterministic multi-start) consuming Half A's AD Jacobian, gated by a **unified all-four-lever combination-plausibility gate**. **CHARTERED as Mission 5, 2026-08-31; scope EXPANDED same day to include Half B (was previously slated for a separate Mission 6, now folded in).** | High (portfolio-scale speed; AAD credibility; + multi-lever recourse — richer, more actionable output) | **High — touches `src/core/finance/` (engine/irr AD) AND relaxes a values-level invariant** (bit-exact → tolerance); Half B adds a new optimizer + a unified plausibility gate. De-risked: tolerance rule ships first & is independently valuable; Gate D is a real go/no-go on the AD portion; **an internal AD go/no-go checkpoint gates Half B (NO-GO → Half B defers, Half A ships alone)**. | recourse search (`recourse.py` `_bisect`/`_rerun`/`_judge_plausibility`) + finance engine (`engine.py`, `irr.py` Brent) + golden harness + `rejector.py` (unified gate) | Finance/perf, Market, Reports, portfolio credibility | Finance core, Market, Reports, Tests | Guardian VETO on the invariant relaxation; perf go/no-go; **internal AD checkpoint before optimizer**; every number AND combination confirmed by a real engine re-run |
+| 10 | **Money-field lower bounds** — `purchase_price` (and peers) accept negative values today (`models.py:24`, no `ge=`; and see the "silently unenforceable constraint" note `inputs.py:210`). A deliberate money-field pass, not one patch. | Low-Med (input honesty; a negative price should not validate) | Low (additive field constraints + clean error messages) | schema validation | Input robustness | Schemas, Tests | Founder-proxy confirms field list + floor semantics. **Folded into Mission 5 as an open-item disposition.** |
+| 11 | **Raise horizon ceiling `le=50`→`le=100`** (`inputs.py:74`) — 99-year leases are real and work post-Mission-4. **CLI out-of-range-horizon also surfaces a raw pydantic traceback** with the useful message at the bottom (polish to one clean line). | Low (real leases fit; friendlier error) | Low (one constraint + one error-handling branch) | inputs validation + CLI | Usability | Inputs, CLI, Tests | Founder-ratified. **Folded into Mission 5 as open-item dispositions.** |
+| 12 | **`GENUINELY_CLOSE_MAX_FAILS = 3`** (`recourse.py:143`) — the near-miss threshold, chosen by necessity during Mission 4 rather than decided. Needs a real product decision. | Low (a threshold Roger should own explicitly) | Minimal (a constant + its test) | recourse gate | Product clarity | Market | **Founder-proxy call folded into Mission 5 Gate D** (the one near-miss threshold the mission may decide). |
+| 13 | **Integer-cents money representation (sibling/successor to Mission 5)** — represent money as integer cents so summation is order-independent (removing the constraint that limited Mission 4's vectorization) and money arithmetic is exact. **Named as a related/successor mission, NOT in scope for Mission 5.** | High (exactness + unlocks vectorization) | **High — refactors the finance core AND money-carrying schema fields** | finance core + schemas | Finance exactness, perf headroom | Finance core, Schemas, Tests | Sequenced after Mission 5; likely its own charter |
 
 ### Backlog #6 — "What would have to change?" (Roger's design, 2026-08-05)
 
@@ -279,36 +287,58 @@ inherits for free.
 
 ## 5. Current recommendation
 
-**Mission 3 — Wire the bring-your-own ONNX model provider to a real user path — ✅ SHIPPED 2026-08-29.**
-Gate D + Gate V cleared 2026-08-20; manually validated by Roger 2026-08-29 (**9/9 cases PASS**); merged
-`--no-ff` as **`8b59399`** and pushed to `origin/main`. All four gates cleared. **The next mission is
-Mission 4** (planning artifacts drafted under `docs/plans/MISSION_4_*`, not yet committed). A scoped slice of backlog #3: **offering 1 of 3 only** (BYO ONNX model) — NOT the
-hosted-API-key offering, NOT a project-shipped ViT. Baseline `main @ a00a265`; branch
-`mission/3-byo-onnx-provider`. Artifacts: `docs/plans/MISSION_3_byo_onnx_provider.md` (charter),
-`docs/plans/MISSION_3_SPRINT_TRACKER.md`, `docs/plans/MISSION_3_HANDOFF.md` (pasteable prompt),
-`docs/plans/MISSION_3_PLAIN_ENGLISH.md`, `docs/manual testing/MISSION_3_MANUAL_TESTING.md`.
+**Mission 5 — Adjoint Differentiation & Optimized Recourse Search — CHARTERED 2026-08-31; scope
+EXPANDED by Roger the same day; not yet built.** Baseline `main @ 7cfd449` (Mission 4 merged,
+Roger-validated 9/9 2026-08-31); branch `mission/5-adjoint-differentiation`. Backlog #9. **Two halves,
+run in sequence with a hard internal AD go/no-go checkpoint between them.** **Half A** replaces Mission
+4's ~10–20-probe bump-and-reprice bisection with **exact derivatives + Newton on the guardrail** (~3–4
+probes) — the remaining credible path to Roger's **30 ms** target for the 5,000u/100y analysis (honest
+baseline ~180 ms / ~150 probes today; the brief's "73 ms" is unverified and Discovery reconciles it).
+**Half B (EXPANDED IN, was to be a separate Mission 6)** adds a **multi-lever recourse optimizer** — a
+second "top-3 actionable combinations" report section alongside the single-lever menu, solved as a
+constrained optimization (Lagrangian/KKT + **deterministic** multi-start) over Half A's AD Jacobian, with
+feasibility from a **unified all-four-lever combination-plausibility gate** (the core new engineering:
+today `_judge_plausibility` `recourse.py:609` judges one lever at a time; rent/opex have no rejector
+axis). Top-3 is normalization-free (parsimony · within-axis magnitude · diversity); coordinates stay the
+interpretable real levers (no PCA/eigen/SVD/LDA, no learned surrogate — recorded one-reason rationale in
+the charter). **Neither half violates "re-run the engine, never invert a formula":** every single-lever
+answer AND every combination is confirmed by one real, un-differentiated engine re-run. **A tolerance
+rule ships FIRST and gates all AD work:** relax the bit-exact golden to ~1e-9 relative, **anchored to the
+ORIGINAL golden**, still catching the ~9.4e-8 injected rounding bug; approaching-tolerance demands
+written justification. Artifacts: `docs/plans/MISSION_5_adjoint_differentiation.md` (charter),
+`docs/plans/MISSION_5_SPRINT_TRACKER.md`, `docs/plans/MISSION_5_HANDOFF.md` (pasteable prompt),
+`docs/plans/MISSION_5_PLAIN_ENGLISH.md`, `docs/manual testing/MISSION_5_MANUAL_TESTING.md`.
 
-**Why now / why this one.** Highest reward-to-blast on the board. The machinery is already built and
-tested — `register_onnx_provider(model_path, labels_path)` (`amenities_defects.py:441`), the
-capability-declaration mechanism, and `provider_kind` returning `"model"` — but it has **zero callers**:
-no CLI flag or env var reaches it, and `build_photo_insights` (`photo_insights.py:314-324`) hard-selects
-`"vision"|"local"`, never `"onnx"`. So this is wiring + a minimal provider-selection change, not new
-capability. Blast is near-zero (no `src/core/finance/`, no `src/schemas/models.py` breaking edit), it
-takes CV/AI from "honest stub only" toward a real user model path, and — because Mission 2 landed the
-honest-provenance labelling and the 70/30 confirm-don't-fabricate rule — it unlocks the six
-filename-inferred labels (`mold_suspected`, `water_leak_suspected`, `ev_charger`, `parking_garage`,
-`parking_driveway`, `dishwasher`) as confirmable observations with **no ontology change**. Pre-conditions
-are met; offerings 2 & 3 stay backlog because their blast (cost/non-determinism policy; training/
-licensing) is much higher. Backlog #8 (`pip install -e .` reinstall) folded in as one-line Wave 0
-housekeeping. Carried constraints: AI observes but never authors the verdict; security review of the
-user-supplied model-file surface; honest framing (no overclaim — it is the *user's* model).
+**Why now / why this one.** Highest strategic reward on the board after four wiring/feature missions: it
+closes the last perf gap on the institutional-scale analysis, adds real quant-desk credibility (AAD),
+and now also makes recourse output materially richer (bundles, not just single levers). Blast is **High
+and honestly flagged** — it touches `src/core/finance/` (engine/irr AD), relaxes a **values-level
+invariant** (bit-exact → tolerance), and Half B adds an optimizer + a unified plausibility gate — but
+Mission 4 already opened the finance-core door, and the mission is de-risked by **three** structural
+devices: the tolerance rule is **independently valuable and ships first**; **Gate D is a genuine go/no-go
+on the AD portion**; and an **internal AD go/no-go checkpoint gates Half B** so the optimizer builds only
+on a proven Jacobian (NO-GO → Half B defers, Half A ships alone; a wrong top-3 is then unambiguously an
+optimizer bug). Guardian VETO on the invariant relaxation is **mandatory** at Gate D. Three low-blast
+open items fold in with their own RED tests: money-field lower bounds (#10), horizon `le=50`→`le=100` +
+CLI clean-error (#11), and the `GENUINELY_CLOSE_MAX_FAILS` product call (#12). **Integer-cents money
+representation (#13) remains the named sibling/successor mission, explicitly NOT in scope.**
+
+> **Planner's registered over-scope concern (Roger has read it and elected to expand anyway).** Combining
+> Half A (gnarly AD through a bracketed Brent root-find + a values-level invariant relaxation) with Half
+> B (a constrained optimizer + a new unified plausibility gate + a new report section) in one mission is
+> a lot of high-blast, high-uncertainty work for a solo dev — the split into a Mission 6 would have given
+> a clean debugging boundary. Roger overrode the split; the internal AD checkpoint is the device that
+> preserves that boundary without needing two missions. If Phase B sprawls past the cap even after a
+> clean checkpoint, the orchestrator surfaces it to Roger as a candidate to carve Half B back out.
 
 **Where the rest of the backlog stands (candidates, not the current pick):**
-- **#6 "What would have to change?"** (Roger's actionable-recourse design, §4) — the 3.1c threshold
-  calls should be revisited *after* it ships.
+- **#13 Integer-cents money** — the named successor to Mission 5 (exact money arithmetic; unlocks
+  vectorization); likely its own charter after Mission 5.
+- **Multi-lever recourse optimizer** — no longer a separate candidate: **folded into Mission 5 as Half B**
+  (2026-08-31). There is no Mission 6 for it.
 - **#4 Streamlit UI**, **#5 live market data** — unchanged.
-- **#7** the unreachable F3 "Adjustments Applied" note (real, report-honesty). **#8** stale
-  editable-install version metadata — folded into Mission 3 Wave 0 housekeeping.
+- **#7** the unreachable F3 "Adjustments Applied" note (real, report-honesty) — **still open**, not
+  addressed by Missions 3–5; a future report-honesty candidate.
 
 **Still-open blockers that gate certain futures (§3):** no real AI provider yet (gates any
 "AI-powered" claim); the GitHub SSH **signing** key remains unregistered (commits show Unverified);
@@ -319,6 +349,98 @@ the parked media-intelligence refactor (`parked/media-intelligence-refactor`) st
 
 ## 6. Changelog
 
+* **2026-08-31 (Mission 5 SCOPE EXPANDED by Roger — Half B multi-lever optimizer folded in; docs-only,
+  no code, no git ops).** Roger decided to **expand Mission 5 to include the multi-lever recourse
+  optimizer** (Half B) rather than defer it to a separate Mission 6, overriding the planner's
+  split recommendation. Updated the five existing (uncommitted) Mission 5 artifacts **in place** (same
+  filenames, slug `adjoint_differentiation` kept for continuity; human title broadened to "Adjoint
+  Differentiation & Optimized Recourse Search") plus this ledger. **What Half B adds:** a **second report
+  section, "top-3 actionable combinations",** alongside the existing single-lever menu (Roger: offer
+  both — we don't know if the investor can move one lever or several). It is a **constrained optimization**
+  (Lagrangian/KKT — augmented Lagrangian / SQP / projected-gradient / interior-point, chosen by
+  measurement in Discovery) over the four levers, consuming Half A's exact AD Jacobian, made global by
+  **deterministic multi-start** (fixed grid/scatter seeds, never stochastic). **Design decisions settled
+  with Roger and recorded so they are not re-litigated:** feasibility-not-optimization (FILTER to
+  plausible combinations, no cross-lever cost normalization; the plausibility gate is a deterministic
+  boolean feasibility projection, not a differentiable objective term — the gradient comes from the
+  guardrail margins); normalization-free top-3 selection (parsimony · within-axis magnitude · diversity,
+  DiCE-style); interpretable real-lever coordinates only (a blended/singular direction may be an internal
+  heuristic, translated back before display). **The core new engineering task** is a **unified
+  all-four-lever joint combination-plausibility gate**: grounded against the code at `7cfd449` —
+  `_judge_plausibility` (`recourse.py:609`) unites `_rejector_flagged` (`recourse.py:519`, reusing
+  `reject_unrealistic` `rejector.py:68`) and `_magnitude_flagged` (`recourse.py:584`) but judges **one
+  lever at a time**; the rejector's real cross-axis rules (`|interest_rate_delta − cap_rate_delta| ≤
+  0.02` `rejector.py:23`; `rent_delta ≥ +0.03 ⇒ vacancy_delta ≤ +0.015` `rejector.py:38-41`; STR
+  coherence `rejector.py:44-64`) operate on **market-hypothesis deltas**, two of the four recourse levers
+  (rent, opex) have **no** rejector axis, and price reaches it only via a cap-rate proxy — which is why
+  Mission 4 bolted on `RATE_MAGNITUDE_THRESHOLD` (`recourse.py:130`) and `_MAGNITUDE_RELATIVE_THRESHOLD`
+  (`recourse.py:120`). Unifying these into one gate that judges a **full four-lever combination**
+  (including joint plausibility — e.g. cutting price AND raising rent may each be individually fine yet
+  jointly implausible) is the real design work; **what makes a combination plausible is a founder-proxy
+  product call.** **Recorded the ONE-REASON rationale for rejecting learned/decomposition methods** (no
+  CNN/MLP, no learned surrogate, no TPE/Bayesian optimization, no PCA/eigen/SVD/LDA for the user-facing
+  answer): we OWN the exact, cheap, post-Half-A-differentiable generating function; every
+  learning/decomposition tool targets the opposite regime (expensive/unknown/noisy function, or data
+  needing reduction); classical numerical optimization on the real model is the correct and robust family
+  precisely because Roger generates and controls the data (and eigen/SVD/LDA axes are uninterpretable
+  blends that destroy the interpretability that is the product). **Risk-containment sequencing** encoded
+  in the waves: Sync → Branch → Discovery (both halves, incl. the AD-Jacobian output API as the clean 7×4
+  seam, optimizer method selection, rejector-unification, top-3 selection) → Gate D (guardian VETO +
+  founder product calls incl. the combination-plausibility rule & top-3 policy + perf go/no-go) → Impl
+  Phase A (tolerance FIRST, then single-lever AD, proven against today's bisection) → **INTERNAL AD
+  go/no-go checkpoint** (AD must be validated — same answers within tolerance, IRR/Brent sound, 7×4
+  Jacobian API stable — BEFORE the optimizer builds on it; NO-GO → Half A ships as the value, Half B
+  defers) → Impl Phase B (the optimizer on the now-stable Jacobian) → Validation → Gate V → Roger's
+  mission gate → Integrate. The **internal AD-proven-before-optimizer checkpoint is explicit in both the
+  charter (§Waves, §Gates summary, binding constraint 10) and the sprint tracker (ADC.1 gate row + the
+  wave-summary boundary)** — so a wrong top-3 is unambiguously an optimizer bug, not maybe-an-AD-bug.
+  Roster additions for Half B: constrained-optimization design + Lagrangian/multi-start → `staff-python-engineer`
+  at **fable**; two-section report output → `staff-report-experience-designer` / sonnet; the Half B
+  product calls → `principal-founder-proxy` / opus; optimizer RED suite → `staff-qa-test-engineer` /
+  sonnet; guardian VETO still `principal-principles-guardian`; docs still `staff-documentation-maintainer`
+  at STANDARD (not haiku), verified against real symbols; code review `staff-code-reviewer` / sonnet;
+  ≤3 concurrent per wave. GRAPHIFY CONTRACT remains verbatim in the handoff. **Registered the planner's
+  over-scope concern** in the charter (§Risks) and §5 — Roger has read it and elected to expand; the
+  internal checkpoint is the device that preserves the debugging boundary the split would have given.
+  Ledger re-touched: §4 folded the former "Mission 6 multi-lever optimizer" candidate into Mission 5's
+  scope (no longer a separate mission) while keeping integer-cents money (#13) as the named
+  sibling-successor; §5 → the **expanded** Mission 5. **No code, no git ops, no commit** — the five
+  artifacts + this ledger left uncommitted for Roger.
+* **2026-08-31 (Mission 5 CHARTERED — Adjoint Differentiation for the Recourse Search; docs-only, no
+  code, no git ops).** Baseline confirmed read-only: `main @ 7cfd449` (Mission 4 merged, "validated by
+  Roger 2026-08-31, 9/9 PASS"), tree clean, in sync with `origin/main` (gate pre-verified by the
+  orchestrator). Verified every design anchor against the tree at `7cfd449`: the recourse search
+  (`compute_recourse` `recourse.py:792`, `_bisect` `:471`, `_rerun` `:412`, `GENUINELY_CLOSE_MAX_FAILS=3`
+  `:143`), the engine (`run_financial_model` `engine.py:638`, `forecast_metrics` `:671`), the **bracketed
+  Brent** IRR root-find (`irr` `irr.py:188`, `_brent_root` `:83` — flagged as the hardest AD target), the
+  **bit-exact** golden harness (`test_golden_forecasts.py:188`, 34 `CASE_IDS`, golden at
+  `tests/data/golden/finance_engine_forecasts.json`, regen via `generate_golden_forecasts.py`), and the
+  committed benchmark (`bench_finance_engine.py`, PRIMARY 5,000u/100y, `BUDGET_MS=250.0`). **Two honesty
+  corrections to the brief, encoded in the charter rather than papered over:** (1) the brief's "Mission 4
+  left it at 73 ms" is NOT what the tree measures — a fresh run reads **best 169.8 / median 178.0 ms,
+  150 probes** for the 5,000u/100y row against a 250 ms budget; "30 ms" appears nowhere in code and is
+  recorded as Roger's *target*, with Discovery (D.2) required to reconcile the 73 ms claim by
+  measurement; (2) Mission 4 already **waived** its own zero-finance-core-diff constraint and rewrote
+  `engine.py`/`irr.py`/`amortization.py`, so Mission 5's AD work is a continuation of an already-opened
+  core, still **high blast** and gated accordingly. Chartered the mission with the **tolerance rule as
+  the first shipped deliverable, gating all AD work** (~1e-9 relative, anchored to the ORIGINAL golden,
+  catches ~9.4e-8, approaching-tolerance ⇒ written justification), the **guardian VETO on the
+  values-level invariant relaxation mandatory at Gate D**, the AD portion behind a real **perf go/no-go**
+  (tolerance rule is independently valuable, so the mission delivers value even on a NO-GO), a measured
+  forward-vs-reverse decision (dual-number 4-pass is the hypothesis to beat, not a foregone conclusion),
+  the IRR/Brent differentiation approach (implicit-function-theorem vs converged-root), a numpy
+  re-measurement, and the **every-number-confirmed-by-a-real-engine-re-run** invariant. Folded three
+  low-blast open items in with RED tests (money-field lower bounds; horizon `le=50`→`le=100` + CLI
+  clean-error; `GENUINELY_CLOSE_MAX_FAILS` product call) and **named integer-cents money as the
+  sibling/successor mission, explicitly out of scope.** Roster co-designed for router confirmation at
+  dispatch, with the AD/IRR math at the **top reasoning tier (fable)** and **doc reconciliation at
+  STANDARD, not haiku** (Mission 4 routed doc-vs-code verification cheap and got fabricated API docs).
+  Wrote all five artifacts (charter, sprint tracker, handoff with the GRAPHIFY CONTRACT verbatim,
+  plain-English brief, manual-testing acceptance plan with unchecked VALIDATED boxes). Branch:
+  `mission/5-adjoint-differentiation`. Reconciled the ledger: §1 baseline → `main @ 7cfd449` in sync with
+  origin; §2 added Mission 3 (`8b59399`) and Mission 4 (`7cfd449`) as SHIPPED; §4 added backlog rows
+  #9–#13; §5 → Mission 5 recommendation. Files left uncommitted for Roger; **no state-mutating git ops
+  performed** (no commit, no branch, no push).
 * **2026-08-29 (Mission 3 SHIPPED — Roger's 9/9 manual pass, then merged and pushed)** —
   Roger drove every case in `docs/manual testing/MISSION_3_MANUAL_TESTING.md` by hand in the `airedeal`
   env on branch `mission/3-byo-onnx-provider` (tree on top of `main @ 6d9c000`, `OUT=/tmp/m3`):
