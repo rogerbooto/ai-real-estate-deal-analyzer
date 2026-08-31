@@ -5,8 +5,22 @@ from src.schemas.models import HypothesisSet, MarketHypothesis, MarketSnapshot
 
 
 def _rates_vs_cap_ok(interest_rate_delta: float, cap_rate_delta: float) -> bool:
-    # Hard: interest_rate_delta - cap_rate_delta <= 0.02
-    return (interest_rate_delta - cap_rate_delta) <= 0.02 + 1e-12
+    # Hard, two-sided: |interest_rate_delta - cap_rate_delta| <= 0.02.
+    #
+    # Mission 4 Gate D fix (2026-08-29): the original one-sided `(delta - cap_delta) <= 0.02` never
+    # bounded a rate CUT. A cut makes `interest_rate_delta` negative, so the expression only gets
+    # MORE negative and the `<= 0.02` test passes trivially at any magnitude -- e.g. a -280 bps cut
+    # with cap_rate_delta=0 satisfies `-0.028 <= 0.02` regardless of how implausible a 280 bps cut
+    # is. Two independent Mission 4 agents found this hole (it is what forced recourse's
+    # interest_rate lever to carry its own, separate 100 bps magnitude fallback -- see
+    # `src/market/recourse.py` -- since this rejector rule alone never flagged a large cut).
+    #
+    # Symmetric bound closes it without moving the upper bound any previously-accepted hypothesis
+    # relied on: `generate_hypotheses`' own DEFAULT_BANDS grid (`hypotheses.py`) never produces an
+    # `interest_rate_delta` below -0.01, and its most negative combination against the
+    # `cap_rate_delta` band (rate=-0.01, cap=+0.01 -> diff=-0.02) lands EXACTLY on the new lower
+    # bound, so nothing the generator already produced is newly rejected by this change.
+    return abs(interest_rate_delta - cap_rate_delta) <= 0.02 + 1e-12
 
 
 def _cap_bounds_ok(snapshot_cap: float, cap_rate_delta: float) -> bool:
@@ -57,7 +71,8 @@ def reject_unrealistic(hset: HypothesisSet, snapshot: MarketSnapshot) -> Hypothe
     Then renormalize priors and return a deterministically ordered HypothesisSet.
 
     Hard rejections:
-      - Rates vs Cap: interest_rate_delta - cap_rate_delta <= 0.02
+      - Rates vs Cap: |interest_rate_delta - cap_rate_delta| <= 0.02 (two-sided; see
+        `_rates_vs_cap_ok` for why a one-sided bound was a bug, not a design choice)
       - Cap floors/ceilings: (snapshot.cap_rate + cap_rate_delta) in [0.03, 0.12]
       - Vacancy bounds: (snapshot.vacancy_rate + vacancy_delta) in [0.00, 0.20]
       - Rent vs Vacancy: if rent_delta ≥ +0.03 then vacancy_delta ≤ +0.015

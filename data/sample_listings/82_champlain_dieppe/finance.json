@@ -1,0 +1,8 @@
+{
+  "irr": 0.1200034,
+  "cashflow_monthly": 304.55,
+  "price_per_sqft": 168.06,
+  "market_ppsf": 168.06,
+  "purchase_price": 605000.0,
+  "_notes": "Advisor-shaped summary for `deal-advisor` discovery; the full underwriting config is inputs.json. irr and cashflow_monthly are computed by src.core.finance from inputs.json; price_per_sqft = purchase_price / 3600 sqft (listing.txt). market_ppsf is set equal to price_per_sqft -- i.e. 'priced at market' -- because no comp data ships with this repo; supply a real comp to make the advisor's ppsf signal meaningful. area_safety_index is omitted and defaults to 0.5 (neutral). This is a synthetic near-miss fixture built for Mission 4's recourse report section -- see README.md in this directory."
+}

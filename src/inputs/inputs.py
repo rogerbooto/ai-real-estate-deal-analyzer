@@ -193,10 +193,42 @@ class InputsLoader:
         if not updates:
             return cfg
 
-        run_new = cfg.run.model_copy(update=updates)
+        run_new = self._revalidate_run(cfg.run, updates, source="CLI")
         return cfg.model_copy(update={"run": run_new})
 
     # ---------- Internals ----------
+
+    def _revalidate_run(self, base: RunOptions, updates: dict[str, Any], *, source: str) -> RunOptions:
+        """
+        Apply ``updates`` to ``base`` and re-run ``RunOptions``' declared field validators
+        (``ge``/``le`` bounds, etc.) against the result.
+
+        ``RunOptions.model_copy(update=...)`` -- used to build the naive merged instance below --
+        does **not** re-run pydantic validators (this is documented pydantic v2 behaviour). Every
+        override path in this loader (CLI ``with_overrides`` and env-var
+        ``_apply_env_overrides``) therefore MUST come back through this method, or a declared
+        constraint such as ``horizon: Field(10, ge=1, le=50)`` is silently unenforceable the
+        moment it is overridden -- which is exactly the bug this method exists to close (Mission 4
+        PV.2; see ``docs/plans/MISSION_4_SPRINT_TRACKER.md`` "SYSTEMIC FINDING").
+
+        Raises:
+            ValueError: with a message naming the rejected field(s) and their declared
+                constraint(s) -- never a raw ``pydantic.ValidationError`` traceback -- if the
+                merged result violates the schema (invariant: "loud fail on misconfig").
+        """
+        merged = {**base.model_dump(), **updates}
+        try:
+            return RunOptions.model_validate(merged)
+        except ValidationError as e:
+            raise ValueError(self._format_override_validation_error(e, source)) from e
+
+    @staticmethod
+    def _format_override_validation_error(e: ValidationError, source: str) -> str:
+        lines = [f"Rejected {source} override(s) to run options:"]
+        for err in e.errors():
+            field = ".".join(str(p) for p in err["loc"]) or "<run>"
+            lines.append(f"  - {field}: {err['msg']} (got {err.get('input')!r})")
+        return "\n".join(lines)
 
     def _resolve_path(self, path: str | Path | None) -> Path:
         if path is not None:
@@ -300,7 +332,7 @@ class InputsLoader:
         if not updates:
             return cfg
 
-        run_new = cfg.run.model_copy(update=updates)
+        run_new = self._revalidate_run(cfg.run, updates, source="environment variable")
         return cfg.model_copy(update={"run": run_new})
 
 

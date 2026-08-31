@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 from typing import Any, cast, get_args
 
+from src.agents.chief_strategist import MIN_COC_Y1, MIN_DSCR_Y1, MIN_IRR_10YR, spread_target_for
 from src.core.cv.amenities_defects import ProviderName, provider_covers
 from src.core.cv.ontology import AMENITIES_DEFECTS_V1
 from src.core.finance.engine import EQUITY_LTV
@@ -17,6 +18,8 @@ from src.schemas.models import (
     MarketAssumptions,
     MediaInsights,
     PurchaseMetrics,
+    RecourseAnalysis,
+    RecourseLever,
     RefiEvent,
     RunProvenance,
     ScenarioAnalysis,
@@ -1227,6 +1230,15 @@ def _render_warnings(warnings: list[str]) -> str:
 def _render_thesis(thesis: InvestmentThesis) -> str:
     """
     Render the Chief Strategist's verdict with rationale and levers.
+
+    ``thesis.levers`` (``_levers_for``, ``src/agents/chief_strategist.py``) is pattern-matched,
+    free-text advice -- it is never re-run against the model and is a different, older concept
+    from the structured, engine-verified ``RecourseAnalysis`` rendered by ``_render_recourse``
+    below (Mission 4). Left unmarked, a report showing both would give a reader two lever lists
+    with no way to tell which one was actually checked against the numbers. The heading below
+    marks this list as qualitative UNCONDITIONALLY -- not only on reports where a computed
+    alternative also happens to render -- because "this list is heuristic" is true of every
+    report that shows it, independent of what else is on the page.
     """
     lines = [
         _section("Investment Thesis"),
@@ -1236,9 +1248,328 @@ def _render_thesis(thesis: InvestmentThesis) -> str:
     for r in thesis.rationale:
         lines.append(f"  - {r}")
     if thesis.levers:
-        lines.append("- **Suggested Levers:**")
+        lines.append(
+            "- **Suggested Levers** _(qualitative — pattern-matched from the numbers above, not verified by re-running the model)._"
+        )
         for lever in thesis.levers:
             lines.append(f"  - {lever}")
+    return "\n".join(lines) + "\n"
+
+
+# -----------------------
+# "What would have to change?" (Mission 4 — actionable recourse)
+# -----------------------
+#
+# Placement (Roger's decision, overriding the founder-proxy's original append-after-Warnings call):
+# adjacent to the Investment Thesis (see the `parts` list in `generate_report`), never appended
+# after Warnings — a section answering "what would have to change about THAT verdict" has to sit
+# near the verdict, not ~115 lines and five tables below it.
+#
+# A note on where this copy DIVERGED from the founder-proxy's PD.1 template (flagged per this
+# task's own instructions, not silently improvised): the template's per-lever line names the
+# post-fix metric value ("{metric} lands at {value}"). `RecourseLever` (src/schemas/models.py)
+# carries no such field -- only `target_value`/`delta` for the LEVER and a `closes_guardrail`
+# boolean, never the guardrail's own metric at that target. Deriving it here would mean
+# recomputing a guardrail metric from a perturbed lever value BY FORMULA in the report layer --
+# exactly the non-independence trap `src/market/recourse.py` exists to prevent (Gate V condition
+# 1: the trap is a real mechanism, not merely undesirable for one unlucky pair). So every lever
+# line below asserts only what the shipped data actually proves: the re-run at `target_value`
+# clears the guardrail's own bar (a fact `compute_recourse` already confirmed by re-running the
+# engine once more at the rounded ask) -- never a specific resulting number the re-run was not
+# asked to report.
+
+#: Fixed lexicographic order (mirrors `src/market/recourse.py`'s own `_GUARDRAIL_ORDER`) used
+#: everywhere a guardrail set is iterated here, so block order never depends on dict/set iteration.
+_RECOURSE_GUARDRAIL_ORDER: tuple[str, ...] = ("dscr", "spread", "irr", "coc", "cf_y1", "cf_all", "cap_floor")
+
+#: Display labels mirroring the exact wording `chief_strategist.synthesize_thesis` already uses in
+#: its own rationale bullets (Investment Thesis section, directly above this one) -- the same claim
+#: about the same guardrail is worded identically in both places.
+_RECOURSE_GUARDRAIL_LABEL: dict[str, str] = {
+    "dscr": "DSCR (Y1)",
+    "spread": "Cap-rate spread",
+    "irr": "Projected IRR (10y)",
+    "coc": "Cash-on-cash (Y1)",
+    "cf_y1": "Year-1 cash flow",
+    "cf_all": "Cash flow (all years)",
+    "cap_floor": "Purchase cap rate",
+}
+
+#: Fixed lexicographic order over the four levers (mirrors `src/market/recourse.py`'s own
+#: `_LEVER_ORDER`), used both to sort a gap block's rows and as the null/hopeless-line noun map key.
+_RECOURSE_LEVER_ORDER: tuple[str, ...] = ("rent_per_unit_month", "purchase_price", "interest_rate", "annual_opex")
+
+_RECOURSE_LEVER_NOUN: dict[str, str] = {
+    "rent_per_unit_month": "rent increase",
+    "purchase_price": "price cut",
+    "interest_rate": "rate cut",
+    "annual_opex": "opex cut",
+}
+
+#: Indefinite article per lever noun ("an opex cut", "a rent increase") -- a fixed lookup rather
+#: than vowel-sniffing, since the vocabulary is fixed and "opex" is spelled with a vowel but the
+#: general rule would need to know it is pronounced "OH-pex" to get this right anyway.
+_RECOURSE_LEVER_ARTICLE: dict[str, str] = {
+    "rent_per_unit_month": "a",
+    "purchase_price": "a",
+    "interest_rate": "a",
+    "annual_opex": "an",
+}
+
+# FIXED VERBATIM honesty block (mirrors ABOUT_SCENARIOS_BLOCK's own precedent below): rendered
+# byte-for-byte, no per-run interpolation. Carries the shared "would, not will" / non-independence
+# caveat ONCE, so no per-lever line has to repeat it (the gap header's own trailing clause, "with
+# everything else held as modeled," is the only per-block reminder -- never a fourth repetition).
+ABOUT_RECOURSE_BLOCK = (
+    "> **About this section.** Each gap below is the smallest single change to ONE input that WOULD\n"
+    "> close it — a real re-run of the underwriting model on a copy of your inputs, never a guardrail\n"
+    '> formula solved backward for the unknown lever value. **"Would," not "will":** every line holds\n'
+    "> every OTHER assumption exactly as modeled, and the levers are not independent — a change large\n"
+    "> enough to close one gap does not, by itself, guarantee the others close too. Combinations of\n"
+    "> levers (e.g. a smaller rent bump together with a smaller price cut) were never searched. See\n"
+    '> "How these numbers were produced" below for the exact ranges checked and the realism\n'
+    "> thresholds applied, with their numbers."
+)
+
+_RECOURSE_METHODOLOGY_LINES: tuple[str, ...] = (
+    "**How these numbers were produced**",
+    "",
+    "- Every number above comes from a full re-run of the underwriting model on a copy of your "
+    "inputs with exactly one lever changed — never a guardrail formula solved backward for the "
+    "unknown lever value. The one guardrail/lever pair in this engine where that shortcut gives a "
+    "wrong answer (cash-on-cash via purchase price — a price cut changes both the cash flow AND "
+    "the cash invested at once) is why this discipline is never optional: the shortcut is not "
+    "reliably conservative, it is simply wrong, and which way it errs depends on which variable "
+    "the shortcut freezes.",
+    "- **Ranges searched, per lever, from your current numbers:** rent — 0% to +100% of the current "
+    "average rent/unit/month; purchase price — 0% to −40% off the current price; interest rate — 0 "
+    "to −300 bps, floored at 0%; annual opex — 0% to −40% off the current total. A lever with no "
+    "closing row under a gap below was searched across that full range and never crossed the "
+    "guardrail's bar — that is a real, reported result, not an omission.",
+    "- **Every ask is rounded away from zero** — a required cut rounds to a LARGER cut, a required "
+    "increase to a LARGER increase, never a number that would undershoot the bar — and then "
+    "re-run once more at that rounded figure to reconfirm it still clears the bar before being "
+    "shown.",
+    '- **Realism thresholds, so "closes it" is not automatically "a reasonable ask":** a rent '
+    "increase above 10%, a price cut above 15%, or an opex cut above 20% of your current numbers is "
+    "flagged (never removed); a rate cut is flagged above 100 bps and, separately, whenever it "
+    "would push the implied cap rate outside the 3.00%–12.00% range this project treats as a "
+    "realistic market cap rate. Flagged rows keep their exact numbers — a flag is a caution, not a "
+    "hidden result.",
+    "- **Combinations of levers were never searched.** Every row above changes exactly one input at "
+    "a time; a smaller combined move (e.g. a modest rent increase together with a modest price cut) "
+    "may exist and was not checked.",
+)
+
+
+def _recourse_fmt_metric(guardrail: str, value: float) -> str:
+    """Format one guardrail's own metric at its own native precision -- mirrors exactly how
+    `chief_strategist.synthesize_thesis` already formats the same guardrail in its rationale
+    bullets (Investment Thesis section, directly above this one): dscr as a bare 2dp ratio, cash
+    flow guardrails as 0dp currency (chief_strategist's own `${y1.cash_flow:,.0f}` convention),
+    every other guardrail as a 2dp percentage."""
+    if guardrail == "dscr":
+        return f"{value:.2f}"
+    if guardrail in ("cf_y1", "cf_all"):
+        return f"${value:,.0f}"
+    return _fmt_pct(value)
+
+
+def _recourse_guardrail_current_and_bar(guardrail: str, forecast: FinancialForecast, market: MarketAssumptions | None) -> tuple[str, str]:
+    """The guardrail's OWN current value and the bar it is judged against -- read straight off the
+    already-computed baseline `forecast` and the run's `market` guardrails (never a new engine
+    call, never a value computed by this module): the exact numbers `chief_strategist` already
+    tested when it produced the verdict this section is attached to."""
+    y1 = forecast.years[0]
+    purchase = forecast.purchase
+    if guardrail == "dscr":
+        return _recourse_fmt_metric("dscr", y1.dscr), _recourse_fmt_metric("dscr", MIN_DSCR_Y1)
+    if guardrail == "spread":
+        target = spread_target_for(market)
+        return _recourse_fmt_metric("spread", purchase.spread_vs_rate), _recourse_fmt_metric("spread", target)
+    if guardrail == "irr":
+        return _recourse_fmt_metric("irr", forecast.irr_10yr), _recourse_fmt_metric("irr", MIN_IRR_10YR)
+    if guardrail == "coc":
+        return _recourse_fmt_metric("coc", purchase.coc), _recourse_fmt_metric("coc", MIN_COC_Y1)
+    if guardrail == "cf_y1":
+        return _recourse_fmt_metric("cf_y1", y1.cash_flow), _recourse_fmt_metric("cf_y1", 0.0)
+    if guardrail == "cf_all":
+        worst = min(y.cash_flow for y in forecast.years)
+        return _recourse_fmt_metric("cf_all", worst), _recourse_fmt_metric("cf_all", 0.0)
+    # cap_floor. A floor of None should not occur for a FAILING cap_floor guardrail (recourse's own
+    # `_live_guardrails` only ever makes cap_floor live when `market.cap_rate_floor is not None`),
+    # but the report layer accepts `market` independently of `recourse` (an additive, optional
+    # kwarg) -- so this degrades honestly to "N/A" instead of crashing on a mismatched caller.
+    floor = market.cap_rate_floor if market is not None else None
+    bar = _recourse_fmt_metric("cap_floor", floor) if floor is not None else "N/A"
+    return _recourse_fmt_metric("cap_floor", purchase.cap_rate), bar
+
+
+def _recourse_also_closes_clause(also_closes: tuple[str, ...]) -> str:
+    if not also_closes:
+        return ""
+    labels = ", ".join(_RECOURSE_GUARDRAIL_LABEL[g] for g in _RECOURSE_GUARDRAIL_ORDER if g in also_closes)
+    return f" Also closes: {labels}."
+
+
+def _recourse_native_and_companion(row: RecourseLever) -> tuple[str, str]:
+    """(bolded native-unit clause, companion clause) for one closing lever row.
+
+    Per-lever unit pairing (founder-proxy PD.1, implemented as specified): rent in $/unit/month +
+    %; price in $ off + resulting level and %; rate in bps + resulting rate level; opex in $ + %.
+    """
+    assert row.target_value is not None and row.delta is not None  # guaranteed by closes_guardrail=True
+    pct = f"{row.relative_change:.2%}" if row.relative_change is not None else "n/a"
+    if row.lever == "rent_per_unit_month":
+        native = f"**{_fmt_currency(row.delta)}/unit/month rent increase**"
+        companion = f"{_fmt_currency(row.target_value)}/unit/month ({pct} above current)"
+    elif row.lever == "purchase_price":
+        native = f"**{_fmt_currency(abs(row.delta))} off the purchase price**"
+        companion = f"{_fmt_currency(row.target_value)} ({pct} off)"
+    elif row.lever == "interest_rate":
+        native = f"**{abs(row.delta) * 10_000:.0f} bps rate cut**"
+        companion = f"{_fmt_pct(row.target_value)} rate"
+    else:  # annual_opex
+        native = f"**{_fmt_currency(abs(row.delta))} annual opex cut**"
+        companion = f"{pct} lower operating costs"
+    return native, companion
+
+
+def _render_recourse_lever_line(row: RecourseLever, bar: str) -> list[str]:
+    """One closing lever's bullet (native unit bold first, companion currency, then the bar it
+    clears — never a fabricated post-fix metric value, see this section's own module note above).
+    Flagged rows (plausible=False) lead with the literal word "Flagged" (never a glyph — glyphs
+    break in PDF export) and carry a nested italic reason naming the number that tripped; the row
+    keeps its full numbers either way — flagging is an annotation, never a removal."""
+    native, companion = _recourse_native_and_companion(row)
+    label = _RECOURSE_GUARDRAIL_LABEL[row.guardrail]
+    also = _recourse_also_closes_clause(row.also_closes)
+    body = f"{native} → {companion} — clears the {label} bar of {bar}.{also}"
+    if row.plausible:
+        return [f"- {body}"]
+    reason = row.plausibility_reason or "flagged by this project's plausibility guardrails."
+    return [f"- Flagged — {body}", f"  _{reason}_"]
+
+
+def _render_recourse_null_line(row: RecourseLever) -> str:
+    """Structurally-hopeless and honest-per-row-null rows both collapse to ONE italic line —
+    deliberately NOT the flagged treatment (structurally-hopeless levers provably cannot move the
+    metric at all, which is a different, stronger claim than "implausible"), and worded so a
+    per-row null (searched, found nothing within the bound) is never confused with a hopeless one
+    (provably cannot move the metric at all)."""
+    noun = _RECOURSE_LEVER_NOUN[row.lever]
+    article = _RECOURSE_LEVER_ARTICLE[row.lever].capitalize()
+    if row.structurally_hopeless:
+        return f"_{article} {noun} cannot move this guardrail at all, for this deal — it never enters the calculation being tested._"
+    return f"_{article} {noun} alone, up to the largest change checked, does not close this gap — another lever, or a combination, might._"
+
+
+def _recourse_sorted_block_rows(rows: tuple[RecourseLever, ...]) -> list[RecourseLever]:
+    """Cheapest/plausible-first within a block (discovery spec §4.2's tier ordering, applied per
+    guardrail rather than analysis-wide): plausible-closing rows first, then flagged-closing rows
+    ("flagged rows sort below unflagged within their block — never into a separate, collapsed, or
+    footnoted list"), then non-closing (null/hopeless) informational lines last. Ties within a tier
+    break on the fixed lever order — deterministic, never dict/insertion order."""
+
+    def _key(row: RecourseLever) -> tuple[int, int]:
+        if row.closes_guardrail:
+            tier = 0 if row.plausible else 1
+        else:
+            tier = 2
+        return (tier, _RECOURSE_LEVER_ORDER.index(row.lever))
+
+    return sorted(rows, key=_key)
+
+
+def _render_recourse_gap_block(
+    guardrail: str, rows: tuple[RecourseLever, ...], forecast: FinancialForecast, market: MarketAssumptions | None
+) -> list[str]:
+    current, bar = _recourse_guardrail_current_and_bar(guardrail, forecast, market)
+    label = _RECOURSE_GUARDRAIL_LABEL[guardrail]
+    lines = [
+        f"**{label} — {current} against a bar of {bar}.** Any ONE of these would close it, on its "
+        "own, with everything else held as modeled:",
+        "",
+    ]
+    for row in _recourse_sorted_block_rows(rows):
+        if row.closes_guardrail:
+            lines.extend(_render_recourse_lever_line(row, bar))
+        else:
+            lines.append(f"- {_render_recourse_null_line(row)}")
+    return lines
+
+
+def _render_recourse_lead(analysis: RecourseAnalysis, forecast: FinancialForecast, market: MarketAssumptions | None) -> list[str]:
+    """The cheapest-first lead (discovery spec §4.3 / decision 2): the single cheapest fix, with
+    the "other gaps remain" line BOLD and IMMEDIATELY adjacent — never below the fold, never
+    omitted when `remaining_after_cheapest` is non-empty (Gate V condition 2) — so a reader who
+    stops after two lines cannot mistake the lead for sufficiency. Honest-null (decision 3) says so
+    plainly here, with no "maybe"/"however"/"consider" hedging."""
+    if analysis.honest_null:
+        labels = ", ".join(_RECOURSE_GUARDRAIL_LABEL[g] for g in _RECOURSE_GUARDRAIL_ORDER if g in analysis.failing_guardrails)
+        return [
+            f"**Nothing found within the ranges checked would close this on its own.** {labels} "
+            "remain outside the bars this deal is judged against. No single lever — rent, price, "
+            "rate, or opex, alone — closed any of them within the ranges searched. The breakdown "
+            "below shows exactly what was tried for each; the footer names the ranges themselves."
+        ]
+
+    cheapest = analysis.cheapest
+    assert cheapest is not None  # honest_null is False, so `_pick_cheapest` found a row
+    _, bar = _recourse_guardrail_current_and_bar(cheapest.guardrail, forecast, market)
+    native, companion = _recourse_native_and_companion(cheapest)
+    label = _RECOURSE_GUARDRAIL_LABEL[cheapest.guardrail]
+    also = _recourse_also_closes_clause(cheapest.also_closes)
+    flagged_prefix = "Flagged — " if not cheapest.plausible else ""
+    lines = [f"**Cheapest single fix:** {flagged_prefix}{native} → {companion} — clears the {label} bar of {bar}.{also}"]
+    if not cheapest.plausible:
+        reason = cheapest.plausibility_reason or "flagged by this project's plausibility guardrails."
+        lines.append(f"_{reason}_")
+
+    # A blank-line paragraph break (not a bare "\n") guarantees this renders as its own visually
+    # distinct line on every target (GitHub, VS Code preview, PDF export) -- a single trailing
+    # newline is a "soft break" that some renderers collapse to a plain space, which would make
+    # the two lines run together as one sentence and defeat "bold and immediately adjacent" (Gate
+    # V condition 2: this line must never be less visible than the lead it follows).
+    lines.append("")
+    if analysis.remaining_after_cheapest:
+        remaining_labels = ", ".join(
+            _RECOURSE_GUARDRAIL_LABEL[g] for g in _RECOURSE_GUARDRAIL_ORDER if g in analysis.remaining_after_cheapest
+        )
+        lines.append(f"**Other gaps remain: {remaining_labels} would still not clear their own bars.**")
+    else:
+        lines.append("**This single change would close every currently-failing guardrail below — no other gaps remain.**")
+    return lines
+
+
+def _render_recourse(analysis: RecourseAnalysis, forecast: FinancialForecast, market: MarketAssumptions | None) -> str:
+    """
+    Render the "What would have to change?" section (Mission 4).
+
+    Rendered ONLY when the orchestrator supplied a `RecourseAnalysis` (the pre-computation
+    `is_genuinely_close` gate already decided whether one exists at all — see `generate_report`'s
+    own call site) — a deal whose gate never opened gets no section, byte-identical to a run with
+    no recourse feature at all. Once supplied, EVERY guardrail in `analysis.failing_guardrails` is
+    rendered, including an honest_null analysis (Roger's Gate D ruling: a computed "nothing
+    realistic closes this" is never discarded post-hoc — see `src/market/recourse.py`'s own
+    module docstring and the Gate D decision record in `docs/plans/MISSION_4_SPRINT_TRACKER.md`).
+    """
+    lines: list[str] = [_section("What would have to change?"), ABOUT_RECOURSE_BLOCK, ""]
+    lines.extend(_render_recourse_lead(analysis, forecast, market))
+    lines.append("")
+
+    by_guardrail: dict[str, list[RecourseLever]] = {}
+    for row in analysis.levers:
+        by_guardrail.setdefault(row.guardrail, []).append(row)
+
+    for guardrail in _RECOURSE_GUARDRAIL_ORDER:
+        if guardrail not in analysis.failing_guardrails:
+            continue
+        rows = tuple(by_guardrail.get(guardrail, ()))
+        lines.extend(_render_recourse_gap_block(guardrail, rows, forecast, market))
+        lines.append("")
+
+    lines.extend(_RECOURSE_METHODOLOGY_LINES)
     return "\n".join(lines) + "\n"
 
 
@@ -1441,6 +1772,7 @@ def generate_report(
     scenarios: ScenarioAnalysis | None = None,
     baseline: BaselineOutlook | None = None,
     market: MarketAssumptions | None = None,
+    recourse: RecourseAnalysis | None = None,
 ) -> str:
     """
     Generate a professional Markdown report that summarizes the investment analysis.
@@ -1451,6 +1783,10 @@ def generate_report(
       - Forecasting Methodology: baseline, stress-test, NOI-based formulas and refi rule
       - Media Overview (if available)
       - Photo Coverage (if a MediaReport is supplied)
+      - Investment Thesis: verdict, rationale, qualitative levers
+      - What would have to change? (Mission 4; only when ``recourse`` is supplied — placed
+        immediately adjacent to the Investment Thesis, never appended after Warnings, so the
+        section explaining a verdict sits next to that verdict)
       - Pro Forma (Summary): annual table of GSI, GOI, OPEX, NOI, DS, CF, DSCR, Ending Balance (horizon-aware title)
       - Valuation – Baseline table
       - Valuation – Stress-Test table
@@ -1474,6 +1810,14 @@ def generate_report(
             the thesis must quote the same floor and the same spread target or they can
             contradict each other. Supplied, the Run Provenance appendix names them; omitted,
             those rows are absent rather than guessed.
+        recourse: "What would have to change?" (Mission 4), when the orchestrator computed one
+            (see ``src/market/recourse.py``). Rendered immediately adjacent to the Investment
+            Thesis (see ``_render_recourse``) whenever supplied; the pre-computation
+            ``is_genuinely_close`` gate the orchestrator runs before ever calling
+            ``compute_recourse`` is what decides whether a caller has a non-``None`` analysis to
+            pass in at all — with no near-miss (``BUY``, or a deal too far gone to be "genuinely
+            close"), ``recourse`` stays ``None`` and this function's output is byte-identical to
+            pre-Mission-4 output.
     """
     header = _render_header(insights)
     if title_override:
@@ -1490,16 +1834,27 @@ def generate_report(
         _render_media_overview(media_insights),
         _render_photo_coverage(media_report),
         _render_thesis(thesis) if thesis else "",
-        _render_year_table(forecast.years),
-        _render_valuation_table_baseline(forecast.years, forecast),
-        _render_valuation_table_stress(forecast.years, forecast),
-        _render_valuation_table_noi(forecast.years, forecast.purchase),
-        _render_opex_details(forecast.years[0]),
-        _render_year_adjustments(forecast, thesis=thesis, baseline=baseline, provenance=provenance),
-        _render_refi(forecast.refi),
-        _render_returns(forecast),
-        _render_warnings(forecast.warnings),
     ]
+    # Mission 4 placement (Roger's decision, overriding the founder-proxy's original
+    # append-after-Warnings call): immediately adjacent to the Investment Thesis, never appended
+    # after Warnings — the section explaining "what would have to change about THAT verdict" has
+    # to sit next to the verdict, not ~115 lines and five tables below it. With no near-miss
+    # (`recourse is None`), this branch never fires and output is byte-identical to pre-Mission-4.
+    if recourse is not None:
+        parts.append(_render_recourse(recourse, forecast, market))
+    parts.extend(
+        [
+            _render_year_table(forecast.years),
+            _render_valuation_table_baseline(forecast.years, forecast),
+            _render_valuation_table_stress(forecast.years, forecast),
+            _render_valuation_table_noi(forecast.years, forecast.purchase),
+            _render_opex_details(forecast.years[0]),
+            _render_year_adjustments(forecast, thesis=thesis, baseline=baseline, provenance=provenance),
+            _render_refi(forecast.refi),
+            _render_returns(forecast),
+            _render_warnings(forecast.warnings),
+        ]
+    )
     if scenarios is not None:
         parts.append(_render_market_scenarios(scenarios))
 
@@ -1529,10 +1884,14 @@ def write_report(
     scenarios: ScenarioAnalysis | None = None,
     baseline: BaselineOutlook | None = None,
     market: MarketAssumptions | None = None,
+    recourse: RecourseAnalysis | None = None,
 ) -> None:
     """
     Convenience helper to write the generated report to disk.
     Ensures parent directories exist.
+
+    ``recourse`` is an additive Mission 4 kwarg, forwarded to ``generate_report`` unchanged; see
+    that function's docstring for when supplying it renders a "What would have to change?" section.
     """
     md = generate_report(
         insights,
@@ -1544,6 +1903,7 @@ def write_report(
         scenarios=scenarios,
         baseline=baseline,
         market=market,
+        recourse=recourse,
     )
 
     p = Path(path)

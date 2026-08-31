@@ -11,16 +11,16 @@ Base (Mission 3 charter run, 2026-08-19): `main @ a00a265`, tree clean, **1 comm
 
 | Axis | Grade | One-liner |
 | --- | --- | --- |
-| Finance core | A- | Deterministic engine with IO/amortization, refi, IRR, insight-aware modifiers; well tested (`src/core/finance/`). |
+| Finance core | A- | Deterministic engine with IO/amortization, refi, IRR, insight-aware modifiers; well tested (`src/core/finance/`). **Plus (Mission 4):** "What would have to change?" recourse module computes investor-actionable fixes for near-miss verdicts by re-running the engine, never inverting formulas. |
 | Ingestion & media | B+ | File/URL ingest with fetch policy + robots; media discovery/download/manifest; opt-in phash/quality/hero intelligence. In-progress API refactor parked (broken; `git stash@{0}`) for a dedicated branch. |
-| CV / AI | C+ | Closed-set ontology + provider seams, but `vision`/`llm` providers are deterministic stubs; no real AI path. Honest, now documented as such. |
-| Orchestration | B | Clean deterministic pipeline; CrewAI engine is a validated parity shell (`kickoff()` never called). |
-| Market / scenarios | B+ | `src/market` (snapshot, hypotheses grid, rejector, regional income) now **wired** into the pipeline + report as an opt-in prior-weighted scenario overlay (Mission 1: `adapter.py`, `scenario_runner.py`). |
-| Reports | A- | Rich Markdown reports (baseline/stress/NOI valuation tables, media overview) **plus** a principled opt-in "Market Scenarios" section (prior-weighted DSCR/CoC/CF/IRR bands, honesty framing) replacing ad-hoc env-knob stress as the scenario story. |
+| CV / AI | B | Closed-set ontology + provider seams; `vision`/`llm` providers are deterministic stubs by default, but users can bring their own ONNX model via CLI (`--onnx-model` / `--onnx-labels`, Mission 3). Six filename-inferred labels become detector-confirmed when a real model is registered. |
+| Orchestration | B | Clean deterministic pipeline; CrewAI engine is a validated parity shell (`kickoff()` never called). **Plus (Mission 4):** recourse computation wired when near-miss criteria met. |
+| Market / scenarios | B+ | `src/market` (snapshot, hypotheses grid, rejector, regional income) now **wired** into the pipeline + report as an opt-in prior-weighted scenario overlay (Mission 1: `adapter.py`, `scenario_runner.py`). **Plus (Mission 4):** `recourse.py` module for actionable recourse computation. |
+| Reports | A- | Rich Markdown reports (baseline/stress/NOI valuation tables, media overview) **plus** a principled opt-in "Market Scenarios" section (prior-weighted DSCR/CoC/CF/IRR bands, honesty framing) replacing ad-hoc env-knob stress as the scenario story. **Plus (Mission 4):** "What would have to change?" section adjacent to Investment Thesis for near-miss verdicts, with investor-movable changes expressed in multiple currencies. |
 | Advisor / intelligence | B | Multi-deal fusion, composite scoring, ranking, portfolio summary via `deal-advisor` CLI. |
-| Packaging / distribution | D | `pyproject.toml` lacks `[project]` metadata → `pip install -e .` fails; declared console scripts are dead; CLIs only run via `python -m`. |
-| Docs | A | Fully reconciled 2026-07-23 (see changelog entry below). |
-| Tests / CI | B+ | 87 test files; 80% coverage gate on core/schemas/market; ruff + mypy strict in CI. |
+| Packaging / distribution | B | `pyproject.toml` has `[project]` metadata (`pip install -e .` works, console scripts live); both fixed in Mission 1 Wave 0.2. Runtime deps via lockfiles (Mission 4). |
+| Docs | A | Fully reconciled 2026-08-29 (Mission 4 task I.4). |
+| Tests / CI | B+ | 87 test files; 80% coverage gate on core/schemas/market; ruff + mypy strict in CI. **Plus (Mission 4):** RED suite for recourse (non-independence trap, cheapest-first ordering, honest-null, determinism). |
 
 ---
 
@@ -121,7 +121,7 @@ counter-examples that undermine the rule.
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | ✅ 1 | **Scenario Intelligence** — wire `src/market` hypotheses/rejector into pipeline + report scenario section | **SHIPPED 2026-07-24 (Mission 1)** — delivered exactly as scoped; Market C→B+, Reports B+→A-; plus an authorized IRR-solver core fix | — | — | Market C→B+, Reports B+→A- | Market, Reports, Orchestration, Docs | — done |
 | ✅ 2 | Packaging metadata fix (`[project]` table) | **SHIPPED 2026-07-24 (Mission 1 Wave 0.2)** — Packaging D→B; `pip install -e .` + 3 console scripts verified | — | pyproject only | Packaging D→B | Packaging, Docs | — done |
-| 3 | **Real vision provider behind the existing CV seam** — see the detailed note below, added 2026-08-03 at Roger's request. **Slice sub-1 (BYO ONNX model) CHARTERED as Mission 3, 2026-08-19** — the lowest-blast offering, wiring the existing `register_onnx_provider` to a real CLI/env path; offerings 2 (hosted API key) and 3 (shipped ViT) remain OPEN backlog. | High (makes the "AI" headline true) | **sub-1 (ONNX): near-zero** (additive CLI/env wiring + provider-selection at an existing seam; no finance/schema/ontology diff). sub-2/sub-3: Med-High (API keys, cost, non-determinism policy; training/licensing) | CV provider registry (`register_onnx_provider` **already exists**, `amenities_defects.py:382`; `build_photo_insights` selection seam `photo_insights.py:314-324`) | CV/AI C+→B (real user model path); unlocks the 6 filename labels | CV/AI, Orchestration, Docs | sub-1: none outstanding (Mission 2 honest-provenance + 70/30 rule landed). sub-2: determinism/key-hygiene policy. sub-3: training data + licensing |
+| 3 | **Real vision provider behind the existing CV seam** — see the detailed note below, added 2026-08-03 at Roger's request. **Slice sub-1 (BYO ONNX model) CHARTERED as Mission 3, 2026-08-19** — the lowest-blast offering, wiring the existing `register_onnx_provider` to a real CLI/env path; offerings 2 (hosted API key) and 3 (shipped ViT) remain OPEN backlog. | High (makes the "AI" headline true) | **sub-1 (ONNX): near-zero** (additive CLI/env wiring + provider-selection at an existing seam; no finance/schema/ontology diff). sub-2/sub-3: Med-High (API keys, cost, non-determinism policy; training/licensing) | CV provider registry (`register_onnx_provider` **already exists**, `amenities_defects.py:441`; `build_photo_insights` selection seam `photo_insights.py:314-324`) | CV/AI C+→B (real user model path); unlocks the 6 filename labels | CV/AI, Orchestration, Docs | sub-1: none outstanding (Mission 2 honest-provenance + 70/30 rule landed). sub-2: determinism/key-hygiene policy. sub-3: training data + licensing |
 | 4 | Streamlit UI for interactive scenario exploration | High (portfolio wow) | Med (new surface, new deps) | Reads existing JSON artifacts | Distribution | Packaging, Portfolio | #1 (scenarios give the UI something to explore), #2 |
 | 5 | Live market data ingestion (comps, cap-rate drift) | Med | High (network, data licensing, freshness) | fetch/ policy | Market realism | Market | #1; compliance review |
 | 7 | **F3 "Adjustments Applied" note is unreachable on real data** (found in the 2026-08-19 manual-test pass; documented as Mission 2 case F3 / defect #4). The report renderer correctly ships whatever OPEX-adjustment notes the engine emits, but the engine's triggers test **pre-normalization** strings (`"old roof"`, `"water stain"`) that the CV/label layer normalizes away before the engine sees them (e.g. `"water stain"` → `water_leak_suspected`), so on any real pipeline run the notes are empty and the section never appears. **Real defect, survived Mission 2.** | Low-Med (report honesty — a shipped section that can never populate on real input misleads by omission) | Med (fixing the engine side is inside `src/core/finance/`; fixing the normalization map has CV/label blast — a product decision) | engine OPEX-modifier ↔ CV-label vocabulary | Reports/Finance honesty | Reports, CV/AI | Roger decides which side moves (trigger/label reconciliation) |
@@ -150,8 +150,9 @@ the deal sits* and *what would close the gap*, expressed in things an investor c
       - $460 less in annual operating costs
 
 One gap, several currencies; the investor picks the lever they have leverage on. The translation is
-**exact arithmetic, not statistics** — invert the guardrail formula. No distribution is needed to
-answer "how far from flipping", which is a deterministic question.
+**exact arithmetic, not statistics**. No distribution is needed to answer "how far from flipping", which is a deterministic question.
+
+> **Status note (2026-08-29, Mission 4 SHIPPED):** The initial framing said "invert the guardrail formula", but Roger's own discipline (see §6.5-6.7 below) later clarified the ONE discipline: RE-RUN THE ENGINE, never invert a formula. The trap that breaks a naive inversion is documented in §6.3 below and confirmed real on committed data. Mission 4 built it correctly: `compute_recourse()` bisects on each lever and re-runs the engine for every candidate answer. This is now shipped and delivered.
 
 **Roger's design decisions (these are the specification, not suggestions):**
 1. **Flag implausible levers, never remove them.** *"we provide theoretical results, and the investor
@@ -221,6 +222,8 @@ scenario runner already handles a grid.
 punishing, because a near-miss becomes legible rather than fatal-looking. A future planner should
 revisit the Year-1 CoC floor and the DECLINE shortcut *after* this ships, not before.
 
+**Status note (2026-08-29, Mission 4 SHIPPED).** Backlog #6 has been built, shipped, and is now live on `main`. The feature is complete as specified by Roger (2026-08-05): four levers (rent/price/rate/opex), flag-don't-remove for implausible moves, cheapest-single-fix ordering with remaining-gap counters, and the honest-null message when nothing realistic closes the gap. Every figure comes from re-running the engine, never from inverting a formula (the non-independence trap is real, measured on committed data: $2,243 gap in a real deal). A pre-computation "genuinely close" gate decides whether recourse is even attempted; when it is not, output is byte-identical. The feature appears adjacent to the Investment Thesis in the report when a near-miss CONDITIONAL verdict is found. Delivered in Mission 4 Waves I.1–I.4 (feature + schema + tests + docs); Gate D and Gate V passed 2026-08-20; Roger's manual validation 9/9 PASS on 2026-08-29; merged to `main` as commit `8b59399` and pushed.
+
 ### Backlog #3 in detail — why `--ai` is a stub, and what "real" looks like
 _Added 2026-08-03 at Roger's request during Mission 2, so a future mission can plan it properly._
 
@@ -286,7 +289,7 @@ hosted-API-key offering, NOT a project-shipped ViT. Baseline `main @ a00a265`; b
 `docs/plans/MISSION_3_PLAIN_ENGLISH.md`, `docs/manual testing/MISSION_3_MANUAL_TESTING.md`.
 
 **Why now / why this one.** Highest reward-to-blast on the board. The machinery is already built and
-tested — `register_onnx_provider(model_path, labels_path)` (`amenities_defects.py:382`), the
+tested — `register_onnx_provider(model_path, labels_path)` (`amenities_defects.py:441`), the
 capability-declaration mechanism, and `provider_kind` returning `"model"` — but it has **zero callers**:
 no CLI flag or env var reaches it, and `build_photo_insights` (`photo_insights.py:314-324`) hard-selects
 `"vision"|"local"`, never `"onnx"`. So this is wiring + a minimal provider-selection change, not new
@@ -345,7 +348,7 @@ the parked media-intelligence refactor (`parked/media-intelligence-refactor`) st
   Sync/Integrate). Formalized the Sonnet-selected Mission 3: a scoped slice of backlog #3 — **offering
   1 of 3 only (BYO ONNX model)**, explicitly NOT the hosted-API-key offering and NOT a shipped ViT.
   Verified every `path:line` against the real files at `a00a265`: `register_onnx_provider`
-  (`amenities_defects.py:382`) has **zero prod/CLI callers** (only docs, tests, README); `--ai` lives
+  (`amenities_defects.py:441`) has **zero prod/CLI callers** before Mission 3, now has CLI/env path; `--ai` lives
   on `ingest-listing` (`ingest_cli.py:50`, sets `use_ai` at `:151`), and `build_photo_insights`
   (`photo_insights.py:314-324`) hard-selects `"vision"|"local"` — never `"onnx"` (the crux seam);
   `provider_kind` (`amenities_defects.py:644`) already returns `"model"` for a non-stub bound fn; the
