@@ -1146,5 +1146,5 @@ risks: if AD cannot keep them green that is an AD design defect, not a tolerance
 | --- | --- |
 | Manual-testing doc fully VALIDATED by Roger (document-level box) | ✅ **DONE — 2026-09-01, 17/17 PASS.** Every case ticked with Roger's own observed output; document-level box VALIDATED; no blocking issues. |
 | Merge `--no-ff` to `main` | ✅ **DONE — dc240bc** (2026-09-01) |
-| Push at Roger's instruction (reconcile origin delta; never force-push) | TODO — awaiting Roger's word. `main` will be **2 commits + the merge ahead of `origin/main`** (the unpushed charter commit `87efd22` rides along). |
+| Push at Roger's instruction (reconcile origin delta; never force-push) | ✅ **DONE — pushed 2026-09-01 on Roger's instruction.** `7cfd449..f40f935 main -> main`, fast-forward, no force. Carried the charter commit `87efd22` that had been unpushed since 2026-08-31, so the origin delta is now reconciled: `origin/main...main` = `0 0`. Branch `mission/5-forward-mode-differentiation` also pushed. |
 | Merge sha recorded | ✅ **dc240bc** |
