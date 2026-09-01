@@ -1,16 +1,16 @@
-# Mission 5 — Adjoint Differentiation & Optimized Recourse Search
+# Mission 5 — Forward-Mode Differentiation & Optimized Recourse Search
 
 _Charter. Owned by the mission-planner; the executing orchestrator keeps the sprint tracker current,
 not this file. `path:line` anchors below were verified against the tree at the commit named in
 §Baseline; re-read any you touch before changing it._
 
 > **Scope note (2026-08-31, EXPANDED by Roger).** This mission was originally chartered as Half A
-> alone (adjoint differentiation + single-lever recourse acceleration), with the multi-lever recourse
+> alone (forward-mode (tangent-linear) differentiation + single-lever recourse acceleration), with the multi-lever recourse
 > optimizer recommended for a *separate* Mission 6. **Roger has decided to expand this mission to
 > include the optimizer**, overriding the split recommendation. The mission now runs **two halves in
 > sequence** (A then B) with a hard **internal AD go/no-go checkpoint** between them so the AD
 > foundation is proven before the optimizer builds on it. The mission slug and filenames keep
-> `adjoint_differentiation` for continuity; the human title is broadened to reflect both halves.
+> `forward_mode_differentiation` for continuity; the human title is broadened to reflect both halves.
 > The planner's over-scope concern is registered in §Risks — Roger has read it and elected to expand.
 
 ---
@@ -32,7 +32,7 @@ unverified "73 ms". **30 ms is Roger's stated target**, not a measured floor.
 
 This mission has **two halves, run strictly in sequence**:
 
-**HALF A — adjoint differentiation + single-lever acceleration (the existing chartered scope,
+**HALF A — forward-mode (tangent-linear) differentiation + single-lever acceleration (the existing chartered scope,
 unchanged).** Quant desks faced exactly this bump-and-reprice cost and largely abandoned it: instead of
 *searching* for the answer, get the **derivative of the model itself** and jump to it — the same
 mathematics as backpropagation, because the engine is a computation graph and one pass yields exact
@@ -40,20 +40,53 @@ partial derivatives. This half investigates and (subject to a measured go/no-go)
 **exact derivatives turn bisection into Newton's method on the guardrail**, dropping ~10–20 probes to
 **~3–4**, every answer confirmed by one real engine re-run. It ships a **tolerance rule FIRST** (below),
 decides **forward-vs-reverse AD by measurement** on the 4-in/≤7-out shape, and does the hard, uncertain
-part — **differentiating through the IRR/Brent bracketed root-find**. This is the remaining credible
-path toward Roger's **30 ms** target for the 5,000-unit / 100-year analysis.
+part — **differentiating through the IRR/Brent bracketed root-find**.
+
+> **⚠ RATIONALE REWRITTEN 2026-08-31 (Roger's decision, C4(b)) — the line above is retracted, measurement
+> refuted it three times independently.** AD is **NOT** "the remaining credible path toward Roger's
+> 30 ms target." Newton-on-guardrail was measured and rejected as a speed play: a dual pass costs ~4×
+> a plain evaluation, so it converges in **11–41 probes versus bisection's fixed ~11** — a wash or a
+> loss. The dominant cost of the budgeted row is **not** engine arithmetic but the **rent-roll copy**
+> (`_perturb`'s `rent_per_unit_month` shape) — **74.5% of the row** — and **~35% of the row is garbage
+> collection** (183.5 ms best → 117.7 ms tuned, reproduced directly against `compute_recourse`); AD
+> touches neither. **Roger's decision: rewrite the rationale, ship the full chartered scope.** The
+> truthful rationale: GC-threshold tuning + an aggregate-income seam (removing the rent-roll copy
+> entirely) are the measured path toward 30 ms — not AD. **AD's justification is direction selection and
+> sensitivity, not speed**: one forward pass yields all of a deal's partial derivatives at **~4.1–4.4×**
+> the cost of one plain engine pass, versus **8 passes** for central finite differences, and tangent
+> width is nearly free — bisection still owns *how far*, the gradient now owns *which direction*. AD
+> ships as **Half B's Jacobian enabler**, and **Half B — a product/capability gain, not a perf one — is
+> now the mission's centre of gravity.** "73 ms" is struck as retracted (see §Baseline). Full measured
+> record: `docs/plans/MISSION_5_SPRINT_TRACKER.md` (D.1, D.2, D.5 results; "ROGER'S GATE-D DECISION").
 
 **HALF B — the multi-lever recourse optimizer (NEW, added by Roger's expand decision).** Today recourse
 answers only *single-lever* questions: "any ONE of these closes it." But an investor may be able to move
-*several* levers at once. Half B adds a **second output section** — **"top-3 actionable
-combinations"** — alongside the existing single-lever menu, so the report offers **both**: the single
-cheapest change AND up to three realistic *bundles* of changes. It is a **constrained optimization**
+*several* levers at once. Half B adds a **second output section** — alongside the existing single-lever
+menu, so the report offers **both**: the single-lever menu AND up to **n multi-lever propositions**.
+
+> **⚠ DESIGN SUPERSEDED 2026-08-31 (Roger, C4(b)) — the paragraph below is the ORIGINAL chartered design;
+> it did not survive measurement or Roger's own settled architecture and is retracted.** The
+> **"top-3 actionable combinations"** framing and the **Lagrangian/KKT** method are both superseded.
+> Roger's final design (`docs/plans/MISSION_5_SPRINT_TRACKER.md`, "FINAL HALF B ARCHITECTURE"): **one
+> minimal-ask solve per lever subset** (11 multi-lever subsets — the 15 non-empty subsets of the 4
+> levers minus the 4 singletons Mission 4 already ships), seeded by the AD gradient's *direction* within
+> that subset and solved for *distance* by subset-restricted bisection (Lagrangian penalty machinery
+> measured as a wash and dropped). Output is **≤ 11 propositions**, filtered only by the unified
+> plausibility gate and feasibility — not ranked, not cut to a top-N. The smallest-total-ask proposition
+> carries a **"cheapest total negotiation" LABEL** — a provable `argmin` over a set already computed,
+> needing no separate search or ordering criterion. Roger: *"with a 'cheapest total negotiation'
+> alongside the others, we have no more need for a ranking."* **This is the mission's centre of
+> gravity as a product/capability gain — not a performance one** (AD is retained as its Jacobian-based
+> direction-seeding enabler, not as a speed intervention — see the rationale correction above).
+
+**Original chartered design (superseded, kept for the record):** it was a **constrained optimization**
 solved with a **Lagrangian/KKT method** consuming the exact AD Jacobian Half A produces, made global
 with **deterministic multi-start**, with feasibility supplied by a **unified all-four-lever
 combination-plausibility gate** (the real new engineering — see §Design decisions). Every reported
-combination is confirmed by one real engine re-run, exactly as single-lever answers are. **Half B is
-gated by an internal AD go/no-go checkpoint: if the AD foundation does not validate, Half A's tolerance
-rule + AD still ship as the mission's value and Half B defers.**
+combination is confirmed by one real engine re-run, exactly as single-lever answers are — **this
+discipline is unchanged in the superseding design.** **Half B is gated by an internal AD go/no-go
+checkpoint: if the AD foundation does not validate, Half A's tolerance rule + AD still ship as the
+mission's value and Half B defers.**
 
 **It does not violate the founder invariant "re-run the engine, never invert a formula."** The
 derivative is computed *from the actual model* (dual-number or tape-based differentiation of the real
@@ -119,7 +152,7 @@ artifact the guardian reviews. **Tolerance ships first; AD is built against it.*
 
 ## Branch
 
-`mission/5-adjoint-differentiation` — cut off freshly-synced `main` in Wave Branch. All mission work
+`mission/5-forward-mode-differentiation` — cut off freshly-synced `main` in Wave Branch. All mission work
 commits here; nothing lands on `main` until Roger's mission gate, then Wave Integrate merges `--no-ff`
 and pushes only at Roger's instruction.
 
@@ -127,12 +160,23 @@ and pushes only at Roger's instruction.
 
 ## In scope
 
-### Half A — adjoint differentiation + single-lever acceleration (unchanged chartered scope)
+### Half A — forward-mode (tangent-linear) differentiation + single-lever acceleration (unchanged chartered scope)
 
 1. **The tolerance rule — SHIPPED FIRST, gating everything after (Wave 1 of implementation).**
    - Relax the golden invariant from bit-exact equality to a **relative tolerance of ~1e-9**
      ("nine nines"). Calibration is a hard requirement: the tolerance MUST still **catch the injected
      rounding bug that appears at ~9.4e-8 relative** (a 1e-9 rule catches it; a 1e-6 rule does not).
+     **⚠ CORRECTED 2026-08-31 (guardian-reviewed, C4(b)): "~9.4e-8" is a contract calibration
+     constant bound to a reproducible recipe, NOT a prior measurement.** `git log --all -S"9.4e-8"`
+     returns exactly one commit — this charter (`87efd22`) — so no earlier measurement of it exists in
+     this repo; five planning documents previously asserted it as though it were one. The real,
+     independently-reproduced (four times) measured signature of the defect recipe `round(payment, 4)`
+     is **max relative drift 1.1325e-7 across 1,613 fields** — caught at 1e-9, invisible at 1e-6, which
+     is the actual calibration argument the tolerance value rests on. Also measured: the 1-ULP
+     floating-point-reordering noise floor is **1.1510e-13**, and `round(payment, 6)` lands at
+     **9.7904e-10** (98% of the 1e-9 budget). **The calibration logic is sound and measured; only the
+     specific "~9.4e-8" figure lacked provenance**, and the guardian has ratified it standing as a
+     contract constant on that basis.
    - **Anchor to the ORIGINAL golden, never the previous version.** Each change is measured against the
      first-correct golden, so ten successive 1e-8 drifts cannot ratchet the tolerance while every step
      shows green. The comparison harness must make anchoring structural, not a convention.
@@ -189,6 +233,16 @@ and pushes only at Roger's instruction.
 > within tolerance and the IRR/Brent differentiation is sound). If AD no-gos, Half B defers and Half A
 > ships alone — see §Waves and §Risks. Every design decision below is settled with Roger and recorded
 > in §"Design decisions & rejected alternatives" so it is not re-litigated.
+>
+> **⚠ SUPERSEDED 2026-08-31 (C4(b)).** Items #11–19 and the §"Design decisions" table below describe the
+> ORIGINAL chartered design (top-3 combinations, Lagrangian/KKT constrained optimization). Both are
+> **retracted** — see the correction in §Executive Summary and `docs/plans/MISSION_5_SPRINT_TRACKER.md`
+> ("FINAL HALF B ARCHITECTURE") for the settled replacement: **≤ 11 propositions** (one minimal ask per
+> multi-lever subset, AD-gradient-seeded, subset-restricted bisection), **no ranking**, smallest-total
+> labelled "cheapest total negotiation." What is **unchanged**: the unified all-four-lever
+> combination-plausibility gate (#14), the deterministic-multi-start discipline (now per-subset), the
+> real-lever-only / no-decomposed-basis constraint (#16), and every-combination-confirmed-by-re-run
+> (#17) — kept below as historical record of what was chartered, not what shipped.
 
 11. **A second report output section: "top-3 actionable combinations".** The report keeps the existing
     **single-lever menu** ("any ONE of these closes it") and adds a **second section** listing up to
@@ -302,7 +356,7 @@ INTERNAL AD GO/NO-GO CHECKPOINT → Wave Implementation Phase B (multi-lever opt
 | Wave | What happens |
 | --- | --- |
 | **Sync** | Phase 0 re-sync: `git fetch`; confirm `main @ 7cfd449` is canonical latest and clean; STOP if a later mission is mid-flight. Re-confirm every charter `path:line` at the real baseline. Run the full gate battery green in `airedeal` (`pytest`, `ruff format --check`, `ruff check`, `mypy .`, `python main.py`); pin suite count, coverage, tests-tree SHA, and the pre-mission `python main.py` report sha256. |
-| **Branch** | `git switch main && git switch -c mission/5-adjoint-differentiation`. |
+| **Branch** | `git switch main && git switch -c mission/5-forward-mode-differentiation`. |
 | **Discovery** | `app-evaluator` confirms current axis grades / gap severity. `staff-python-engineer` + (for the gnarly math) the top-tier AD reasoning task produce a spec covering BOTH halves: **(Half A)** (a) forward-vs-reverse AD **measured** against the 4-in/≤7-out shape, with the dual-number 4-pass approach as the hypothesis to beat; (b) the IRR/Brent differentiation approach (implicit function theorem vs differentiating the converged root) — flagged as the hardest part, with monotonicity/convergence assumptions and checks; (c) the tolerance-rule design (1e-9, anchor-to-origin, approaching-tolerance⇒justification, calibration against ~9.4e-8); (d) the numpy re-measurement; (e) the confirmation-by-real-rerun protocol and fallback; **(f) the AD-Jacobian output API — the clean 7×4 seam Half B consumes.** **(Half B)** (g) the constrained-optimization method selection (augmented Lagrangian / SQP / projected-gradient / interior-point — decided **by measurement**) + deterministic multi-start design; (h) **the rejector-unification design** — one joint all-four-lever combination-plausibility gate (the core new engineering task); (i) the normalization-free top-3 selection design (parsimony · within-axis magnitude · diversity). `principal-performance-engineer` produces the measured current baseline (reconciling the 73 ms claim; honest baseline ~180 ms / ~150 probes) and the projected/target comparison. **No production code.** |
 | **Gate D (pre-impl)** | `principal-principles-guardian` reviews the **tolerance-rule design as a values-level relaxation of the deterministic-core invariant** and holds a **mandatory VETO** — no AD code until lifted. `principal-founder-proxy` makes the product calls: the tolerance value (ratify 1e-9); the `GENUINELY_CLOSE_MAX_FAILS` decision; the horizon-100 / money-field / CLI-polish dispositions; **and the Half B calls — what makes a four-lever COMBINATION plausible (the unified gate's rule), and the top-3 selection policy (parsimony / within-axis magnitude / diversity weighting).** `principal-performance-engineer` makes the explicit **go/no-go** on the AD portion: does the measured win justify the finance-core blast, or does the mission ship the tolerance rule alone? All blocking for their scope. |
 | **Implementation Phase A** | **Sequenced, not parallel across the T/AD boundary.** T-sub-wave first (≤3 concurrent): tolerance harness + anchor-to-origin + approaching-tolerance state (`staff-python-engineer`) · its RED suite incl. the ~9.4e-8 calibration test (`staff-qa-test-engineer`) · docs (`staff-documentation-maintainer`, STANDARD). **AD-sub-wave only after the tolerance rule is green and the guardian VETO is lifted** (≤3 concurrent): AD machinery + the 7×4 Jacobian API + Newton-on-guardrail single-lever search + confirm-by-rerun + fallback (`staff-python-engineer`, with fable-tier AD reasoning support) · AD-vs-engine agreement + probe-count + determinism RED suite (`staff-qa-test-engineer`) · perf benchmark extension (`principal-performance-engineer`). Open-item fixes fold into whichever sub-wave they fit, each with a RED test. **Proven against today's bisection.** |
@@ -311,7 +365,7 @@ INTERNAL AD GO/NO-GO CHECKPOINT → Wave Implementation Phase B (multi-lever opt
 | **Validation** | Full battery in `airedeal`: `pytest` green + coverage ≥80%; **BOTH** `ruff format --check` **and** `ruff check` clean (Mission 4 lesson: an agent reported "ruff clean" having run only `ruff check`); `mypy .` clean; default `python main.py` still within tolerance of the pinned pre-mission golden (documented if any shipped number moves, with justification). Every command in the manual-testing doc actually runs and produces the stated result — **including the Half B cases** (top-3 section appears; each combination flips the verdict on re-run; the unified gate rejects an implausible combination; the three are distinct; multi-start is deterministic; parsimony ordering). Perf measured and recorded vs the 30 ms target. |
 | **Gate V** | `staff-code-reviewer` reviews the diff (esp.: every reported recourse number **and every combination** is confirmed by a real engine re-run; no guardrail formula is hand-inverted; the tolerance harness anchors to origin; the unified gate covers all four levers; multi-start is deterministic; no decomposed basis is surfaced; finance-core changes are justified). `principal-principles-guardian` re-checks the invariant relaxation as-built (VETO). |
 | **Mission gate (Roger)** | Roger runs `docs/manual testing/MISSION_5_MANUAL_TESTING.md` by hand and flips the boxes. Not clear until the document-level box reads VALIDATED. Roger holds this gate; the orchestrator never self-approves. |
-| **Integrate** | Only after Validation GREEN **and** Roger's mission gate: `git fetch`; rebase/merge onto latest `main`; re-run the **full** battery post-rebase (a pre-rebase green does not count); `git switch main && git merge --no-ff mission/5-adjoint-differentiation`; **push only at Roger's instruction** (reconcile any origin delta — never force-push). Record the merge sha + push result in the tracker. |
+| **Integrate** | Only after Validation GREEN **and** Roger's mission gate: `git fetch`; rebase/merge onto latest `main`; re-run the **full** battery post-rebase (a pre-rebase green does not count); `git switch main && git merge --no-ff mission/5-forward-mode-differentiation`; **push only at Roger's instruction** (reconcile any origin delta — never force-push). Record the merge sha + push result in the tracker. |
 
 ---
 
@@ -319,7 +373,10 @@ INTERNAL AD GO/NO-GO CHECKPOINT → Wave Implementation Phase B (multi-lever opt
 
 - [ ] **The tolerance rule shipped and governs everything after it.** The golden harness compares at a
       **~1e-9 relative tolerance anchored to the ORIGINAL golden** (never the previous version); it
-      **still catches the ~9.4e-8 injected rounding bug** (proven by a RED test), and **would pass a
+      **still catches the ~9.4e-8 calibration defect** -- a CONTRACT figure bound to the reproducible
+      `round(payment, 4)` recipe (measured signature **1.1325e-7**, red at 1e-9 and **invisible at
+      1e-6**), NOT a previously-observed bug: `git log --all -S"9.4e-8"` returns only this mission's
+      own charter commit -- (proven by a RED test), and **would pass a
       legitimate 1e-9-scale AD drift**; any change *approaching* the tolerance produces an
       "approaching-tolerance" state that demands written justification, not a silent green.
 - [ ] `principal-principles-guardian` reviewed the tolerance rule as a **values-level relaxation of the
@@ -443,8 +500,11 @@ Roger holds the mission gate (merge + push). No agent self-approves it.
 
 ## Design decisions & rejected alternatives (Half B — settled with Roger, do not re-litigate)
 
-These were settled with Roger in the expand-decision session (2026-08-31). They are the specification;
-recorded here so no future planner or orchestrator re-opens them.
+These were settled with Roger in the expand-decision session (2026-08-31). **⚠ SUPERSEDED 2026-08-31
+(C4(b)) — the "Optimization family" and "Top-3 selection" rows below (Lagrangian/KKT; ranked top-3) were
+overtaken by later measurement and by Roger's own final architecture** (see the note in §"Half B" above
+and `docs/plans/MISSION_5_SPRINT_TRACKER.md`, "FINAL HALF B ARCHITECTURE"). Kept below as the historical
+record of what was originally decided, not what shipped.
 
 | Decision | What was chosen | Why (and what was rejected) |
 | --- | --- | --- |

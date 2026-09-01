@@ -81,7 +81,12 @@ def spread_target_for(market: MarketAssumptions | None) -> float:
 @dataclass(frozen=True)
 class GuardrailChecks:
     """
-    The seven live pass/fail booleans ``synthesize_thesis`` judges a forecast against.
+    The pass/fail booleans ``synthesize_thesis`` judges a forecast against -- seven fields, of
+    which **at most SIX are ever live**. ``cf_all`` is structurally dead while
+    ``REQUIRE_POSITIVE_CF_ALL = False`` (below), and ``cap_floor`` only goes live when the user
+    supplies a ``cap_rate_floor``; the shipped bench gate-limit deal runs 5 live / 3 failing.
+    'Seven live' was wrong in seven places across code and docs (Mission 5, C4(b) sweep) --
+    count the fields here, not the live guardrails, and see ``recourse._live_guardrails``.
 
     Extracted as a single source of truth (Mission 4 Gate D ruling, "Option B") so a second call
     site (``src/market/recourse.py``) can read exactly the same test ``synthesize_thesis`` uses on
@@ -105,7 +110,10 @@ class GuardrailChecks:
 
 def guardrail_checks(forecast: FinancialForecast, market: MarketAssumptions | None = None) -> GuardrailChecks:
     """
-    Compute the seven live underwriting guardrail booleans for ``forecast``.
+    Compute the seven underwriting guardrail booleans for ``forecast`` -- of which **at most six
+    are ever live** (see ``GuardrailChecks``: ``cf_all`` is structurally dead while
+    ``REQUIRE_POSITIVE_CF_ALL = False``, and ``cap_floor`` needs a user-supplied
+    ``cap_rate_floor``).
 
     Pure and side-effect free: reads only already-computed engine outputs (``forecast.purchase``,
     ``forecast.years[0]``, ``forecast.irr_10yr``, ``forecast.warnings``) and the caller-supplied

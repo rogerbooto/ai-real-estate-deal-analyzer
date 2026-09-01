@@ -15,9 +15,10 @@ This file also proves the two things the mission brief flagged as needing direct
 than assumption:
   1. Validation-free construction is INDISTINGUISHABLE from validated construction, field-by-
      field, on raw bytes, across many units and many awkward rent deltas.
-  2. Bypassing validation at CONSTRUCTION time does not disturb `validate_assignment=True` on
-     the resulting object, in either direction (fast-built object still validates on assignment;
-     assigning an invalid value still raises).
+  2. Bypassing validation at CONSTRUCTION time does not disturb the class-level `__setattr__`
+     contract on the resulting object. (Originally proven against `validate_assignment=True`;
+     since Gate V N3 `UnitIncome` is `frozen=True`, so the contract now under proof is that a
+     fast-built instance REFUSES assignment exactly as a validated-built one does.)
 And it separately proves the honest-math claim from the mission brief -- floating point addition
 is not associative, so "add t to every unit, then sum" and "sum, then add N * t" are NOT
 interchangeable -- which is the reason `_perturb` rebuilds every `UnitIncome` individually rather
@@ -52,7 +53,15 @@ def _same_float(x: float, y: float) -> bool:
 # 1. `_fast_unit_income` == `UnitIncome(**kwargs)`, bit for bit, field for field.
 # ==================================================================================================
 
-_NASTY: list[float] = [0.0, -0.0, 1e308, -1e308, 5e-324, -5e-324, 1e16, 0.1, -0.1, 1200.375, -1200.375]
+# Mission 5 OI.1 gave `UnitIncome.rent_month`/`other_income_month` a `ge=0` floor (a vacant unit,
+# a unit under renovation, or the owner-occupied unit in a house-hack are all legitimately zero;
+# negative rent is not a thing). `-0.0` stays IN this list deliberately -- it satisfies `ge=0`
+# (`-0.0 >= 0` is `True`) and is exactly the 0.0-vs-negative-zero distinction this file exists to
+# catch bit-for-bit. Negative constants were dropped: `UnitIncome(rent_month=-1200.375, ...)` no
+# longer constructs at all, so there is no "validated" instance left to compare `_fast_unit_income`
+# against for that input -- this file's whole claim (fast construction is byte-identical to
+# validated construction) is only assertable on the domain `UnitIncome` actually accepts.
+_NASTY: list[float] = [0.0, -0.0, 1e308, 5e-324, 1e16, 0.1, 1200.375]
 
 
 def _cases() -> list[tuple[float, float]]:
@@ -62,8 +71,8 @@ def _cases() -> list[tuple[float, float]]:
         for other in _NASTY:
             cases.append((rent, other))
     for _ in range(2_000):
-        rent = rng.uniform(-1e6, 1e6) * (10.0 ** rng.randint(-6, 9))
-        other = rng.uniform(-1e6, 1e6) * (10.0 ** rng.randint(-6, 9))
+        rent = rng.uniform(0.0, 1e6) * (10.0 ** rng.randint(-6, 9))
+        other = rng.uniform(0.0, 1e6) * (10.0 ** rng.randint(-6, 9))
         cases.append((rent, other))
     return cases
 
@@ -97,32 +106,27 @@ def test_fast_unit_income_fields_set_is_not_shared_between_units():
 
 
 # ==================================================================================================
-# 2. `validate_assignment=True` is undisturbed by validation-free construction.
+# 2. The class-level `__setattr__` contract (now `frozen=True`) is undisturbed by validation-free
+#    construction.
 # ==================================================================================================
 
 
-def test_fast_built_unit_still_validates_on_assignment_like_a_validated_one():
-    """`validate_assignment` lives on the class's `__setattr__`, not on how the instance was
-    built. A fast-built `UnitIncome` must still validate (and, here, coerce) on assignment
-    exactly as a normally-constructed one does."""
+def test_fast_built_unit_is_frozen_exactly_like_a_validated_one():
+    """The assignment contract lives on the class's `__setattr__`, not on how the instance was
+    built. Since Gate V N3 `UnitIncome` is `frozen=True` (superseding Mission 4 PV.2's
+    `validate_assignment=True` for this model -- see `UnitIncome`'s docstring), so the parity
+    under proof is: a fast-built instance REFUSES assignment with the same `frozen_instance`
+    error a normally-constructed one raises, and neither is mutated by the attempt."""
     fast = _fast_unit_income(rent_month=1200.0, other_income_month=50.0)
     validated = UnitIncome(rent_month=1200.0, other_income_month=50.0)
 
-    fast.rent_month = "1300"  # type: ignore[assignment]  # pydantic coerces the string to float
-    validated.rent_month = "1300"  # type: ignore[assignment]
+    with pytest.raises(pydantic.ValidationError, match="frozen"):
+        fast.rent_month = 1300.0
+    with pytest.raises(pydantic.ValidationError, match="frozen"):
+        validated.rent_month = 1300.0
 
-    assert fast.rent_month == validated.rent_month == 1300.0
-    assert isinstance(fast.rent_month, float)
-
-
-def test_fast_built_unit_still_rejects_invalid_assignment_like_a_validated_one():
-    fast = _fast_unit_income(rent_month=1200.0, other_income_month=50.0)
-    validated = UnitIncome(rent_month=1200.0, other_income_month=50.0)
-
-    with pytest.raises(pydantic.ValidationError):
-        fast.rent_month = "not-a-number"  # type: ignore[assignment]
-    with pytest.raises(pydantic.ValidationError):
-        validated.rent_month = "not-a-number"  # type: ignore[assignment]
+    assert _same_float(fast.rent_month, validated.rent_month)
+    assert fast.rent_month == 1200.0  # the refused assignment left the instance untouched
 
 
 # ==================================================================================================

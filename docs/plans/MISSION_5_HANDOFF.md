@@ -1,4 +1,4 @@
-# Mission 5 Handoff — Adjoint Differentiation & Optimized Recourse Search
+# Mission 5 Handoff — Forward-Mode Differentiation & Optimized Recourse Search
 
 **How to use this prompt:** Open a fresh Claude Code session at the repo root
 (`/home/rtokime/projects/Personal/ai-real-estate-deal-analyzer`) and paste everything between the
@@ -11,15 +11,17 @@ Wave Branch. Roger holds the mission gate (merge + push); the orchestrator never
 
 === BEGIN MISSION PROMPT ===
 
-You are the orchestrator for **Mission 5 — Adjoint Differentiation & Optimized Recourse Search** of the
+You are the orchestrator for **Mission 5 — Forward-Mode Differentiation & Optimized Recourse Search** of the
 AI Real Estate Deal Analyzer (deterministic-first real estate underwriting tool; solo developer: Roger).
 
 This mission has **two halves, run strictly in sequence**:
-- **Half A** — the tolerance rule + adjoint differentiation + single-lever recourse acceleration (the
-  original charter, unchanged).
-- **Half B** — the multi-lever recourse optimizer that adds a second report section, "top-3 actionable
-  combinations", alongside the existing single-lever menu (added by Roger's 2026-08-31 expand decision;
-  previously slated for a separate Mission 6).
+- **Half A** — the tolerance rule + forward-mode (tangent-linear) differentiation + single-lever recourse acceleration (the
+  original charter, unchanged in mechanics; its *rationale* is corrected below — AD is not a speed play).
+- **Half B** — the multi-lever recourse optimizer that adds a second report section listing up to **11
+  minimal-ask propositions** (one per lever subset, unranked, cheapest labelled "cheapest total
+  negotiation"), alongside the existing single-lever menu (added by Roger's 2026-08-31 expand decision;
+  previously slated for a separate Mission 6; **top-3/Lagrangian design superseded 2026-08-31, see
+  below**). **Half B, not Half A's speed, is now the mission's centre of gravity.**
 
 ## ⛔ Three rules that gate the whole mission (read FIRST)
 
@@ -60,8 +62,19 @@ That is ~10–20 engine probes per lever/guardrail pair — honest, obvious, slo
 this for **algorithmic differentiation**: get the derivative of the model itself and jump to the answer.
 Same mathematics as backpropagation — the engine is a computation graph; one pass yields exact partial
 derivatives. Exact derivatives turn bisection into **Newton's method on the guardrail**, dropping
-~10–20 probes to ~3–4 — the remaining path toward Roger's **30 ms** target for the 5,000-unit /
-100-year analysis.
+~10–20 probes to ~3–4.
+
+> **⚠ RATIONALE CORRECTED 2026-08-31 (Roger's decision, C4(b)) — struck: "the remaining path toward
+> Roger's 30 ms target."** Measured three times independently and refuted: Newton-on-guardrail costs
+> ~4× a plain evaluation per dual pass and converges in **11–41 probes vs bisection's fixed ~11** — a
+> wash or a loss. The budgeted row's dominant cost is the **rent-roll copy** (74.5%) and **garbage
+> collection** (~35%, 183.5 ms → 117.7 ms tuned) — neither touched by AD. **Roger's decision: rewrite
+> the rationale, ship the full scope.** The measured path to 30 ms is GC tuning + an aggregate-income
+> seam, not AD. **AD's real justification is direction selection and sensitivity** for Half B: one
+> forward pass yields all partials at ~4.1–4.4× an engine pass vs **8 passes** for central finite
+> differences — bisection owns *how far*, AD now owns *which direction*. **Half B — a
+> product/capability gain, not a perf one — is the mission's centre of gravity.** Full record:
+> `docs/plans/MISSION_5_SPRINT_TRACKER.md` (D.1, D.2, D.5; "ROGER'S GATE-D DECISION").
 
 **This does not violate "re-run the engine, never invert a formula."** The derivative comes from the
 *actual model* (dual numbers / a tape over the real `run_financial_model`), not from hand-algebra on a
@@ -79,12 +92,25 @@ output API (the clean 7×4 seam)** in Half A — Half B's optimizer consumes it.
 
 **Half B (only after the internal AD checkpoint = GO): the multi-lever recourse optimizer.** Today
 recourse answers only single-lever questions ("any ONE of these closes it"). But an investor may move
-several levers at once, so Half B adds a **second report section — "top-3 actionable combinations"** —
-alongside the single-lever menu. Both ship (Roger: offer both, we don't know if they can move one lever
-or several). It is a **constrained optimization** solved with a **Lagrangian/KKT method** (augmented
-Lagrangian / SQP / projected-gradient / interior-point — Discovery picks the concrete one **by
-measurement**) consuming Half A's exact AD Jacobian, made global with **deterministic multi-start** (fixed
-grid/scatter seeds — never stochastic). **The core new engineering task** is a **unified all-four-lever
+several levers at once, so Half B adds a **second report section** — alongside the single-lever menu.
+Both ship (Roger: offer both, we don't know if they can move one lever or several).
+
+> **⚠ CORRECTED 2026-08-31 (Roger, C4(b)) — the description below is the ORIGINAL, now-superseded
+> design.** No "top-3" cut and no Lagrangian/KKT: Roger's settled architecture is **one minimal-ask
+> proposition per multi-lever subset** (≤ 11 propositions across the 11 non-singleton subsets of the 4
+> levers), each seeded by the AD gradient's *direction* and solved for *distance* by subset-restricted
+> bisection (Lagrangian penalty machinery measured as a wash, dropped). The smallest-total-ask
+> proposition is **labelled** "cheapest total negotiation" — an `argmin` over the already-computed set,
+> not a separate ranked search — so **there is no ranking at all**. See
+> `docs/plans/MISSION_5_SPRINT_TRACKER.md` ("FINAL HALF B ARCHITECTURE") for the full design. **Half B
+> is now the mission's centre of gravity as a product/capability gain, not a perf one** — see the
+> rationale correction below.
+
+**Original chartered design (superseded, kept for the record):** it was a **constrained optimization**
+solved with a **Lagrangian/KKT method** (augmented Lagrangian / SQP / projected-gradient / interior-point
+— Discovery picks the concrete one **by measurement**) consuming Half A's exact AD Jacobian, made global
+with **deterministic multi-start** (fixed grid/scatter seeds — never stochastic). **The core new
+engineering task** is a **unified all-four-lever
 joint combination-plausibility gate**: today `_judge_plausibility` (`recourse.py:609`) judges one lever
 at a time — the rejector's axes are market-hypothesis deltas, rent/opex have no rejector axis, price
 reaches it only via a cap-rate proxy (which is why `RATE_MAGNITUDE_THRESHOLD` `recourse.py:130` and
@@ -103,7 +129,7 @@ by one real engine re-run**, exactly as single-lever answers are.
 
 ## Read these first (canonical, in order)
 
-1. `docs/plans/MISSION_5_adjoint_differentiation.md` — the charter (baseline, branch, in/out of scope,
+1. `docs/plans/MISSION_5_forward_mode_differentiation.md` — the charter (baseline, branch, in/out of scope,
    waves, DoD, agent roster, binding constraints, gates, open-items dispositions, the integer-cents
    sibling-successor note). Authoritative for scope.
 2. `docs/plans/MISSION_5_SPRINT_TRACKER.md` — the live task tracker you keep current.
@@ -132,7 +158,7 @@ Confirm `which python` → `/home/rtokime/anaconda3/envs/airedeal/bin/python` be
 ## Baseline & branch
 
 `base = main @ 7cfd449, synced 2026-08-31.` Re-confirm at Wave Sync. Branch:
-`mission/5-adjoint-differentiation`, cut off freshly-synced `main`. Surface any origin delta to Roger at
+`mission/5-forward-mode-differentiation`, cut off freshly-synced `main`. Surface any origin delta to Roger at
 Wave Sync; never force-push; push only at Roger's instruction.
 
 > **⚠ Do not trust the brief's perf numbers as fact.** The brief says "Mission 4 left it at 73 ms, down
@@ -143,12 +169,15 @@ Wave Sync; never force-push; push only at Roger's instruction.
 
 ## What you are building (scope)
 
-**Half A — tolerance + adjoint differentiation + single-lever acceleration:**
+**Half A — tolerance + forward-mode (tangent-linear) differentiation + single-lever acceleration:**
 * **The tolerance rule (FIRST).** Relax the golden harness from bit-exact to **~1e-9 relative**,
   **anchored to the ORIGINAL golden**. It must still **catch the ~9.4e-8 injected rounding bug** (the
-  calibration point: 1e-9 catches it, 1e-6 does not), and must surface an **"approaching-tolerance"**
-  state that demands **written justification** rather than a silent green. Guardian VETO reviews this
-  design as a values-level relaxation before any AD code.
+  calibration point: 1e-9 catches it, 1e-6 does not — **⚠ "~9.4e-8" is a contract constant bound to the
+  reproducible `round(payment, 4)` recipe, not a prior measurement; its real measured signature is
+  1.1325e-7 across 1,613 fields, `git log --all -S"9.4e-8"` returns only the Mission 5 charter commit
+  `87efd22`; corrected 2026-08-31, C4(b) — see the manual-testing doc, Case 1**), and must surface an
+  **"approaching-tolerance"** state that demands **written justification** rather than a silent green.
+  Guardian VETO reviews this design as a values-level relaxation before any AD code.
 * **AD-accelerated single-lever recourse (only if Gate D says GO).** Forward-vs-reverse decided by
   measurement; exact partial derivatives of guardrail metrics wrt the four levers, from the real engine;
   Newton on the failing guardrail; **every answer confirmed by one un-differentiated engine re-run**,
@@ -166,18 +195,24 @@ Wave Sync; never force-push; push only at Roger's instruction.
 tolerance; IRR/Brent sound; 7×4 Jacobian API stable) BEFORE any optimizer code. GO → Half B; NO-GO →
 Half B defers, Half A ships alone (record explicitly).
 
-**Half B — multi-lever recourse optimizer (only if the AD checkpoint = GO):**
-* **A second report section, "top-3 actionable combinations",** alongside the existing single-lever
-  menu. Both ship. Flag-don't-remove; honest-null.
-* **A constrained optimization (Lagrangian/KKT, method chosen by measurement)** over the four levers,
-  consuming Half A's AD Jacobian, made global by **deterministic multi-start** (fixed grid/scatter).
+**Half B — multi-lever recourse optimizer (only if the AD checkpoint = GO). ⚠ Design superseded
+2026-08-31 — see the correction above; the bullets below are corrected to match Roger's settled
+architecture (`docs/plans/MISSION_5_SPRINT_TRACKER.md`, "FINAL HALF B ARCHITECTURE"):**
+* **A second report section listing up to 11 minimal-ask propositions** (one per surviving lever
+  subset), unranked, the smallest-total-ask one labelled "cheapest total negotiation" — alongside the
+  existing single-lever menu. Both ship. Flag-don't-remove; honest-null. (Originally chartered as a
+  ranked "top-3 actionable combinations" section — superseded, no ranking is needed.)
+* **AD-gradient-seeded direction + subset-restricted bisection for distance** over the four levers,
+  consuming Half A's AD Jacobian, one solve per lever subset (**deterministic**). (Originally chartered
+  as a Lagrangian/KKT constrained optimization — measured as a wash against this approach and dropped.)
 * **The unified all-four-lever joint combination-plausibility gate** — the core new engineering; unify
   `_rejector_flagged` (`recourse.py:519`) + `_magnitude_flagged` (`recourse.py:584`) into one gate that
   judges a full combination, including joint plausibility. What makes a combination plausible is a
-  founder product call.
-* **Normalization-free top-3 selection** (parsimony · within-axis magnitude · diversity); interpretable
-  real-lever coordinates only (no decomposed basis surfaced).
-* **Every combination confirmed by one real engine re-run.**
+  founder product call. **(Unchanged by the design correction above.)**
+* **No selection criterion needed** — every surviving subset's proposition ships; distinctness is
+  structural (one per subset); interpretable real-lever coordinates only (no decomposed basis
+  surfaced, unchanged). (Originally chartered as "normalization-free top-3 selection" — superseded.)
+* **Every proposition confirmed by one real engine re-run. (Unchanged.)**
 * **RED suite** — multi-start determinism, feasibility gate (incl. jointly-implausible-but-individually-
   fine), diversity, parsimony, local-minima, every-combination-confirmed-by-rerun.
 * **Docs (Half B)** — the two-section output + unified gate, at STANDARD tier, verified against real
@@ -187,7 +222,7 @@ Half B defers, Half A ships alone (record explicitly).
 
 Wave Sync (confirm `main @ 7cfd449` canonical/clean; STOP if a later mission is mid-flight; re-confirm
 anchors; pin baseline battery + pre-mission report sha) → Wave Branch
-(`mission/5-adjoint-differentiation`) → Wave Discovery (BOTH halves: AD forward-vs-reverse MEASURED;
+(`mission/5-forward-mode-differentiation`) → Wave Discovery (BOTH halves: AD forward-vs-reverse MEASURED;
 IRR/Brent differentiation; tolerance design; 7×4 Jacobian API design; perf baseline reconciling 73 ms;
 **Half B design — optimizer method selection + rejector-unification + top-3 selection**) → **Gate D**
 (guardian **VETO on the invariant relaxation** + founder product calls **incl. the Half B combination-
@@ -242,8 +277,9 @@ Bounded — do not let these sprawl into general threshold decisions: (a) ratify
 this is the one near-miss threshold the mission may decide); (c) dispositions for the open items —
 which money fields get lower bounds and the floor semantics, ratifying horizon `le=50`→`le=100`, and
 the CLI clean-message polish; **(d) the Half B calls — what makes a four-lever COMBINATION plausible
-(the unified gate's rule), and the top-3 selection policy (parsimony / within-axis magnitude / diversity
-weighting).** Route all to `principal-founder-proxy`.
+(the unified gate's rule).** (Top-3 selection policy is superseded — see the Half B correction above;
+Roger's final design ships all surviving propositions unranked with a "cheapest total negotiation"
+label, so there is no selection policy left to ratify.) Route all to `principal-founder-proxy`.
 
 ## Orchestration protocol
 
@@ -270,7 +306,7 @@ weighting).** Route all to `principal-founder-proxy`.
   documented, confirm the anchor-to-origin is structural, and tick the DoD before marking DONE.
 * **Branch-and-integrate:** Wave Sync = confirm `main @ 7cfd449` canonical + clean, `git fetch`, surface
   any origin delta, re-confirm anchors, run the battery green + pin the baseline. Wave Branch =
-  `git switch main && git switch -c mission/5-adjoint-differentiation`. Wave Integrate (after Validation
+  `git switch main && git switch -c mission/5-forward-mode-differentiation`. Wave Integrate (after Validation
   GREEN **and** Roger's mission gate) = `git fetch`, rebase/merge onto latest, re-run the **full**
   battery post-rebase (a pre-rebase green does not count), `git merge --no-ff`, reconcile+push only at
   Roger's instruction, record the merge sha. Never self-approve; never force-push `main`.
@@ -316,7 +352,7 @@ file at the real baseline (`compute_recourse`, `_bisect`, `_rerun` in `recourse.
 `bench_finance_engine.py`). Run the full gate battery (`pytest`, `ruff format --check`, `ruff check`,
 `mypy .`, `python main.py`) green in `airedeal` — pin the suite count, coverage, tests-tree SHA, and the
 pre-mission `python main.py` report sha256 in the tracker. **Invoke `staff-cost-aware-model-router`** to
-confirm tiers. Then execute **Wave Branch**: `git switch main && git switch -c mission/5-adjoint-differentiation`.
+confirm tiers. Then execute **Wave Branch**: `git switch main && git switch -c mission/5-forward-mode-differentiation`.
 Update the sprint tracker after each step.
 
 === END MISSION PROMPT ===

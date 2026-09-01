@@ -21,9 +21,24 @@ class FinancingTerms(BaseModel):
 
     model_config = ConfigDict(validate_assignment=True)
 
-    purchase_price: float = Field(..., description="Total contract price for the property (currency units).")
+    purchase_price: float = Field(
+        ...,
+        gt=0,
+        description=(
+            "Total contract price for the property (currency units). Must be strictly positive: it is the "
+            "denominator of cap_rate, coc and ltv, and the base of the loan, down payment and MIP. Model an "
+            "all-cash purchase as down_payment_rate=1.0, never as a zero price."
+        ),
+    )
     closing_costs: float = Field(
-        0.0, description="One-time buyer costs at closing (title, fees, transfer taxes). Added to initial cash outlay."
+        0.0,
+        ge=0,
+        description=(
+            "One-time buyer costs at closing (title, fees, transfer taxes). Added to initial cash outlay. "
+            "Zero is legitimate (seller pays all costs). Model a seller credit as a lower purchase price, "
+            "not as negative closing costs -- a negative here would silently change the cap-rate "
+            "denominator's meaning."
+        ),
     )
     down_payment_rate: float = Field(..., ge=0, le=1, description="Down payment as a fraction of purchase price (e.g., 0.25 = 25%).")
     interest_rate: float = Field(..., ge=0, le=1, description="Annual interest rate (APR) as a fraction (e.g., 0.043 = 4.3%).")
@@ -47,18 +62,46 @@ class OperatingExpenses(BaseModel):
 
     model_config = ConfigDict(validate_assignment=True)
 
-    insurance: float = Field(..., description="Annual property insurance.")
-    taxes: float = Field(..., description="Annual property taxes.")
-    utilities: float = Field(..., description="Annual utilities paid by owner (electric/gas/common areas if applicable).")
-    water_sewer: float = Field(..., description="Annual water and sewer paid by owner.")
-    property_management: float = Field(..., description="Annual property management fees (fixed or % of income, entered as currency).")
-    repairs_maintenance: float = Field(0.0, description="Annual repairs & maintenance allowance.")
-    trash: float = Field(0.0, description="Annual trash/garbage removal.")
-    landscaping: float = Field(0.0, description="Annual landscaping/grounds.")
-    snow_removal: float = Field(0.0, description="Annual snow removal (if applicable).")
-    hoa_fees: float = Field(0.0, description="Annual HOA/condo fees (if applicable).")
-    reserves: float = Field(0.0, description="Annual replacement reserves (roof, HVAC, turnover).")
-    other: float = Field(0.0, description="Catch-all for any additional recurring OPEX not itemized above.")
+    insurance: float = Field(..., ge=0, description="Annual property insurance. Zero means this expense is absent from the model.")
+    taxes: float = Field(..., ge=0, description="Annual property taxes. Zero means this expense is absent from the model.")
+    utilities: float = Field(
+        ...,
+        ge=0,
+        description=(
+            "Annual utilities paid by owner (electric/gas/common areas if applicable). " "Zero means this expense is absent from the model."
+        ),
+    )
+    water_sewer: float = Field(
+        ..., ge=0, description="Annual water and sewer paid by owner. Zero means this expense is absent from the model."
+    )
+    property_management: float = Field(
+        ...,
+        ge=0,
+        description="Annual property management fees (fixed or % of income, entered as currency). Zero is the common self-managed case.",
+    )
+    repairs_maintenance: float = Field(
+        0.0, ge=0, description="Annual repairs & maintenance allowance. Zero means this expense is absent from the model."
+    )
+    trash: float = Field(0.0, ge=0, description="Annual trash/garbage removal. Zero means this expense is absent from the model.")
+    landscaping: float = Field(0.0, ge=0, description="Annual landscaping/grounds. Zero means this expense is absent from the model.")
+    snow_removal: float = Field(
+        0.0, ge=0, description="Annual snow removal (if applicable). Zero means this expense is absent from the model."
+    )
+    hoa_fees: float = Field(
+        0.0, ge=0, description="Annual HOA/condo fees (if applicable). Zero means this expense is absent from the model."
+    )
+    reserves: float = Field(
+        0.0, ge=0, description="Annual replacement reserves (roof, HVAC, turnover). Zero means this expense is absent from the model."
+    )
+    other: float = Field(
+        0.0,
+        ge=0,
+        description=(
+            "Catch-all for any additional recurring OPEX not itemized above. Zero means this expense is "
+            "absent from the model. A negative operating expense is income wearing a costume; it belongs "
+            "in other_income_month."
+        ),
+    )
     expense_growth: float = Field(0.0, description="Annual growth rate applied to all OPEX line items (e.g., 0.02 = +2%/yr).")
 
 
@@ -68,12 +111,34 @@ class OperatingExpenses(BaseModel):
 
 
 class UnitIncome(BaseModel):
-    """One unit's monthly revenue."""
+    """One unit's monthly revenue.
 
-    model_config = ConfigDict(validate_assignment=True)
+    FROZEN (Mission 5 Gate V, N3 -- supersedes Mission 4 PV.2's validate_assignment-only ruling
+    for this model and `IncomeModel`). The engine's income seams (`PrecomputedIncome`,
+    `ShiftedIncome`) carry aggregates derived from these fields and re-validate by object
+    identity plus unit count; a post-derivation `unit.rent_month += x` used to pass both checks
+    and silently reprice the deal. As of the N3 re-review fix, nothing in `src/` mutates an
+    `IncomeModel`'s `units` list in place: `engine._apply_insight_modifiers`'s amenity-uplift
+    loops (the one path that used to write `inc.units[i] = ...` element by element) now build a
+    whole new `units` list and assign it once via `model_copy(update={"units": [...]})`, matching
+    the recourse rent lever (`recourse._fast_unit_income`) and the market adapter, which already
+    built NEW instances. Immutability is enforced at the schema instead of narrating the threat in
+    docstrings. Construction-time validation is unchanged.
+    """
 
-    rent_month: float = Field(..., description="Monthly rent for this unit at Year 1 start (pre-growth).")
-    other_income_month: float = Field(0.0, description="Other monthly income attributable to this unit (parking, storage, laundry).")
+    model_config = ConfigDict(frozen=True)
+
+    rent_month: float = Field(
+        ...,
+        ge=0,
+        description=(
+            "Monthly rent for this unit at Year 1 start (pre-growth). Zero is legitimate: a vacant unit, a "
+            "unit under renovation, or the owner-occupied unit in a house-hack."
+        ),
+    )
+    other_income_month: float = Field(
+        0.0, ge=0, description="Other monthly income attributable to this unit (parking, storage, laundry). Zero is legitimate."
+    )
 
 
 class IncomeModel(BaseModel):
@@ -82,9 +147,21 @@ class IncomeModel(BaseModel):
     - 'units' length defines total unit count.
     - Rents and other income are MONTHLY inputs; the model annualizes internally.
     - occupancy and bad_debt_factor reduce GSI to GOI.
+
+    FROZEN (Mission 5 Gate V, N3): see `UnitIncome`'s docstring for the full rationale. Field
+    reassignment (including replacing `units` wholesale) raises; derive changed incomes with
+    `model_copy(update=...)`. KNOWN RESIDUAL (now hypothetical, not exercised): `frozen=True`
+    guards attribute assignment, not the `units` list's own contents -- in-place `append`/`pop`
+    (would be caught at use time by the engine's `num_units` re-check) and same-length element
+    replacement (caught by neither layer) remain STRUCTURALLY possible in Python. The one call
+    site that used to do the latter (`engine._apply_insight_modifiers`'s amenity-uplift loops)
+    was rewritten under N3 to build a new list and assign it once, so as of this fix no code in
+    `src/` opens the residual; a future author could still reintroduce it by writing
+    `income.units[i] = ...` instead of `model_copy`. The engine seams document exactly this
+    split; do not claim more than it.
     """
 
-    model_config = ConfigDict(validate_assignment=True)
+    model_config = ConfigDict(frozen=True)
 
     units: list[UnitIncome] = Field(..., description="List of units with per-unit monthly rent and other income.")
     occupancy: float = Field(0.97, ge=0, le=1, description="Economic occupancy fraction (1 - vacancy). 0.97 = 97%.")
@@ -151,7 +228,11 @@ class FinancialInputs(BaseModel):
     refi: RefinancePlan = Field(default_factory=RefinancePlan, description="Refinance plan. Enabled by default; configurable.")
     market: MarketAssumptions = Field(default_factory=MarketAssumptions, description="Market guardrails and cap-rate assumptions.")
     capex_reserve_upfront: float = Field(
-        0.0, description="One-time upfront CapEx/reserves added to initial cash outlay (not recurring OPEX)."
+        0.0,
+        ge=0,
+        description=(
+            "One-time upfront CapEx/reserves added to initial cash outlay (not recurring OPEX). " "Zero is the default and the common case."
+        ),
     )
     income_is_estimated: bool = Field(
         False,
@@ -1330,7 +1411,13 @@ class RecourseLever(BaseModel):
     """
 
     guardrail: Literal["dscr", "spread", "irr", "coc", "cf_y1", "cf_all", "cap_floor"] = Field(
-        ..., description="Which of the seven live chief_strategist.py guardrails this row targets."
+        ...,
+        description=(
+            "Which of the (at most six) live chief_strategist.py guardrails this row targets. "
+            "cf_all is never live (REQUIRE_POSITIVE_CF_ALL is False), so a seventh guardrail is "
+            "unreachable in current configuration; cap_floor is live only when the deal sets a "
+            "cap_rate_floor."
+        ),
     )
     lever: Literal["rent_per_unit_month", "purchase_price", "interest_rate", "annual_opex"] = Field(
         ..., description="Which investor-movable input this row perturbs, holding all others fixed."
@@ -1367,6 +1454,161 @@ class RecourseLever(BaseModel):
     model_config = ConfigDict(frozen=True, extra="ignore")
 
 
+class CombinationLeverMove(BaseModel):
+    """
+    One lever's ask inside one multi-lever combination (Mission 5, Half B).
+
+    GD3 (the lever/assumption partition) is load-bearing here: ``lever`` is closed to the four
+    ``INVESTOR_LEVERS`` — quantities an investor can act on in the world. No model assumption
+    (vacancy/occupancy, rent growth, expense growth, exit cap, cap drift, hold horizon) can ever
+    be expressed by this type, so "raise your vacancy assumption" has no field to live in.
+    """
+
+    lever: Literal["rent_per_unit_month", "purchase_price", "interest_rate", "annual_opex"] = Field(
+        ..., description="Which investor-movable input this move perturbs (GD3: never a model assumption)."
+    )
+    baseline_value: float = Field(..., description="The lever's current value before the ask, in its own native unit.")
+    target_value: float = Field(..., description="baseline_value + delta — the value the ask lands on, confirmed by a real engine re-run.")
+    delta: float = Field(..., description="target_value - baseline_value, signed, exactly as shipped (rent increases are +, cuts are -).")
+    relative_change: float = Field(
+        ..., ge=0, description="abs(delta) / abs(baseline_value) — same field semantics as RecourseLever.relative_change."
+    )
+    fraction_of_cap: float = Field(
+        ...,
+        gt=0,
+        description="abs(delta) / this lever's own single-ask plausibility cap — the own-axis unit every "
+        "combination is judged and compared in (never a cross-lever dollar/bps mix).",
+    )
+
+    model_config = ConfigDict(frozen=True, extra="ignore")
+
+
+class GuardrailMargin(BaseModel):
+    """One live guardrail's (bar, value) pair read off a combination's confirming engine re-run."""
+
+    guardrail: Literal["dscr", "spread", "irr", "coc", "cf_y1", "cf_all", "cap_floor"] = Field(
+        ..., description="Which live guardrail this margin belongs to."
+    )
+    bar: float = Field(..., description="The guardrail's own inclusive >= bar, exactly as the thesis tests it.")
+    value: float = Field(..., description="The guardrail's metric at the confirmed combination, from THE confirming run and no other.")
+
+    model_config = ConfigDict(frozen=True, extra="ignore")
+
+
+class RecourseCombination(BaseModel):
+    """
+    One multi-lever negotiation that closes EVERY live guardrail at once (Mission 5, Half B),
+    confirmed by one real, un-differentiated ``run_financial_model`` re-run at the shipped asks.
+    AD proposes; the engine confirms — no dual number, gradient, or bisection iterate ever
+    reaches this model.
+    """
+
+    moves: tuple[CombinationLeverMove, ...] = Field(
+        ..., min_length=2, description="The per-lever asks, >= 2 of them, in the fixed _LEVER_ORDER."
+    )
+    closes_all_live_guardrails: bool = Field(
+        ...,
+        description="Always True for a shipped combination — the confirming re-run checked ALL live guardrails, not only the failing ones.",
+    )
+    confirmed_margins: tuple[GuardrailMargin, ...] = Field(
+        ..., description="(guardrail, bar, value) for every live guardrail, read off the confirming run, in the fixed guardrail order."
+    )
+    rounded: bool = Field(
+        ...,
+        description="True when the asks are the human-facing rounded-away-from-zero values; False only on the "
+        "fallback path where the exact bisection crossing shipped instead (Mission 4's own fallback rule).",
+    )
+    total_fraction_of_caps: float = Field(
+        ...,
+        gt=0,
+        description="Sum of moves[].fraction_of_cap — the combination's total ask in units of maxed-out single "
+        "asks (the R3 budget unit, and the 'cheapest total negotiation' comparison unit).",
+    )
+
+    model_config = ConfigDict(frozen=True, extra="ignore")
+
+
+class RejectedCombination(BaseModel):
+    """
+    The one gate-rejected exemplar shipped ONLY on an honest null (PD.2 call 4): the reason is
+    adjacent and inseparable — this model cannot exist without it. Its combination went through
+    the same confirm-by-rerun as a shipped one; nothing unconfirmed ever ships.
+    """
+
+    combination: RecourseCombination = Field(
+        ..., description="The rejected-but-engine-confirmed combination (it DOES close the guardrails)."
+    )
+    reason: str = Field(..., min_length=1, description="Why the plausibility gate rejected it — names the numbers and the bound.")
+
+    model_config = ConfigDict(frozen=True, extra="ignore")
+
+
+class CombinationAnalysis(BaseModel):
+    """
+    The multi-lever recourse section (Mission 5, Half B) — additive beside Mission 4's
+    single-lever menu, never replacing it (the investor may be able to act on one lever or many).
+
+    THREE OUTCOMES, NEVER TWO (the mission's honesty core): ``found`` — at least one plausible
+    combination, confirmed by a real engine re-run; ``proven_null`` — the search completed and no
+    feasible, plausible combination exists; ``undetermined`` — the per-subset probe budget
+    (``max_iter``) was exhausted before the search completed: we stopped looking, which is NOT
+    evidence that nothing exists. An UNDETERMINED must never be rendered as a null.
+    """
+
+    attempted: bool = Field(
+        ..., description="False iff there was nothing to search (no failing live guardrail) — outcome is None exactly then."
+    )
+    outcome: Literal["found", "proven_null", "undetermined"] | None = Field(
+        ...,
+        description="The three-way search outcome. None iff attempted is False. 'undetermined' means the probe "
+        "budget ran out — structurally distinct from 'proven_null', never collapsed into it.",
+    )
+    combinations: tuple[RecourseCombination, ...] = Field(
+        ...,
+        description="ALL surviving propositions (at most one per lever subset), in the fixed subset enumeration "
+        "order — deliberately NOT ranked (founder call superseding the earlier top-3 ordering).",
+    )
+    cheapest_total_index: int | None = Field(
+        None,
+        ge=0,
+        description="Index into `combinations` of the smallest total_fraction_of_caps — the 'cheapest total "
+        "negotiation' label. An argmin over the set already computed, never a separate search. None iff empty.",
+    )
+    honest_null: bool = Field(
+        ...,
+        description="True iff outcome == 'proven_null'. NEVER True on 'undetermined' — reporting an exhausted "
+        "budget as a proven null would tell an investor 'nothing can save this deal' when the truth is 'we "
+        "ran out of budget'.",
+    )
+    subsets_searched: int = Field(..., ge=0, description="How many lever subsets (|S| >= 2) were enumerated.")
+    subsets_infeasible: int = Field(
+        ..., ge=0, description="Subsets whose full-cap corner probe fails a live guardrail — proven empty within the plausibility box."
+    )
+    subsets_edge_infeasible: int = Field(
+        ..., ge=0, description="Subsets whose budget-clipped ray edges do not close the deal — honest counted exit, not a box-wide proof."
+    )
+    subsets_gate_rejected: int = Field(..., ge=0, description="Subsets whose confirmed crossing the joint plausibility gate rejected.")
+    subsets_collapsed: int = Field(
+        ...,
+        ge=0,
+        description="Subsets whose crossing rounded to fewer than two levers (single-lever territory — Mission 4's menu owns it).",
+    )
+    subsets_exhausted: int = Field(..., ge=0, description="Subsets stopped by max_iter — the counter that drives 'undetermined'.")
+    gate_reasons: tuple[str, ...] = Field(
+        default_factory=tuple,
+        description="Deduped gate-rejection reasons in first-occurrence (deterministic) order — the WHY behind a null.",
+    )
+    confirm_failed: int = Field(..., ge=0, description="Candidates dropped because their confirming re-run failed (defensive; expected 0).")
+    rejected_exemplar: RejectedCombination | None = Field(
+        None,
+        description="Populated iff honest_null is True and a gate-rejected, rerun-confirmed candidate exists: the "
+        "minimal-total-ask rejected candidate with its reason (PD.2 call 4). None otherwise.",
+    )
+    max_iter: int = Field(..., gt=0, description="The per-subset engine-probe budget that was in force (provenance for 'undetermined').")
+
+    model_config = ConfigDict(frozen=True, extra="ignore")
+
+
 class RecourseAnalysis(BaseModel):
     """
     Recourse ("what would have to change?") attached to a near-miss ``InvestmentThesis``.
@@ -1395,6 +1637,141 @@ class RecourseAnalysis(BaseModel):
         description="True iff no row in `levers` has closes_guardrail=True -- nothing realistic (within the "
         "search bounds) closes any failing guardrail.",
     )
+    combinations: CombinationAnalysis | None = Field(
+        None,
+        description="Mission 5 Half B: the multi-lever combination section, additive beside the single-lever "
+        "menu above (flag-don't-remove: both ship). None = feature absent (old payloads validate unchanged).",
+    )
+
+    model_config = ConfigDict(frozen=True, extra="ignore")
+
+
+class AssumptionBreakeven(BaseModel):
+    """
+    One MODEL ASSUMPTION axis x one currently-PASSING live guardrail: the margin of safety —
+    "how wrong can this guess be before the deal fails?" (Mission 5, breakeven analysis).
+
+    GD3 (the lever/assumption partition, ``src/core/finance/partition.py``) is load-bearing on
+    this type's SHAPE: a solve to a guardrail boundary along an assumption axis may only ever be
+    read as breakeven / margin of safety, never as a recourse ask ("raise your vacancy assumption
+    to 8% and the deal passes" is an instruction to fudge an input until the model returns PASS).
+    The recourse reading is made inexpressible by construction — no ``target_value``/``delta``/
+    ``ask`` field exists here, so the harmful sentence has no field to live in.
+    ``partition.assert_breakeven_shape`` is called against this class at import time by
+    ``src/market/breakeven.py`` (Ruling 2.4) and pinned by test.
+
+    Every ``breakeven_value`` here was confirmed by one real, un-differentiated
+    ``run_financial_model`` re-run at that exact value (the guardrail observed FAILING there),
+    never solved algebraically and never read off a search probe.
+    """
+
+    guardrail: Literal["dscr", "spread", "irr", "coc", "cf_y1", "cf_all", "cap_floor"] = Field(
+        ..., description="Which live, currently-PASSING guardrail this row measures the margin of safety for."
+    )
+    assumption: Literal["occupancy", "rent_growth", "expense_growth"] = Field(
+        ...,
+        description="Which model assumption (a quantity the investor GUESSES, never acts on — GD3) this row "
+        "erodes. Closed to the three in-scope axes: exit cap / cap drift / hold horizon are BARRED "
+        "(partition.BARRED_ASSUMPTION_AXES, GD3 Ruling 3) until a real terminal sale model exists.",
+    )
+    assumed_value: float = Field(..., description="The value the user assumed for this axis (a fraction, e.g. occupancy 0.95).")
+    adverse_direction: Literal["down", "up"] = Field(
+        ...,
+        description="Which way the guess erodes the deal: 'down' for occupancy and rent_growth (less income "
+        "never helps), 'up' for expense_growth (faster-growing costs never help) — engine data-flow facts, "
+        "not per-deal estimates.",
+    )
+    searched_to: float = Field(
+        ...,
+        description="The adverse domain edge the search actually probed (occupancy: just above 0; rent_growth: "
+        "-1.0, where the annual growth factor reaches zero; expense_growth: +1.0, a stated search ceiling). "
+        "Every 'never breaks' claim is scoped to [assumed_value, searched_to] — never beyond it.",
+    )
+    outcome: Literal["breakeven_found", "never_breaks_in_range", "undetermined"] = Field(
+        ...,
+        description="THREE OUTCOMES, NEVER TWO: 'breakeven_found' — a confirmed flip point exists; "
+        "'never_breaks_in_range' — a real engine run at searched_to still passes (a PROVEN, strong result "
+        "within the stated range, not a failure to compute); 'undetermined' — the probe budget ran out: we "
+        "stopped looking, which is NOT evidence the deal is safe. An undetermined must never render as proven.",
+    )
+    breakeven_value: float | None = Field(
+        None,
+        description="The first adverse value at which a full run_financial_model re-run observed this guardrail "
+        "FAILING — a fact about fragility, never a suggestion. The true flip lies within `resolution` of it on "
+        "the assumed side. None unless outcome == 'breakeven_found'.",
+    )
+    margin: float | None = Field(
+        None,
+        ge=0,
+        description="abs(breakeven_value - assumed_value) — how much room the guess has before this guardrail "
+        "breaks, in the assumption's own units (a fraction). None unless outcome == 'breakeven_found'.",
+    )
+    metric_at_breakeven: float | None = Field(
+        None,
+        description="The guardrail's metric read off THE confirming run at breakeven_value (just below `bar`). "
+        "None unless outcome == 'breakeven_found'.",
+    )
+    bar: float = Field(..., description="The guardrail's own inclusive >= bar, exactly as the thesis tests it.")
+    metric_moves: bool = Field(
+        ...,
+        description="False when the guardrail's metric is numerically identical at the adverse edge — this "
+        "guardrail is structurally independent of this assumption for this deal (e.g. Year-1 DSCR never reads "
+        "rent_growth). Always paired with outcome == 'never_breaks_in_range'.",
+    )
+    resolution: float = Field(
+        ...,
+        gt=0,
+        description="The bisection tolerance in the assumption's own units: the true flip point lies within "
+        "this distance of breakeven_value, on the assumed side. Display rounding of `margin` should be "
+        "TOWARD zero (never overstate the room).",
+    )
+    probes_used: int = Field(
+        ..., ge=0, description="Engine runs this row consumed (edge probe + bisection + confirm) — provenance for 'undetermined'."
+    )
+
+    model_config = ConfigDict(frozen=True, extra="ignore")
+
+
+class BreakevenAnalysis(BaseModel):
+    """
+    The assumption breakeven / margin-of-safety section (Mission 5): for each in-scope model
+    assumption and each live, currently-PASSING guardrail, how far the guess can erode before
+    that guardrail flips — "clears DSCR until vacancy hits 9.4%; you assumed 5%."
+
+    The mirror image of ``RecourseAnalysis`` under GD3: recourse answers "what would have to
+    change" over INVESTOR LEVERS (things the investor acts on); this answers "how much room do I
+    have" over MODEL ASSUMPTIONS (things the investor guesses). Currently-FAILING guardrails get
+    no row here on purpose — they have no margin of safety (they are already failing at the
+    assumed values, which `failing_guardrails` records as a fact), and solving them in the
+    FAVORABLE direction would be the forbidden recourse reading in disguise.
+
+    Deliberately NO cross-axis ranking field: margins on different assumption axes are not
+    commensurable without a probability model this pipeline does not have, and inventing one
+    would violate the deterministic-core line. The report layer renders rows; it does not rank.
+    """
+
+    attempted: bool = Field(
+        ...,
+        description="False iff no live guardrail is currently passing — there is no margin of safety to measure. "
+        "Rows is empty exactly then.",
+    )
+    passing_guardrails: tuple[Literal["dscr", "spread", "irr", "coc", "cf_y1", "cf_all", "cap_floor"], ...] = Field(
+        ...,
+        description="The live guardrails currently passing at the assumed values, in the fixed guardrail order — "
+        "the rows' guardrail universe.",
+    )
+    failing_guardrails: tuple[Literal["dscr", "spread", "irr", "coc", "cf_y1", "cf_all", "cap_floor"], ...] = Field(
+        ...,
+        description="The live guardrails already failing at the assumed values, in the fixed guardrail order. "
+        "Recorded as a FACT for context (no margin of safety exists for these); recourse — not breakeven — "
+        "owns what to do about them.",
+    )
+    rows: tuple[AssumptionBreakeven, ...] = Field(
+        ...,
+        description="One row per (assumption, passing guardrail) pair, in fixed (assumption-major, guardrail "
+        "order) enumeration order — deterministic, byte-identical for identical inputs.",
+    )
+    max_iter: int = Field(..., gt=0, description="The per-row engine-probe budget that was in force (provenance for 'undetermined').")
 
     model_config = ConfigDict(frozen=True, extra="ignore")
 

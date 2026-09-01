@@ -39,7 +39,7 @@ from pathlib import Path
 
 from src.core.reports.generator import write_report
 from src.core.runtime_flags import llm_mode_enabled
-from src.inputs.inputs import AppInputs, InputsLoader
+from src.inputs.inputs import AppInputs, HorizonRangeError, InputsLoader, RunOptions, validate_cli_horizon
 from src.orchestrators import crew as deterministic_orchestrator
 from src.orchestrators.cv_tagging_orchestrator import vision_enabled
 from src.schemas.models import (
@@ -222,44 +222,54 @@ def main() -> None:
     # rather than borrowing the demo deal's financials (see resolve_config_path).
     config_path = resolve_config_path(args.config, args.listing, args.photos)
 
-    if config_path:
-        # Load AppInputs (FinancialInputs + run options) and apply CLI overrides if provided.
-        # Precedence for `scenarios`: explicit CLI flag > env (applied in load) > JSON > default False.
-        # `--scenarios` is store_true (False when absent) → pass True only when set, None otherwise,
-        # so an unset flag defers to env/JSON.
-        cfg: AppInputs = loader.load(config_path)
-        cfg = loader.with_overrides(
-            cfg,
-            out=args.out,
-            horizon=args.horizon,
-            listing=args.listing,
-            photos=args.photos,
-            engine=args.engine,
-            scenarios=True if args.scenarios else None,
-        )
-        inputs = cfg.inputs
-        out_path = cfg.run.out
-        horizon = cfg.run.horizon
-        listing_arg = cfg.run.listing
-        photos_arg = cfg.run.photos
-        engine = (cfg.run.engine or "deterministic").strip().lower()
-        run_scenarios_flag = cfg.run.scenarios
-        # The market-snapshot block is carried alongside the frozen FinancialInputs (see AppInputs.market).
-        market_block = cfg.market
-    else:
-        # Neither --config nor the sample bundle → fall back to hardcoded demo inputs.
-        # resolve_config_path guarantees no asset flag reached here, so these are both None
-        # and ensure_sample_assets will report the missing bundle rather than pair an asset
-        # with the hardcoded numbers.
-        inputs = build_sample_inputs()
-        out_path = args.out or "investment_analysis.md"
-        horizon = args.horizon or 10
-        listing_arg = args.listing
-        photos_arg = args.photos
-        engine = (args.engine or "deterministic").strip().lower()
-        env_scenarios = os.getenv("AIREAL_SCENARIOS", "").strip().lower() in ("1", "true", "yes", "on")
-        run_scenarios_flag = args.scenarios or env_scenarios
-        market_block = None  # no JSON → no market block; the resolver loud-fails by design (§5)
+    # An out-of-range or unparseable horizon (bare --horizon, AIREAL_HORIZON, or run.horizon in
+    # the config JSON) fails loud with one clean line on stderr, not a raw ValidationError
+    # traceback (Mission 5 OI.3; docs/plans/mission-5-discovery/PD1_product_calls.md §(e)).
+    # Both branches below validate --horizon through the same function (`validate_cli_horizon` /
+    # `InputsLoader.with_overrides`) so there is exactly one door, not a validated one and a
+    # bypass -- `main.py:256` used to do `args.horizon or 10`, which accepted any integer
+    # (including 500 and negatives) and silently turned an explicit `--horizon 0` into 10.
+    try:
+        if config_path:
+            # Load AppInputs (FinancialInputs + run options) and apply CLI overrides if provided.
+            # Precedence for `scenarios`: explicit CLI flag > env (applied in load) > JSON > default False.
+            # `--scenarios` is store_true (False when absent) → pass True only when set, None otherwise,
+            # so an unset flag defers to env/JSON.
+            cfg: AppInputs = loader.load(config_path)
+            cfg = loader.with_overrides(
+                cfg,
+                out=args.out,
+                horizon=args.horizon,
+                listing=args.listing,
+                photos=args.photos,
+                engine=args.engine,
+                scenarios=True if args.scenarios else None,
+            )
+            inputs = cfg.inputs
+            out_path = cfg.run.out
+            horizon = cfg.run.horizon
+            listing_arg = cfg.run.listing
+            photos_arg = cfg.run.photos
+            engine = (cfg.run.engine or "deterministic").strip().lower()
+            run_scenarios_flag = cfg.run.scenarios
+            # The market-snapshot block is carried alongside the frozen FinancialInputs (see AppInputs.market).
+            market_block = cfg.market
+        else:
+            # Neither --config nor the sample bundle → fall back to hardcoded demo inputs.
+            # resolve_config_path guarantees no asset flag reached here, so these are both None
+            # and ensure_sample_assets will report the missing bundle rather than pair an asset
+            # with the hardcoded numbers.
+            inputs = build_sample_inputs()
+            out_path = args.out or "investment_analysis.md"
+            horizon = validate_cli_horizon(args.horizon) if args.horizon is not None else RunOptions.model_fields["horizon"].default
+            listing_arg = args.listing
+            photos_arg = args.photos
+            engine = (args.engine or "deterministic").strip().lower()
+            env_scenarios = os.getenv("AIREAL_SCENARIOS", "").strip().lower() in ("1", "true", "yes", "on")
+            run_scenarios_flag = args.scenarios or env_scenarios
+            market_block = None  # no JSON → no market block; the resolver loud-fails by design (§5)
+    except HorizonRangeError as e:
+        raise SystemExit(str(e)) from None
 
     # Select high-level orchestration engine (full pipeline)
     if engine == "crewai":
@@ -338,6 +348,12 @@ def main() -> None:
             # for (see `src/market/recourse.py`); stays None (no section, byte-identical output)
             # for a BUY or a deal too far gone to be "genuinely close".
             recourse=getattr(result, "recourse", None),
+            # "How wrong can these guesses be?" (Mission 5) — the margin of safety each passing
+            # guardrail has against the assumptions the user had to guess. getattr for the same
+            # reason as the fields above. Unlike `recourse` this has no near-miss gate: the report
+            # layer renders nothing only when no live guardrail passes, i.e. when there is no
+            # margin of safety anywhere to measure.
+            breakeven=getattr(result, "breakeven", None),
         )
 
         print(f"Report written to {out_path}")

@@ -204,3 +204,63 @@ def test_integration_with_generator_invariants():
         )
     )
     assert out.items == ordered
+
+
+# ---------------------------------------------------------------------------
+# B2 (Mission 5 Gate V): `violated_hard_rules` — the diagnosable hard-rejection decision
+# ---------------------------------------------------------------------------
+
+
+def test_violated_hard_rules_agrees_with_reject_unrealistic_everywhere():
+    """B2 decision/diagnosis drift guard: `reject_unrealistic`'s hard pass DELEGATES to
+    `violated_hard_rules`, so a hypothesis is kept iff no rule is named — pinned across a grid
+    covering each rule alone, a pair, a baseline-only violation (the B2 trigger: zero deltas
+    against a snapshot whose own vacancy exceeds the band), and a clean pass."""
+    from src.market.rejector import violated_hard_rules
+
+    default_snap = make_snapshot(region="UnitTest-Region")  # vacancy 0.05, cap in-band
+    high_vacancy_snap = make_snapshot(region="UnitTest-Region", vacancy_rate=0.205)
+    near_ceiling_cap_snap = make_snapshot(region="UnitTest-Region", cap_rate=0.115)
+
+    def zeroed(**overrides):
+        base = dict(
+            rent_delta=0.0,
+            expense_growth_delta=0.0,
+            interest_rate_delta=0.0,
+            cap_rate_delta=0.0,
+            vacancy_delta=0.0,
+            str_viability=False,
+            prior=1.0,
+            rationale="B2 grid",
+        )
+        base.update(overrides)
+        return make_hypothesis(**base)
+
+    cases = [
+        (default_snap, zeroed(), ()),
+        (default_snap, zeroed(interest_rate_delta=0.03), ("rates_vs_cap",)),
+        (near_ceiling_cap_snap, zeroed(cap_rate_delta=0.01), ("cap_bounds",)),  # 0.125 > 0.12, divergence in-band
+        (default_snap, zeroed(vacancy_delta=0.16), ("vacancy_bounds",)),  # 0.05 + 0.16 = 0.21
+        (high_vacancy_snap, zeroed(), ("vacancy_bounds",)),  # THE B2 trigger: baseline alone, zero deltas
+        (default_snap, zeroed(rent_delta=0.03, vacancy_delta=0.02), ("rent_vs_vacancy",)),
+        (high_vacancy_snap, zeroed(interest_rate_delta=0.03), ("rates_vs_cap", "vacancy_bounds")),
+    ]
+    for snap, hyp, expected in cases:
+        rules = violated_hard_rules(hyp, snap)
+        assert rules == expected, f"expected {expected}, got {rules}"
+        hs = make_hypothesis_set(region=snap.region, seed=7, n=0)
+        hs = type(hs)(snapshot_region=hs.snapshot_region, seed=hs.seed, items=(hyp,))
+        kept = len(reject_unrealistic(hs, snap).items)
+        assert (kept == 0) == bool(rules), "decision and diagnosis must be one implementation"
+
+
+def test_hard_rule_names_are_closed_and_ordered():
+    """`HARD_RULES` is the closed, ordered vocabulary `violated_hard_rules` draws from; the
+    recourse gate's total reason map (`recourse._r2_reason`) is keyed on exactly these names, so
+    adding a rule here without words there fails that module's totality test (and mypy first)."""
+    from typing import get_args
+
+    from src.market.rejector import HARD_RULES, HardRule
+
+    assert HARD_RULES == ("rates_vs_cap", "cap_bounds", "vacancy_bounds", "rent_vs_vacancy")
+    assert tuple(get_args(HardRule)) == HARD_RULES
