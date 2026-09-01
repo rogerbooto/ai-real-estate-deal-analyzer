@@ -1,0 +1,4 @@
+{
+  "_doc": "Entries here convert an APPROACHING-TOLERANCE comparison from FAIL to PASS. Each entry is scoped to one (case, field) and to the drift measured when it was written. If the drift grows, the entry stops covering it. If the drift disappears, the entry becomes stale and the suite fails until it is removed. This file is not a suppression list; it is a ledger of accepted, explained, bounded drift. See tests/core/finance/golden_tolerance.py and docs/plans/mission-5-discovery/D3_tolerance_rule.md section 4.3.",
+  "entries": []
+}

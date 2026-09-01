@@ -69,8 +69,9 @@ from src.schemas.models import FinancialInputs
 #: measurement. Used only to project per-probe attribution costs onto the worst case.
 CEILING_PROBES = 432
 
-#: Probe repetitions for the attribution table. The rent shape gets fewer because it is ~17x
-#: costlier; both are normalised to microseconds/probe, so the counts need not match.
+#: Probe repetitions for the attribution table. The rent CONFIRM shape (materialised roll +
+#: full engine) gets fewer because it is the one remaining O(units) shape; everything is
+#: normalised to microseconds/probe, so the counts need not match.
 PRICE_PROBE_REPS = 432
 RENT_PROBE_REPS = 24
 
@@ -83,17 +84,21 @@ WORKLOADS: tuple[tuple[str, int, int], ...] = (
 
 #: Budget for the PRIMARY 5,000u/100y row, in milliseconds.
 #:
-#: RE-BASELINED from 120.0 (Mission 4 validation, 2026-08-30). The 120 ms figure was set against
-#: the superseded benchmark described in the module docstring, which never once ran the rent
-#: lever; it was never a judgement about the loop that ships. Measured real worst case at the
-#: gate's limit is 181-197 ms best / up to 213 ms median across runs on this machine, of which
-#: ~85% is the 39 rent-lever probes the old harness excluded entirely -- ~3.5-4.2 ms each, against
-#: ~0.17 ms for each of the 111 cheap-shape probes. 250 ms leaves only ~15-21% headroom, which is
-#: thinner than it looks: this loop is measurably load-sensitive (see `time_probes`), so a busy
-#: box can close that gap. If this row starts failing intermittently, that is the headroom, not a
-#: regression -- check the median/best ratio before hunting for one. If 120 ms is to stand as the requirement, the loop needs
-#: optimising, not the harness re-tuning -- the obvious target is `_perturb`'s rent path, which
-#: rebuilds all 5,000 `UnitIncome` models to change one scalar, and dominates the measurement.
+#: HISTORY: 120.0 (Mission 4 validation, set against a benchmark that never ran the rent lever)
+#: -> 250.0 (2026-08-30, honest re-baseline: 181-197 ms best measured, ~85% of it the rent
+#: lever's O(units) `_perturb` copy) -> KEPT at 250.0 after the Mission 5 acceleration pass
+#: (2026-08-31), which removed that copy from the search path entirely.
+#:
+#: The acceleration measured on this row, same machine, same harness: 404.7 ms best with the
+#: Half B combination search included (98 rent probes x ~3.4 ms of roll rebuilding) -> 73.4 ms
+#: after the `engine.ShiftedIncome` aggregate-shift seam (rent search probes became O(1)) ->
+#: 63-66 ms after the scoped GC tuning (`recourse._search_gc_tuned`). The budget deliberately
+#: keeps ~3.5-4x headroom over that best: this constant now GATES CI (imported and enforced
+#: best-of-N by `tests/perf/test_perf_gates.py`), and CI hardware is slower and noisier than the
+#: dev box that produced the 63 ms figure. Roger's 30 ms TARGET remains a target, not a gate:
+#: the measured process spread is ~+/-12%, so a 30 ms assertion would flake rather than inform.
+#: What this budget really guards is the seam itself -- losing the O(1) rent path puts this row
+#: straight back above 400 ms, ~1.6x over budget, loudly.
 BUDGET_MS = 250.0
 PRIOR_BUDGET_MS = 120.0
 
@@ -178,19 +183,34 @@ def count_probes(fi: FinancialInputs, horizon: int) -> tuple[int, dict[str, int]
     Deliberately run UNTIMED and separately from the timed passes: the counting wrapper is cheap
     but not free, and a benchmark that measures its own instrumentation is how this file got into
     trouble twice already.
+
+    TWO WRAPPERS, BECAUSE THE RENT LEVER NO LONGER PERTURBS (Mission 5 acceleration): rent
+    SEARCH probes ride `_rerun`'s O(1) `rent_shift` aggregate path and never call `_perturb`,
+    so counting `_perturb` alone would silently undercount exactly the probes the seam
+    optimised -- the same "cheaper than production" failure mode this docstring warns about.
+    `_perturb` still counts every non-rent probe and the rent lever's materialised confirming
+    re-runs; `_rerun` with `rent_shift != 0.0` counts the shifted rent search probes.
     """
     counts: dict[str, int] = {}
     original = _perturb
+    original_rerun = recourse_mod._rerun
 
     def counting_perturb(fi_: FinancialInputs, lever: Any, t: float, *, total_opex_y1: float) -> Any:
         counts[lever] = counts.get(lever, 0) + 1
         return original(fi_, lever, t, total_opex_y1=total_opex_y1)
 
+    def counting_rerun(perturbed: FinancialInputs, **kwargs: Any) -> Any:
+        if kwargs.get("rent_shift", 0.0) != 0.0:
+            counts["rent_per_unit_month"] = counts.get("rent_per_unit_month", 0) + 1
+        return original_rerun(perturbed, **kwargs)
+
     recourse_mod._perturb = counting_perturb  # type: ignore[assignment]
+    recourse_mod._rerun = counting_rerun  # type: ignore[assignment]
     try:
         compute_recourse(fi, horizon_years=horizon)
     finally:
         recourse_mod._perturb = original  # type: ignore[assignment]
+        recourse_mod._rerun = original_rerun  # type: ignore[assignment]
     return sum(counts.values()), counts
 
 
@@ -248,12 +268,22 @@ def _make_probe(fi: FinancialInputs, horizon: int, mode: str, pre: PrecomputedIn
             precomputed=pre,
         )
     if mode == "rent-search":
-        # The shape the previous harness excluded. Rebuilds every UnitIncome in the rent roll.
+        # THE PRODUCTION RENT SEARCH SHAPE (Mission 5 acceleration): the O(1) aggregate shift
+        # (`engine.ShiftedIncome` via `_rerun(rent_shift=...)`). No perturbed copy exists.
         return lambda i: _rerun(
-            _perturb(fi, "rent_per_unit_month", 5.0 * (i + 1), total_opex_y1=opex_y1),
+            fi,
             horizon_years=horizon,
             baseline_income=income,
             precomputed=pre,
+            rent_shift=5.0 * (i + 1),
+        )
+    if mode == "rent-confirm":
+        # The rent lever's CONFIRMING shape: materialise the roll (every UnitIncome rebuilt) and
+        # run the FULL engine, exactly `_search_one`'s provenance rule. This is where the old
+        # O(units) copy cost now lives -- a handful of confirms per analysis, not ~100 probes.
+        return lambda i: run_financial_model(
+            _perturb(fi, "rent_per_unit_month", 5.0 * (i + 1), total_opex_y1=opex_y1),
+            horizon_years=horizon,
         )
     raise ValueError(f"unknown mode {mode!r}")
 
@@ -322,13 +352,14 @@ def run_primary(repeats: int) -> bool:
 
 def run_attribution(repeats: int) -> bool:
     """Per-probe cost by lever shape. Returns True if the machine looked quiet."""
-    modes = ("engine-only", "price-full", "price-reuse", "price-search", "rent-search")
+    modes = ("engine-only", "price-full", "price-reuse", "price-search", "rent-search", "rent-confirm")
     titles = {
         "engine-only": "engine-only*",
         "price-full": "price full",
         "price-reuse": "price +reuse",
         "price-search": "price search",
         "rent-search": "rent search",
+        "rent-confirm": "rent confirm",
     }
     print("\n\nATTRIBUTION -- MICROSECONDS PER PROBE, both lever shapes, same units.")
     header = f"{'workload':>16}  " + "  ".join(f"{titles[m]:>19}" for m in modes)
@@ -341,7 +372,7 @@ def run_attribution(repeats: int) -> bool:
         assert_precompute_is_actually_reused(fi)
         cells = []
         for mode in modes:
-            probes = RENT_PROBE_REPS if mode == "rent-search" else PRICE_PROBE_REPS
+            probes = RENT_PROBE_REPS if mode == "rent-confirm" else PRICE_PROBE_REPS
             best, median = time_probes(fi, horizon, mode=mode, probes=probes, repeats=repeats)
             noisy = noisy or median > best * 1.15
             cells.append(f"{best:8.1f}/{median:6.1f}us")
@@ -358,8 +389,11 @@ def main() -> int:
     noisy = run_attribution(args.repeats)
 
     print(f"\n(best/median of {args.repeats}; Python {sys.version.split()[0]})")
-    print("Every figure above builds a REAL perturbed copy per probe (src.market.recourse._perturb);")
-    print("PRIMARY additionally calls the REAL src.market.recourse.compute_recourse, and COUNTS its probes.")
+    print("Every figure above runs the REAL production probe shape: non-rent probes build a real")
+    print("perturbed copy (src.market.recourse._perturb); rent SEARCH probes ride the O(1) aggregate")
+    print("shift (engine.ShiftedIncome) exactly as compute_recourse does; 'rent confirm' is the")
+    print("materialised-roll full-engine confirming shape. PRIMARY additionally calls the REAL")
+    print("src.market.recourse.compute_recourse, and COUNTS its probes (shift probes included).")
     print("* engine-only = same object re-run, no perturbation. A LOWER BOUND for attribution only --")
     print("  it is not the cost of an analysis and must not be quoted as one.")
     print("432 probes is the discovery-spec §2.4 analytic CEILING, never a measurement: real analyses")

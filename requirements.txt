@@ -36,3 +36,10 @@ flask-cors>=4.0.1
 # Data Validation & OpenAI Client
 pydantic>=2.7,<3.0
 openai>=1.0.0,<2.0.0
+
+# `typing_extensions.assert_never` backports 3.11's `typing.assert_never` to this project's 3.10
+# floor (src/market/recourse.py's `_r2_reason` uses it for a mypy-checked exhaustiveness proof
+# over `HardRule`). It was already a transitive dependency of pydantic itself; declared
+# explicitly here for the same reason `onnxruntime` is above -- a direct import should not rely
+# on an accidental transitive path.
+typing_extensions>=4.7.0

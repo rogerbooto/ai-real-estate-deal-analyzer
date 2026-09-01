@@ -8,13 +8,19 @@ set ``model_config``, so they were neither frozen nor ``validate_assignment``-en
 attribute assignment silently bypassed every declared ``ge``/``le`` bound. Confirmed:
 ``FinancingTerms(...).down_payment_rate = 1.5`` (declared ``le=1``) used to succeed silently.
 
-THE FIX: each of those seven models now sets ``model_config = ConfigDict(validate_assignment=True)``
-(and only that -- the models remain unfrozen; legitimate in-place mutation patterns elsewhere in
-the codebase, e.g. ``src/market/recourse.py``'s surgical ``model_copy``, are untouched because
-``model_copy(update=...)`` does not validate even with this flag on).
+THE FIX: each of those seven models gained ``model_config`` enforcement on assignment. Five set
+``ConfigDict(validate_assignment=True)`` (unfrozen; legitimate in-place mutation patterns
+elsewhere in the codebase, e.g. ``src/market/recourse.py``'s surgical ``model_copy``, are
+untouched because ``model_copy(update=...)`` does not validate even with this flag on).
+``UnitIncome`` and ``IncomeModel`` have since been tightened further to ``frozen=True``
+(Mission 5 Gate V, N3 -- the engine's income seams derive identity-checked aggregates from
+them, and a post-derivation field edit silently repriced the deal); for those two, EVERY
+assignment now raises, which strictly subsumes the out-of-bound case this file originally
+pinned.
 
 This file pins that in-place assignment of an out-of-bound value on each of the seven affected
-models now raises ``pydantic.ValidationError``, while legitimate in-bound assignment still works.
+models raises ``pydantic.ValidationError`` (for the two frozen models, any assignment at all),
+while legitimate in-bound assignment on the unfrozen models still works.
 """
 
 from __future__ import annotations
@@ -45,18 +51,25 @@ def test_financing_terms_accepts_in_bound_assignment() -> None:
     assert f.down_payment_rate == 0.30
 
 
-def test_income_model_rejects_out_of_bound_assignment() -> None:
+def test_income_model_rejects_assignment_because_frozen() -> None:
+    # Gate V N3: IncomeModel is frozen -- even an IN-bound assignment raises now, which
+    # subsumes the original out-of-bound pin (im.occupancy = 1.5, declared le=1).
     im = make_income_model()
-    with pytest.raises(ValidationError):
-        im.occupancy = 1.5  # declared le=1
+    with pytest.raises(ValidationError, match="frozen"):
+        im.occupancy = 1.5
+    with pytest.raises(ValidationError, match="frozen"):
+        im.occupancy = 0.95  # in-bound, still refused: frozen guards more than the bounds did
 
 
-def test_unit_income_rejects_out_of_bound_assignment() -> None:
+def test_unit_income_rejects_assignment_because_frozen() -> None:
+    # Gate V N3: UnitIncome is frozen (see test above). The original pin here was a
+    # wrong-type assignment; any assignment at all now raises.
     im = make_income_model()
     unit = im.units[0]
-    # rent_month itself has no declared bound, but other_income_month must still validate type.
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError, match="frozen"):
         unit.rent_month = "not-a-number"  # type: ignore[assignment]
+    with pytest.raises(ValidationError, match="frozen"):
+        unit.rent_month = 1500.0  # in-bound, still refused
 
 
 def test_refinance_plan_rejects_out_of_bound_assignment() -> None:

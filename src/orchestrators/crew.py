@@ -35,8 +35,10 @@ from src.core.media.local import collect_local_assets
 from src.core.reports.baseline import BaselineOutlook
 from src.core.reports.photo_report import build_media_report
 from src.core.reports.report_models import MediaReport
+from src.market.breakeven import compute_breakevens
 from src.market.recourse import compute_recourse, is_genuinely_close
 from src.schemas.models import (
+    BreakevenAnalysis,
     FinancialForecast,
     FinancialInputs,
     InvestmentThesis,
@@ -68,6 +70,15 @@ class OrchestrationResult:
     #: Never a blanked-out result: once computed, it is always the full analysis, honest_null and
     #: all (see `src/market/recourse.py` module docstring).
     recourse: RecourseAnalysis | None = None
+    #: "How wrong can these guesses be?" (Mission 5) — the margin of safety each currently-passing
+    #: guardrail has against the model assumptions the user had to guess at (vacancy, rent growth,
+    #: expense growth). Deliberately NOT behind `is_genuinely_close`: recourse's gate exists because
+    #: recourse has nothing to say unless a guardrail is failing, whereas a deal where everything
+    #: passes is exactly the deal whose margins of safety matter most. Always the complete
+    #: `BreakevenAnalysis`, `attempted=False` and all — the whether-to-render call is the report
+    #: layer's (see `src/market/breakeven.py`'s `compute_breakevens` docstring). None only for a
+    #: caller that never computed one.
+    breakeven: BreakevenAnalysis | None = None
 
 
 def build_baseline_outlook(
@@ -125,6 +136,32 @@ def build_recourse(inputs: FinancialInputs, *, horizon_years: int) -> RecourseAn
     return compute_recourse(inputs, horizon_years=horizon_years)
 
 
+def build_breakevens(inputs: FinancialInputs, *, horizon_years: int) -> BreakevenAnalysis:
+    """
+    "How wrong can these guesses be?" (Mission 5) — shared by both orchestrators, mirroring
+    ``build_recourse``'s exact shape.
+
+    THE ONE DELIBERATE DIFFERENCE FROM ``build_recourse``: there is no pre-computation gate here.
+    ``is_genuinely_close`` exists because recourse has nothing to say about a deal with no failing
+    guardrail — there is no gap for a lever to close. The margin-of-safety question is the mirror
+    image: it is asked of the guardrails that currently PASS, so a clean ``BUY`` is precisely the
+    deal it has the most to say about, and gating it behind a near-miss would silence it exactly
+    where it matters. ``compute_breakevens`` is self-contained and cheap (one baseline run plus a
+    bounded probe budget per row), and it reports ``attempted=False`` itself when no live guardrail
+    passes.
+
+    Args:
+        inputs: The exact inputs the observed forecast was produced from.
+        horizon_years: Same horizon as the observed forecast, so the two are comparable.
+
+    Returns:
+        The complete ``BreakevenAnalysis``, never a blanked-out one: ``attempted`` is False (rows
+        empty) exactly when no live guardrail currently passes, and the decision not to render a
+        section in that case belongs to the report layer, not here.
+    """
+    return compute_breakevens(inputs, horizon_years=horizon_years)
+
+
 def run_orchestration(
     inputs: FinancialInputs,
     listing_txt_path: str | None = None,
@@ -147,7 +184,9 @@ def run_orchestration(
         whenever a listing observation actually moved a number, so the report can show the
         same deal with and without those observations. Also carries a ``recourse`` analysis
         whenever the deal is a genuine near-miss (see ``build_recourse``); ``None`` otherwise,
-        which keeps report output byte-identical for a BUY or a deep DECLINE.
+        which keeps report output byte-identical for a BUY or a deep DECLINE. Also carries a
+        ``breakeven`` margin-of-safety analysis, computed unconditionally (see
+        ``build_breakevens`` for why it has no near-miss gate).
 
     Notes:
         - This is a clean seam to swap in a CrewAI-based orchestrator in V2+.
@@ -160,6 +199,7 @@ def run_orchestration(
     thesis = synthesize_thesis(forecast, market=inputs.market)
     baseline = build_baseline_outlook(inputs, forecast, horizon_years=horizon_years)
     recourse = build_recourse(inputs, horizon_years=horizon_years)
+    breakeven = build_breakevens(inputs, horizon_years=horizon_years)
 
     # Descriptive media stats over the same folder the analyst tagged. Defensive by the same
     # rule as the agents: a bad photo folder degrades the report, it never fails the run.
@@ -185,4 +225,5 @@ def run_orchestration(
         media_report=media_report,
         baseline=baseline,
         recourse=recourse,
+        breakeven=breakeven,
     )

@@ -12,12 +12,13 @@
 
   ```python
   from src.inputs.inputs import AppInputs, RunOptions, InputsLoader, load_inputs
+  from src.inputs.inputs import HorizonRangeError, horizon_bounds, validate_cli_horizon
   ```
 
 ### Models (defined here, not in `schemas`)
 
 * `RunOptions` — runtime, non-financial options:
-  `out` (default `investment_analysis.md`), `horizon` (1–50, default 10), `listing`, `photos`, `engine` (`"deterministic"` | `"crewai"`), `scenarios` (bool, default `False` — opt-in Market Scenarios overlay).
+  `out` (default `investment_analysis.md`), `horizon` (1–100, default 10 — raised from 50 in Mission 5 OI.2; a real financial instrument, the 99-year ground lease, was otherwise blocked for no reason anyone chose, see `docs/manual testing/MISSION_4_MANUAL_TESTING.md` Case 8), `listing`, `photos`, `engine` (`"deterministic"` | `"crewai"`), `scenarios` (bool, default `False` — opt-in Market Scenarios overlay).
 * `AppInputs` — full payload: `inputs: FinancialInputs` + `run: RunOptions` + optional `market` (a raw market-snapshot block, carried alongside — deliberately **not** part of the frozen `FinancialInputs` — and consumed only by the opt-in scenario engine).
 
 ### Loader
@@ -63,7 +64,7 @@
 | Variable | Overrides |
 | --- | --- |
 | `AIREAL_OUT` | `run.out` |
-| `AIREAL_HORIZON` | `run.horizon` (int) |
+| `AIREAL_HORIZON` | `run.horizon` (int, `1`–`100`) — **loud-fails** (`HorizonRangeError`, a `ValueError`) on an unparseable or out-of-range value as of Mission 5 OI.3; it used to be silently ignored, leaving `cfg.horizon` at a value the user did not choose. |
 | `AIREAL_LISTING` | `run.listing` |
 | `AIREAL_PHOTOS` | `run.photos` |
 | `AIREAL_ENGINE` | `run.engine` |
@@ -75,6 +76,7 @@
 
 * **Rates as fractions [0–1]:** all numeric rates are fractional, not percentages (validation lives in `schemas.models`).
 * **Precedence:** file values → env overrides → explicit CLI overrides (`with_overrides`).
+* **Horizon out of range fails loud, once, cleanly (Mission 5 OI.3):** a bare `--horizon` flag, `AIREAL_HORIZON`, or `run.horizon` in the config JSON that violates `RunOptions.horizon`'s declared bounds raises `HorizonRangeError` (a `ValueError` subclass whose `str()` is already the single clean line — no pydantic dump). `main.py` catches it and re-raises `SystemExit(str(e))`: one line on stderr, exit code 1, no traceback. The three message variants name which of the three set it. Bounds are always read from the live `RunOptions.horizon` Field constraints via `horizon_bounds()`, never typed as literals, so the message cannot drift from the schema.
 * **Income is per-unit:** the legacy translator maps older income shapes onto the `units[]`-based `IncomeModel`.
 * **JSON-only serialization:** YAML and CSV are not supported.
 
@@ -86,7 +88,7 @@
 
 ## Test Strategy
 
-* Covered indirectly via orchestrator/integration tests and `main.py` runs; dedicated loader unit tests are a known gap.
+* Covered indirectly via orchestrator/integration tests and `main.py` runs. Dedicated loader tests: `tests/unit/test_inputs_override_validation.py` (Mission 4 PV.2, CLI/env override re-validation) and `tests/integration/test_horizon_range_and_cli_message.py` (Mission 5 OI.2/OI.3, the horizon ceiling and the clean out-of-range CLI message across all three entry points, including real-subprocess exit-code/no-traceback checks).
 * Run:
 
   ```bash

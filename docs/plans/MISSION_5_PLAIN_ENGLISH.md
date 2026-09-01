@@ -1,4 +1,4 @@
-# Mission 5 — Adjoint Differentiation & Optimized Recourse Search — In Plain English
+# Mission 5 — Forward-Mode Differentiation & Optimized Recourse Search — In Plain English
 
 _For Roger. No jargon, no code references. One screen (a bit more, now that it's two halves)._
 
@@ -22,15 +22,24 @@ of twenty. Then, and this is the important safeguard, it **confirms the jump wit
 of the model** before it shows you anything. So we get the speed of the shortcut and the trust of the
 real calculation.
 
-**Half B — a new "top-3 bundles of changes" section (this is the part you added).** Today the program
+**Half B — a new "bundles of changes" section (this is the part you added).** Today the program
 only ever tells you the single cheapest thing to change: "raise rent by $38, OR cut price by $9,800,
 OR…". But you might be able to move *more than one lever at once*. So besides the single-lever list, the
-report will now also show **up to three realistic bundles of changes** — e.g. "a smaller rent bump
-*and* a small price cut *together* would close it." Each bundle is **checked by the real calculator**
-before it's shown, and the program **only ever suggests combinations that make sense** — it won't tell
-you to do two things that individually look fine but together are unrealistic. You get **both** views —
-the single cheapest lever AND the sensible bundles — because we don't know in advance whether you can
-move one thing or several.
+report will now also show **every realistic bundle of changes that survives a sanity check** — up to
+eleven of them, one per meaningful combination of the four levers — e.g. "a smaller rent bump *and* a
+small price cut *together* would close it." Each bundle is **checked by the real calculator** before
+it's shown, and the program **only ever suggests combinations that make sense** — it won't tell you to
+do two things that individually look fine but together are unrealistic.
+
+> **⚠ CORRECTED 2026-08-31 — you settled the final shape yourself.** The earlier plan (below, under
+> "goals" and "how you'll know it worked") described a **ranked "top-3"** list. You changed that: since
+> a bundle is shown for every lever-combination that survives, the single cheapest one is simply
+> **labelled** "cheapest total negotiation" instead of being picked by a separate ranking step — in
+> your words, *"with a 'cheapest total negotiation' alongside the others, we have no more need for a
+> ranking."* So you'll see all the survivors, unranked, with the cheapest one marked.
+
+You get **both** views — the single cheapest lever AND the sensible bundles — because we don't know in
+advance whether you can move one thing or several.
 
 **Why the two halves are done in that order, with a checkpoint between them.** The bundles feature (B)
 is built on top of the fast slope math (A). So we prove the fast math is correct *first*, at a hard
@@ -42,8 +51,20 @@ comes out wrong, we know the problem is in the bundle-picker, not hidden in the 
 
 The recourse search is the slowest part of a large analysis. On the biggest deals we care about
 (thousands of units, a hundred-year horizon), all that nudge-and-recheck adds up. You set a target of
-making a 5,000-unit / 100-year analysis fast — this is the remaining credible way to get there. Fewer
-tries per lever means a faster report, without changing a single number the report is allowed to show.
+making a 5,000-unit / 100-year analysis fast.
+
+> **⚠ CORRECTED 2026-08-31 — the "this is the remaining credible way to get there" line above turned
+> out to be wrong, and you asked us to say so plainly.** We measured it three separate ways and the
+> slope-and-jump shortcut does **not** get us to your speed target — it costs about four times as much
+> per try as the old nudge-and-recheck, so with fewer-but-costlier tries it's a wash at best. What
+> *actually* eats the time on the big analysis is copying the 5,000-unit rent roll on every rent try
+> (about three-quarters of the slow row) and Python's routine memory cleanup (about another third) —
+> neither of which the slope math touches. **Your call: keep building all of it, just tell the story
+> straight.** The real path to your speed target is tuning that memory cleanup and removing the
+> unnecessary rent-roll copy — not the slope math. The slope math earns its place for a different
+> reason: it's what makes the "bundles of changes" feature (Half B) possible and trustworthy, by telling
+> the program *which direction* to try instead of *how far* — so Half B, not raw speed, is the real
+> point of this mission now.
 
 ## What are the goals?
 
@@ -54,11 +75,12 @@ tries per lever means a faster report, without changing a single number the repo
   honest slow way already gives.
 - Measure the speed honestly against your target and **report the real number**, even if it lands just
   short — a measured near-miss is a result, not a fudge.
-- Add a **"top-3 bundles of changes"** section next to the existing single-lever list, so you can see
-  realistic combinations, not just the one cheapest lever.
+- Add a **"bundles of changes"** section next to the existing single-lever list, so you can see every
+  realistic combination that survives, not just the one cheapest lever — with the overall cheapest one
+  labelled, not picked by a separate ranking.
 - Make sure a bundle is only ever suggested if it genuinely **makes sense** — including not suggesting
-  two changes that are each fine on their own but silly together — and that the three bundles shown are
-  **genuinely different routes**, not three versions of the same idea.
+  two changes that are each fine on their own but silly together — and that the bundles shown are
+  **genuinely different routes** by construction (one per lever combination), not variations on one idea.
 - Fix a few small, unrelated rough edges along the way (see below).
 
 ## The one tradeoff, in plain terms — please read this part
@@ -71,10 +93,13 @@ vanishingly small amount"** — nine-nines small, i.e. a difference in about the
 
 Two guardrails make that safe, and both are non-negotiable:
 
-1. **It is still tight enough to catch real mistakes.** We calibrated it: a genuine rounding bug we once
-   caught showed up as a difference around the *eighth* decimal place. The new rule is set one notch
-   tighter than that, so it would still catch that bug. A looser rule (say, sixth decimal) would let it
-   through — that is exactly why we picked nine-nines and not something more relaxed.
+1. **It is still tight enough to catch real mistakes.** We calibrated it against a synthetic test bug
+   (not one we've actually shipped and caught before — a rounding-bug shape we deliberately injected to
+   test the rule) that shows up as a difference around the *eighth* decimal place. The new rule is set
+   one notch tighter than that, so it would still catch a bug that size. A looser rule (say, sixth
+   decimal) would let it through — that is exactly why we picked nine-nines and not something more
+   relaxed. (Corrected 2026-08-31: an earlier draft of this document implied this was a bug we'd
+   previously actually caught in production; it's a designed test case, not a war story.)
 2. **We always measure drift against the very first correct answer, never the last one.** This matters
    more than it sounds. If each change were measured only against the previous version, ten tiny changes
    could each look fine while the total quietly crept far from the truth. By always comparing back to the
@@ -90,8 +115,9 @@ reviewable.
 - **Before:** finding what closes a near-miss takes ~10–20 full re-runs per lever.
   **After:** it takes ~3–4, then one confirming re-run — the answer is the same, the wait is shorter.
 - **Before:** the report only ever offers single-lever fixes ("change *one* of these").
-  **After:** it *also* offers up to three realistic **bundles** of changes, each one checked by the real
-  calculator and each one a genuinely different route — for when you can move more than one lever.
+  **After:** it *also* offers every realistic **bundle** of changes that survives a sanity check (up to
+  eleven), each one checked by the real calculator, with the cheapest overall one labelled — for when
+  you can move more than one lever.
 - **Before:** the big-portfolio benchmark runs slower than your target.
   **After:** a measured, honestly-reported time against that target (faster; we will tell you exactly
   how much, and whether it fully meets the goal).
@@ -126,9 +152,12 @@ reviewable.
 Follow `docs/manual testing/MISSION_5_MANUAL_TESTING.md`. It walks you through: confirming the new
 tolerance rule still catches the calibration bug and can't let drift creep past the original answer;
 checking that a fast recourse answer matches what a real full re-run says on a near-miss deal; seeing the
-number of tries drop; timing the big 5,000-unit / 100-year run against your target; **checking the new
-"top-3 bundles" section — that it appears, that each bundle really does flip the verdict when the real
-calculator re-runs it, that a silly combination is refused, that the three are genuinely different, and
-that the same deal always produces the same three bundles**; and checking the small fixes (negative price
-refused, 100-year horizon accepted, a clean message instead of an ugly error). Every step has a clear
-yes/no so nothing can pretend to be finished when it isn't.
+number of tries drop; timing the big 5,000-unit / 100-year run against your target (honestly — the real
+speed-up is expected to come from the memory-cleanup tuning and the rent-roll fix, not the slope math,
+so don't be surprised if the slope math alone doesn't move this number much); **checking the new
+"bundles" section — that it appears, that every bundle shown really does flip the verdict when the real
+calculator re-runs it, that a silly combination is refused, that the bundles shown are genuinely
+different routes, that the cheapest one is labelled rather than picked by a hidden ranking, and that the
+same deal always produces the same bundles**; and checking the small fixes (negative price refused,
+100-year horizon accepted, a clean message instead of an ugly error). Every step has a clear yes/no so
+nothing can pretend to be finished when it isn't.

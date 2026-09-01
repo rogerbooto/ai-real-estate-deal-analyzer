@@ -58,6 +58,45 @@
   from src.core.finance.irr import irr
   from src.core.finance.adapters import finance_summary_from_json
 
+  # Finance — forward-AD Jacobian seam (Mission 5). One dual pass over the SAME
+  # `_forecast_core` returns the bit-identical primal `ForecastMetrics` plus
+  # d(metric)/d(direction) for all 8 float metrics x up to 4 caller-named directions
+  # (~4.1x one engine pass, vs 2 engine passes per direction for central FD).
+  # Rows are metric names, columns are the caller's direction names — no positional
+  # access exists. `partials[m] is None` means "no trustworthy derivative here"
+  # (IRR undefined / ill-conditioned root / non-finite tangent; reason in `degraded`)
+  # and is NEVER a substitute 0.0. The IRR row is computed by the implicit function
+  # theorem at the production Brent root — the root-finder itself is never
+  # differentiated through, and never sees a dual number. The rent direction seeds the
+  # `income.gsi_annual` aggregate (d(gsi)/d(rent/unit/mo) = 12*num_units); per-unit
+  # seeds are deliberately not offered. `insights` are not accepted (loud ValueError
+  # paths guard every misuse). `src/core/finance/dual.py` (the `Dual4` scalar) is
+  # private mechanics — import the seam, not the dual type.
+  from src.core.finance.jacobian import (
+      MetricsJacobian,        # .metrics / .directions / .partials / .degraded
+      TangentDirection,       # (name, seeds=((SeedTarget, d(target)/d(direction)), ...))
+      forecast_metrics_with_jacobian,
+  )
+  jac = forecast_metrics_with_jacobian(fi, directions, horizon_years=10, precomputed_income=None)
+  jac.value("purchase_dscr"); jac.partial("purchase_dscr", "rent")  # named access only
+
+  # Finance — the aggregate-shift seam (Mission 5 acceleration). A recourse rent probe
+  # is exactly linear in the one aggregate the engine reads (gsi + 12*N*t; `_perturb`
+  # adds t per unit with no clamping), so SEARCH probes shift the cached aggregate in
+  # O(1) instead of rebuilding an O(units) rent roll — measured 404.7 -> 73.4 ms best
+  # on the 5,000u/100y recourse ceiling row (2026-08-31). `ShiftedIncome` carries
+  # provenance (its base `PrecomputedIncome`, the shift t, the unit count) and is
+  # identity-validated by the engine in `PrecomputedIncome`'s exact loud-failure
+  # posture: a stale, mismatched or double-applied shift is a hard ValueError, never a
+  # quiet fallback. SEARCH-ONLY BY CONSTRUCTION: only `forecast_metrics` accepts it;
+  # `run_financial_model` has no such parameter, so every reported number still comes
+  # off a materialised rent roll. Not bit-exact vs a materialised probe (summation
+  # order), but pinned ~4 orders of magnitude below the golden approaching band
+  # (worst 4.7e-14 at 5,000u; `tests/core/finance/test_income_shift.py`).
+  from src.core.finance.engine import forecast_metrics, precompute_income, shift_income
+  pre = precompute_income(fi.income)
+  m = forecast_metrics(fi, horizon_years=10, income_shift=shift_income(pre, rent_shift_month=25.0))
+
   # Ingest & Normalize
   from src.core.ingest.listing_ingest import ingest_listing
   from src.core.normalize import parse_any_to_normalized

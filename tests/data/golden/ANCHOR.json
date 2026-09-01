@@ -1,0 +1,10 @@
+{
+  "anchored_artifact": "finance_engine_forecasts.json",
+  "cases_sha256": "540b3099fd0a7b6764170996008330c025b8102853c5a77ebce2d20b7eec9297",
+  "anchored_at_commit": "87efd22",
+  "anchored_on": "2026-08-31",
+  "approved_by": "Roger Booto Tokime",
+  "rationale": "Mission 5 baseline. The state Mission 4 Gate V vouched for: post-Brent-solver, post-IRR-undefined-warning. See tests/core/finance/test_golden_forecasts.py module docstring, regeneration records at :36 and :89. Digest is over the canonicalised `cases` subtree only (json.dumps(golden['cases'], sort_keys=True, separators=(',', ':')).encode('utf-8')), per D.3 section 3.3 Part 2 -- the `_meta` banner is prose and is deliberately excluded from the digest.",
+  "max_rel_drift_vs_previous_anchor": null,
+  "supersedes": null
+}

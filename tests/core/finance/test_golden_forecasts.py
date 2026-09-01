@@ -3,27 +3,55 @@
 Golden-number regression harness for ``run_financial_model`` (Mission 4, task PV.1).
 
 WHY: the founder has authorized vectorising `src/core/finance/engine.py` for portfolio-scale
-performance. That function produces every dollar figure this product ships. This suite pins its
-CURRENT, bit-exact output across a broad input matrix (`tests/core/finance/golden_cases.py`) so a
-later rewrite that changes so much as one intermediate rounding step cannot land undetected.
+performance, and Mission 5 authorized forward-mode (tangent-linear) differentiation, which threads dual numbers through
+the same code. Both reorder floating-point arithmetic without changing the underlying math. That
+function produces every dollar figure this product ships. This suite pins its output across a
+broad input matrix (`tests/core/finance/golden_cases.py`) so a rewrite that changes so much as one
+intermediate rounding step cannot land undetected.
 
-BIT-EXACT, NOT APPROXIMATE: goldens are compared with plain `==` on the full
-`FinancialForecast.model_dump(mode="json")` dict -- never `pytest.approx`. Python's `json`
-module formats floats via the same shortest-round-trip algorithm as `repr()`, so a value written
-to the golden file and read back reproduces the exact original double: comparing the loaded
-golden dict to a freshly computed dict via `==` is a bit-exact comparison, field-by-field,
-including every `YearBreakdown` row, not just the headline metrics.
+============================================================================
+TOLERANCE RULE -- 2026-08-31, Mission 5, IT.1 (founder-ratified via PD.1; guardian-conditioned via
+GD.1, VETO LIFTED WITH CONDITIONS C1-C7; design in docs/plans/mission-5-discovery/D3_tolerance_rule.md)
+============================================================================
 
-If a genuinely-derived field could not be pinned exactly (e.g. it depended on wall-clock time or
-non-deterministic iteration order), that would be called out explicitly here with a named,
-justified tolerance. No such field exists in `FinancialForecast` today -- everything in it is a
-pure function of the inputs -- so none is used.
+THIS SECTION REPLACES THE FORMER "BIT-EXACT, NOT APPROXIMATE" SECTION, WHICH IS NO LONGER TRUE.
+`test_forecast_matches_golden_within_tolerance` and `test_sample_deal_matches_golden_within_tolerance`
+(formerly `..._bit_exact` -- renamed because a test name is a claim, and "bit_exact" became a false
+one, per GD.1 condition C7) now compare via `tests/core/finance/golden_tolerance.py::compare_golden`:
+a named, justified, MEASURED relative tolerance (`REL_TOL = 1e-9`), asymmetric
+(`abs(actual - expected) <= REL_TOL * abs(expected)`, expected alone in the denominator), with
+`abs_tol = 0` (no absolute floor, ever), exact-zero fields still required exact (652 semantic zeros
+across 20 field paths), and every non-float field (`bool`, `str`, `None`, `int`) still exact `==`.
+See `golden_tolerance.py`'s module docstring for the rule in full, its two measured walls (the
+~1.15e-13 floating-point-reordering noise floor and the ~1.35e-5 smallest-defect-class signature),
+and everything the rule does NOT permit.
+
+WHY THIS MOVED: Mission 5's forward-mode (tangent-linear) differentiation threads dual numbers through `engine.py` /
+`irr.py::_brent_root`. That reorders IEEE-754 operations -- mathematically identical, bit-different
+-- so a plain `==` bit-exact comparison against a golden captured by the PRE-AD code path would fail
+on every AD landing regardless of correctness. The relaxation is *cross-version* stability
+(program version N+1 vs the anchored output of version N), which was always a surplus guarantee
+this harness added ahead of the Mission 4 vectorisation, not the deterministic-core invariant
+itself. See `test_determinism_repeated_calls_are_identical` below for the invariant that IS still
+enforced at `==`, forever, and why.
+
+ANCHORING: comparison is always against the digest-pinned `cases` subtree of this file, pinned in
+`tests/data/golden/ANCHOR.json` and enforced by the dedicated `tests/core/finance/test_golden_anchor.py`
+(its own file, so an anchor failure is unmistakable and distinct from a tolerance failure).
+In-tolerance drift is NEVER a reason to regenerate this golden -- `generate_golden_forecasts.py`'s
+safety gate refuses a numeric-only regeneration; only a reviewed `--supersede-anchor --rationale`
+run can move the anchor.
+
+APPROACHING-TOLERANCE: a relative drift in `[5e-10, 1e-9)` -- half of `REL_TOL` -- FAILS THE BUILD
+unless a scoped, bounded, self-expiring entry exists in `tests/data/golden/DRIFT_LEDGER.json`. It is
+not a warning; see `golden_tolerance.py::render_case_result`.
 
 Regenerating `tests/data/golden/finance_engine_forecasts.json` is done ONLY via
 `python -m tests.core.finance.generate_golden_forecasts`, and only as a reviewed decision (see the
 banner in that script and in the JSON file's `_meta` key). A PR that changes this JSON without
 also changing `golden_cases.py` or `engine.py`/`irr.py`/`amortization.py` should be treated as
-suspicious on sight.
+suspicious on sight -- and, as of this Mission, without a `--supersede-anchor --rationale` run, it
+cannot land at all: `test_golden_anchor.py` will fail first.
 
 ============================================================================
 REGENERATION RECORD -- 2026-08-29, Mission 4, PV.5 (founder-approved on CORRECTNESS grounds, not
@@ -144,8 +172,13 @@ import pytest
 from src.core.finance import run_financial_model
 from src.schemas.models import FinancialInputs, ListingInsights
 from tests.core.finance.golden_cases import CASE_IDS, CASES
+from tests.core.finance.golden_tolerance import (
+    GOLDEN_PATH,
+    compare_golden,
+    load_drift_ledger,
+    render_case_result,
+)
 
-GOLDEN_PATH = Path(__file__).resolve().parents[2] / "data" / "golden" / "finance_engine_forecasts.json"
 SAMPLE_DEAL_PATH = Path(__file__).resolve().parents[3] / "data" / "sample_listings" / "36_kelly_moncton" / "inputs.json"
 
 _CASES_BY_ID: dict[str, dict[str, Any]] = {c["id"]: c for c in CASES}
@@ -178,18 +211,42 @@ def test_golden_file_covers_every_defined_case(golden: dict[str, Any]) -> None:
 
 
 @pytest.mark.parametrize("case_id", CASE_IDS)
-def test_forecast_matches_golden_bit_exact(case_id: str, golden: dict[str, Any]) -> None:
+def test_forecast_matches_golden_within_tolerance(case_id: str, golden: dict[str, Any]) -> None:
+    """
+    Renamed from ``test_forecast_matches_golden_bit_exact`` (GD.1 condition C7 -- a test name is a
+    claim, and "bit_exact" would be a false one under the tolerance rule). See the module
+    docstring's "TOLERANCE RULE" record and ``tests/core/finance/golden_tolerance.py`` for the rule
+    itself: structural equality first, then every non-float field exact, every exact-zero field
+    exact, and every other float field within ``REL_TOL = 1e-9`` relative of the anchored golden.
+    """
     case = _CASES_BY_ID[case_id]
     actual = _run_case(case)
     expected = golden["cases"][case_id]["forecast"]
 
-    # Exact structural + numeric equality: every field of FinancialForecast, every
-    # YearBreakdown row, the debt schedule fields folded into each row, IRR, warnings.
-    assert actual == expected, f"golden mismatch for case '{case_id}' -- run_financial_model output changed"
+    report = compare_golden(case_id, actual, expected)
+    ledger = load_drift_ledger()
+    ok, message = render_case_result(report, ledger)
+    assert ok, message
 
 
 def test_determinism_repeated_calls_are_identical() -> None:
-    """Same input, run twice in one test -> identical output (no hidden nondeterminism)."""
+    """
+    Same input, run twice in one test -> identical output (no hidden nondeterminism).
+
+    EXCLUDED FROM THE MISSION 5 TOLERANCE RULE, DELIBERATELY (GD.1 condition C1; D.3 section 6.2).
+    This compares two runs of the SAME code, on the SAME inputs, in the SAME process. IEEE-754
+    arithmetic is deterministic: an identical sequence of operations on identical operands produces
+    an identical result, always -- there is no reordering across this boundary (unlike the
+    cross-version comparison in ``test_forecast_matches_golden_within_tolerance`` above, where a
+    later code version may legitimately reassociate floating-point operations). This test exists to
+    catch hidden nondeterminism -- dict/set iteration order leaking into a sum, hash()
+    randomisation, wall-clock dependence, uninitialised state -- and those bugs characteristically
+    manifest as TINY differences. A tolerance here would hide exactly the class of bug this test
+    exists to find; it would not be a weakening of the harness, it would be a deletion of the
+    harness's most load-bearing assertion, disguised as consistency. Stays ``==``, forever. Any
+    future request to relax this assertion is an automatic escalation to the Founder Proxy, citing
+    docs/plans/mission-5-discovery/GD1_veto_review.md condition C1.
+    """
     for case_id in ("units_500_horizon_50", "negative_cash_flow_decline_shaped", "insight_modifiers_applied"):
         case = _CASES_BY_ID[case_id]
         first = _run_case(case)
@@ -200,10 +257,13 @@ def test_determinism_repeated_calls_are_identical() -> None:
 # ---------------------------------------------------------------------------
 # The real committed sample deal (data/sample_listings/36_kelly_moncton/inputs.json).
 # Two layers of protection:
-#   1. Bit-exact pin against the golden file (catches ANY change, including ones too
-#      small to show up at 4-decimal rounding).
+#   1. Within-tolerance pin against the golden file (catches ANY change past REL_TOL, including
+#      ones far too small to show up at 4-decimal rounding).
 #   2. Human-verified baseline numbers at the stated precision (catches the golden
-#      file itself having captured a wrong number in the first place).
+#      file itself having captured a wrong number in the first place) -- STAYS AS-IS, untouched by
+#      the tolerance rule (GD.1 condition C1; D.3 section 6.2: at dscr ~ 0.896, four-decimal
+#      rounding is already a ~5.6e-5 relative assertion, four to five orders looser than REL_TOL,
+#      so applying the tolerance rule there would be strictly weaker than what it already asserts).
 # ---------------------------------------------------------------------------
 
 
@@ -214,12 +274,19 @@ def sample_deal_forecast() -> Any:
     return run_financial_model(fi, horizon_years=raw["run"]["horizon"])
 
 
-def test_sample_deal_matches_golden_bit_exact(golden: dict[str, Any]) -> None:
+def test_sample_deal_matches_golden_within_tolerance(golden: dict[str, Any]) -> None:
+    """Renamed from ``test_sample_deal_matches_golden_bit_exact`` -- same rule, same rename, same
+    reasoning as ``test_forecast_matches_golden_within_tolerance`` above (GD.1 condition C7),
+    narrowed to the shipped `36_kelly_moncton` deal."""
     raw = json.loads(SAMPLE_DEAL_PATH.read_text(encoding="utf-8"))
     fi = FinancialInputs.model_validate(raw["inputs"])
     actual = run_financial_model(fi, horizon_years=raw["run"]["horizon"]).model_dump(mode="json")
     expected = golden["cases"]["sample_deal_36_kelly_moncton"]["forecast"]
-    assert actual == expected
+
+    report = compare_golden("sample_deal_36_kelly_moncton", actual, expected)
+    ledger = load_drift_ledger()
+    ok, message = render_case_result(report, ledger)
+    assert ok, message
 
 
 def test_sample_deal_verified_baseline_numbers(sample_deal_forecast: Any) -> None:

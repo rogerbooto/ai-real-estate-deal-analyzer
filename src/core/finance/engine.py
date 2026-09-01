@@ -1,6 +1,7 @@
 # src/core/finance/engine.py
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 from src.schemas.models import (
@@ -15,6 +16,7 @@ from src.schemas.models import (
 )
 
 from .amortization import schedule_columns
+from .dual import primal as _dual_primal
 from .irr import irr
 
 DEFAULT_HORIZON_YEARS = 10
@@ -189,6 +191,147 @@ def precompute_income(income: IncomeModel) -> PrecomputedIncome:
     return PrecomputedIncome(income=income, gsi_annual=gsi, goi_annual=goi)
 
 
+@dataclass(frozen=True)
+class ShiftedIncome:
+    """A DELIBERATELY rent-shifted income aggregate, with provenance -- the aggregate-shift seam.
+
+    THE PROBLEM THIS SOLVES. The recourse rent lever moves every unit's rent by the same `t`
+    (`+t` per unit, no clamping -- see `src/market/recourse._perturb`), so its effect on the one
+    aggregate the engine actually reads is EXACTLY LINEAR:
+
+        GSI(t) = GSI(0) + 12 * num_units * t          (D.1 par.1a; the engine never reads units)
+        GOI(t) = GSI(t) * occupancy * bad_debt_factor  (`_annual_income`'s own expression)
+
+    Materialising a perturbed rent roll to communicate that one scalar cost O(units) per probe --
+    measured ~83% of a portfolio-scale recourse analysis (98 rent probes x ~3.4 ms at 5,000
+    units, 2026-08-31). This record carries the shifted aggregate in O(1) instead.
+
+    PROVENANCE, NOT PERMISSION. `PrecomputedIncome`'s contract is that a stale or mismatched
+    aggregate is a hard error, never a quiet fallback -- and this seam does not weaken that by
+    one bit. A `ShiftedIncome` must PROVE which `IncomeModel` and which `t` produced it:
+
+      * `base` is the identity-checked `PrecomputedIncome` (so `base.income` must be the very
+        `IncomeModel` object the engine is about to model -- the engine re-checks `is`, exactly
+        as it does for an unshifted precompute, and raises on any mismatch);
+      * `rent_shift_month` is the shift itself, explicit and auditable, never implied;
+      * `num_units` is re-checked against the modelled roll at use time -- belt and braces
+        against in-place LENGTH changes of the (still-mutable) units list, which identity alone
+        cannot see. Per-unit field edits (`unit.rent_month = ...`) and wholesale `units`
+        reassignment are blocked upstream by the schema: `UnitIncome` and `IncomeModel` are
+        frozen (Mission 5 Gate V, N3). The one residual neither layer sees is same-length
+        in-place ELEMENT replacement (`units[0] = other_unit`) -- documented, not defended;
+        nothing in this codebase does it, and `IncomeModel`'s docstring forbids adding it.
+
+    A materialised rent perturbation builds a NEW `IncomeModel`, so handing a `ShiftedIncome`
+    alongside one fails the identity check -- double-application is impossible, not discouraged.
+
+    SEARCH ONLY, STRUCTURALLY. Only `forecast_metrics` (the light/search path) accepts this;
+    `run_financial_model` does not, and `_forecast_core` refuses it with `want_rows=True`. Every
+    number shown to an investor still comes from a full `run_financial_model` re-run over a
+    genuinely materialised rent roll (the Gate D provenance rule in `recourse._search_one`).
+
+    NOT BIT-EXACT, WITHIN TOLERANCE, BY MEASUREMENT. `GSI(0) + 12*N*t` and the materialised
+    `sum(rent_i + t) * 12` differ only in summation order; measured worst relative drift is
+    7.04e-15 at 500 units/30y and 4.67e-14 at 5,000 units/100y (2026-08-31, re-confirmed at
+    Gate V) -- below the 1.2e-13 reordering noise floor and ~21,000x inside the golden
+    harness's REL_TOL = 1e-9 (and far below its approaching band floor of 5e-10).
+    `tests/core/finance/test_income_shift.py::TestDriftStaysFarBelowTheApproachingBand` pins these
+    figures LIVE, with ~4x headroom (3e-14 / 2e-13), so this paragraph cannot silently rot;
+    the t=0 shift is additionally pinned bit-exact there.
+    """
+
+    base: PrecomputedIncome
+    rent_shift_month: float
+    num_units: int
+    gsi_annual: float
+    goi_annual: float
+
+
+def shift_income(base: PrecomputedIncome, *, rent_shift_month: float) -> ShiftedIncome:
+    """Build the O(1) rent-shifted aggregate for `base` at `rent_shift_month`. See `ShiftedIncome`.
+
+    Formula (D.1 par.1a linearity, standard GSI/GOI definitions):
+        gsi = base.gsi_annual + 12 * num_units * rent_shift_month
+        goi = gsi * occupancy * bad_debt_factor
+    -- the second line being `_annual_income`'s own expression over the same operands in the
+    same order, so a zero shift changes GSI by exactly +0.0.
+    """
+    if not math.isfinite(rent_shift_month):
+        raise ValueError(f"rent_shift_month must be finite, got {rent_shift_month!r}")
+    income = base.income
+    n = len(income.units)
+    gsi = base.gsi_annual + 12.0 * n * rent_shift_month
+    goi = gsi * (income.occupancy or 1.0) * (income.bad_debt_factor or 1.0)
+    return ShiftedIncome(base=base, rent_shift_month=rent_shift_month, num_units=n, gsi_annual=gsi, goi_annual=goi)
+
+
+#: Canonical order of the 12 OPEX line items as `_forecast_core` consumes them -- the SAME order
+#: as the Year-1 NOI sum and the year loop's growth application. `_CoreOverrides.opex` is
+#: positional in exactly this order; `jacobian.py` drift-guards its own field list against this
+#: tuple at import time so the two can never disagree silently.
+_OVERRIDE_OPEX_ORDER: tuple[str, ...] = (
+    "insurance",
+    "taxes",
+    "utilities",
+    "water_sewer",
+    "property_management",
+    "repairs_maintenance",
+    "trash",
+    "landscaping",
+    "snow_removal",
+    "hoa_fees",
+    "reserves",
+    "other",
+)
+
+
+@dataclass(frozen=True)
+class _CoreOverrides:
+    """AD seam (Mission 5, IA.1a): scalar replacements for `_forecast_core`'s seed targets.
+
+    THE ONLY SANCTIONED WAY dual numbers enter the engine. `src/core/finance/jacobian.py` -- the
+    one intended caller -- builds these with `Dual4` values whose PRIMALS are exactly the floats
+    the engine would have read itself (`fi.financing.purchase_price`, `fi.financing.interest_rate`,
+    the `_annual_income`/`PrecomputedIncome` aggregates, `fi.opex.<line>`), so the float
+    arithmetic of an overridden pass is bit-identical to an unoverridden one by construction.
+
+    Fields are ANNOTATED `float` although a `Dual4` may arrive at runtime: this is the D.1 §4
+    mypy ruling made concrete -- the engine body keeps its float annotations (a constrained
+    TypeVar cannot express that, per direction-set, SOME locals are dual and others float), and
+    the single, documented `cast` boundary lives in `jacobian.py` where the duals are minted.
+
+    `gsi_annual`/`goi_annual` are REQUIRED (not optional): the caller has already resolved the
+    income aggregate (per D.1 §1a the rent tangent seeds the aggregate, never a per-unit roll),
+    so letting the engine also compute one would create two sources for the same number.
+
+    The aggregate-SHIFT seam sketched here now exists on the FLOAT path as `ShiftedIncome` /
+    `shift_income` (Mission 5 acceleration): the primal becomes `gsi + 12*N*t`, validated
+    against the base `IncomeModel` in the same loud-failure posture as `PrecomputedIncome`,
+    exactly as this paragraph specified. Extending it to a DUAL pass (a shifted Jacobian
+    evaluation at t != 0) would extend this record's construction site in `jacobian.py` with
+    that same validated input; no caller needs it yet (the combination search evaluates its one
+    Jacobian at t = 0), so per YAGNI it remains unbuilt. Nothing here bypasses
+    `PrecomputedIncome`'s identity check: an overridden pass refuses `precomputed_income` (and
+    `insights`, `want_rows`, and `income_shift`) outright.
+
+    THE ABSENCE OF ANY ASSUMPTION FIELD HERE IS NOT A SCOPE CHOICE -- it is THE
+    LEVER/ASSUMPTION PARTITION (GD3, `src/core/finance/partition.py`). Vacancy/occupancy,
+    rent growth, expense growth, exit cap, cap drift and horizon are things an investor
+    GUESSES; their correct output is a breakeven ('this clears DSCR until vacancy hits 9.4%'),
+    never a recourse ask ('raise your vacancy assumption to 8%'), which would instruct the
+    user to manufacture a PASS no action in the world can achieve. Widening this dataclass to
+    reach a `partition.MODEL_ASSUMPTIONS` path is a Founder Proxy escalation citing GD3 -- a
+    rationale string is not a clearance.
+    """
+
+    gsi_annual: float
+    goi_annual: float
+    purchase_price: float | None = None
+    interest_rate: float | None = None
+    #: The 12 OPEX line values, positionally in `_OVERRIDE_OPEX_ORDER`, or None for "no change".
+    opex: tuple[float, float, float, float, float, float, float, float, float, float, float, float] | None = None
+
+
 def _apply_insight_modifiers(
     income: IncomeModel,
     opex: OperatingExpenses,
@@ -227,20 +370,26 @@ def _apply_insight_modifiers(
         opx = opx.model_copy(update={"repairs_maintenance": (opx.repairs_maintenance or 0.0) + 200.0})
         notes.append("defect: water stain → R&M +$200/yr")
 
-    # (Optional) income uplifts are disabled by default to honor investor inputs
+    # (Optional) income uplifts are disabled by default to honor investor inputs.
+    # Each bump builds a NEW units list and assigns it via `model_copy` in one shot --
+    # never `inc.units[i] = ...` in place (Mission 5 Gate V, N3: `frozen=True` blocks
+    # attribute reassignment but not list-element mutation; a same-length in-place
+    # replacement here would be the one residual it doesn't catch). No `deepcopy` needed:
+    # `model_copy(update=...)` returns a fresh `IncomeModel` with a fresh list, so `income`
+    # (the caller's object) is never touched.
     if allow_income_adjustments:
-        from copy import deepcopy
-
-        inc = deepcopy(income)
+        inc = income
         changed = False
         if "in-unit laundry" in amens:
-            for i, u in enumerate(inc.units):
-                inc.units[i] = u.model_copy(update={"other_income_month": (u.other_income_month or 0.0) + 25.0})
+            inc = inc.model_copy(
+                update={"units": [u.model_copy(update={"other_income_month": (u.other_income_month or 0.0) + 25.0}) for u in inc.units]}
+            )
             notes.append("amenity uplift: in-unit laundry (+$25/mo/unit other income)")
             changed = True
         if "parking" in amens:
-            for i, u in enumerate(inc.units):
-                inc.units[i] = u.model_copy(update={"other_income_month": (u.other_income_month or 0.0) + 50.0})
+            inc = inc.model_copy(
+                update={"units": [u.model_copy(update={"other_income_month": (u.other_income_month or 0.0) + 50.0}) for u in inc.units]}
+            )
             notes.append("amenity uplift: parking (+$50/mo/unit other income)")
             changed = True
         if not changed:
@@ -290,6 +439,15 @@ class _Core:
     `rows` is empty when the caller asked for the light path; `year_cash_flows` is always
     populated, because every path needs it (IRR, the `cf_all` guardrail, the negative-cash-flow
     warning).
+
+    `irr_raw` / `equity_cash_flows` (Mission 5, IA.1a) exist for the Jacobian seam: the
+    implicit-function-theorem derivative of IRR needs (a) the UNcoalesced root -- `None` must
+    stay `None`, because the coalesced 0.0 is a jump discontinuity with no derivative to report
+    -- and (b) the exact equity cash-flow vector `irr()` was solved over (initial equity, refi
+    cash-out and terminal equity included), which only this function can assemble without a
+    second implementation of that money math. `equity_cash_flows` is a reference to the list
+    this function already built (no copy, no new arithmetic); `irr_10yr` keeps its coalesced
+    contract untouched for every existing consumer.
     """
 
     cap_rate: float
@@ -304,6 +462,8 @@ class _Core:
     irr_10yr: float
     equity_multiple_10yr: float
     warnings: list[str]
+    irr_raw: float | None
+    equity_cash_flows: list[float]
 
 
 def _forecast_core(
@@ -313,6 +473,8 @@ def _forecast_core(
     insights: ListingInsights | None,
     precomputed_income: PrecomputedIncome | None,
     want_rows: bool,
+    income_shift: ShiftedIncome | None = None,
+    _overrides: _CoreOverrides | None = None,
 ) -> _Core:
     """THE forecast. Every dollar figure this product ships is computed here, exactly once.
 
@@ -328,7 +490,59 @@ def _forecast_core(
     today and quietly stop agreeing in eighteen months. Here there is nothing to drift, because
     there is only one implementation; `tests/core/finance/test_metrics_parity.py` pins that
     property bit-for-bit across the full golden matrix so a future fork fails loudly.
+
+    `_overrides` (Mission 5, IA.1a) is the AD seam: dual-valued replacements for the seed
+    targets, minted ONLY by `jacobian.py` -- see `_CoreOverrides`. When it is None (every
+    pre-existing caller), this function executes the identical float bytecode it always has: the
+    override plumbing is `x if _overrides is None else ...` reads of the very same float
+    objects, no arithmetic added, pinned bit-exact by the golden matrix, `test_metrics_parity`
+    and `test_engine_bitexact_refactors`. When it is set, the same statements run over `Dual4`
+    scalars (primal-branch comparisons keep every `if` on the float path's branch) -- the
+    "one implementation" discipline above cutting both ways: the differentiated pass must be
+    THIS function, not a parallel slice.
     """
+    if _overrides is not None:
+        # Loud-fail preconditions for a dual pass (invariant 5): each of these would otherwise
+        # be a silently-wrong number, which is worse than any crash.
+        if insights is not None:
+            raise ValueError(
+                "_overrides cannot be combined with insights: insight modifiers can rebuild the "
+                "IncomeModel/OperatingExpenses inside the engine, invalidating the override "
+                "primals. Differentiation through insight modifiers is out of scope."
+            )
+        if precomputed_income is not None:
+            raise ValueError(
+                "_overrides cannot be combined with precomputed_income: the override already "
+                "carries the income aggregate. Resolve the precompute in the caller (jacobian.py "
+                "does) and pass its values through the override instead."
+            )
+        if want_rows:
+            raise ValueError(
+                "_overrides requires want_rows=False: YearBreakdown/RefiEvent are float-typed "
+                "pydantic models and must never be built from dual scalars."
+            )
+        if income_shift is not None:
+            raise ValueError(
+                "_overrides cannot be combined with income_shift: the override already carries "
+                "the (possibly shifted) income aggregate. Resolve the shift in the caller and "
+                "pass its values through the override instead."
+            )
+
+    if income_shift is not None:
+        # Loud-fail preconditions for a shifted-aggregate pass (invariant 5) -- see
+        # `ShiftedIncome`: search-only, one source of truth for the aggregate.
+        if precomputed_income is not None:
+            raise ValueError(
+                "income_shift cannot be combined with precomputed_income: the shift already "
+                "carries its identity-checked base precompute. Pass exactly one of them."
+            )
+        if want_rows:
+            raise ValueError(
+                "income_shift requires want_rows=False: a shifted aggregate is a SEARCH device, "
+                "and every reported number must come from a full run over a materialised rent "
+                "roll (run_financial_model does not accept a shift, deliberately)."
+            )
+
     # Apply insight-aware adjustments (non-destructive copies)
     inc_adj, o_adj, insight_notes = _apply_insight_modifiers(fi.income, fi.opex, insights, allow_income_adjustments=fi.income_is_estimated)
 
@@ -336,10 +550,15 @@ def _forecast_core(
     mkt = fi.market
     refi = fi.refi
 
+    # Seed-target reads (Mission 5, IA.1a). With no overrides these locals ARE the same float
+    # objects the statements below used to read off `f` directly -- a pure rename, no arithmetic.
+    _price = f.purchase_price if _overrides is None or _overrides.purchase_price is None else _overrides.purchase_price
+    _rate = f.interest_rate if _overrides is None or _overrides.interest_rate is None else _overrides.interest_rate
+
     # Loan sizing
-    down = f.purchase_price * f.down_payment_rate
-    loan0 = f.purchase_price - down
-    upfront_mip = f.purchase_price * (f.mortgage_insurance_rate if f.down_payment_rate < 0.20 else 0.0)
+    down = _price * f.down_payment_rate
+    loan0 = _price - down
+    upfront_mip = _price * (f.mortgage_insurance_rate if f.down_payment_rate < 0.20 else 0.0)
     acquisition_cash = down + f.closing_costs + fi.capex_reserve_upfront + upfront_mip
 
     # Debt schedule (annual cadence; IO first, then amortization), padded to horizon.
@@ -349,7 +568,7 @@ def _forecast_core(
     # `amortization_schedule` is now a thin wrapper over this same call.
     sched = schedule_columns(
         loan0,
-        rate=f.interest_rate,
+        rate=_rate,
         amort_years=f.amort_years,
         io_years=f.io_years,
         horizon_years=horizon_years,
@@ -364,7 +583,33 @@ def _forecast_core(
     # result. On a 5,000-unit rent roll that duplicate pass cost ~266 us, ~20% of the whole run.
     # `gsi_base` is now this same `gsi_y1` value reused, so the numbers are not merely equal, they
     # are the same float object: bit-exactness here is by construction, not by argument.
-    if precomputed_income is None:
+    if _overrides is not None:
+        # AD seam (Mission 5, IA.1a): the caller has already resolved the aggregate -- from the
+        # SAME `_annual_income` arithmetic, or a `PrecomputedIncome` it identity-validated
+        # itself -- and seeded any rent tangent on it (D.1 §1a: the rent direction is a constant
+        # seed on `gsi_annual`; no per-unit roll is ever materialised on a derivative pass).
+        gsi_y1, goi_y1 = _overrides.gsi_annual, _overrides.goi_annual
+    elif income_shift is not None:
+        # The aggregate-shift seam (Mission 5 acceleration): a DELIBERATELY shifted aggregate,
+        # admitted in EXACTLY `PrecomputedIncome`'s loud-failure posture -- identity against the
+        # very IncomeModel being modelled, plus a unit-count re-check. A stale, mismatched or
+        # double-applied shift is a hard error here, never a quiet fallback. See `ShiftedIncome`.
+        if income_shift.base.income is not inc_adj:
+            raise ValueError(
+                "income_shift was derived from a different IncomeModel than the one being "
+                "modelled (a materialised rent perturbation, an insight income uplift, or a "
+                "stale precompute). Rebuild it with "
+                "shift_income(precompute_income(fi.income), rent_shift_month=t) for this exact "
+                "input -- a shifted aggregate is never applied on top of any other income change."
+            )
+        if income_shift.num_units != len(inc_adj.units):
+            raise ValueError(
+                f"income_shift was built over {income_shift.num_units} units but the modelled "
+                f"IncomeModel now has {len(inc_adj.units)}: the units list was mutated in place "
+                "after the shift was built. Rebuild the precompute and the shift."
+            )
+        gsi_y1, goi_y1 = income_shift.gsi_annual, income_shift.goi_annual
+    elif precomputed_income is None:
         gsi_y1, goi_y1 = _annual_income(inc_adj)
     elif precomputed_income.income is inc_adj:
         gsi_y1, goi_y1 = precomputed_income.gsi_annual, precomputed_income.goi_annual
@@ -375,24 +620,43 @@ def _forecast_core(
             "pass precomputed_income=None. (If insights are applying income uplifts, the engine "
             "builds a new IncomeModel internally and a precompute cannot be used at all.)"
         )
+    # The 12 OPEX line reads, hoisted (Mission 5, IA.1a: moved up from the loop-invariant block
+    # below so the Year-1 NOI sum and the year loop read the SAME locals, giving the OPEX
+    # overrides exactly one entry point). Plain attribute reads of already-validated floats --
+    # the Year-1 sum below is the identical additions in the identical order it always was.
+    # Order here is `_OVERRIDE_OPEX_ORDER`; keep the three in lockstep.
+    _insurance0 = o_adj.insurance
+    _taxes0 = o_adj.taxes
+    _utilities0 = o_adj.utilities
+    _water_sewer0 = o_adj.water_sewer
+    _pm0 = o_adj.property_management
+    _rnm0 = o_adj.repairs_maintenance
+    _trash0 = o_adj.trash
+    _landscaping0 = o_adj.landscaping
+    _snow0 = o_adj.snow_removal
+    _hoa0 = o_adj.hoa_fees
+    _reserves0 = o_adj.reserves
+    _other0 = o_adj.other
+    if _overrides is not None and _overrides.opex is not None:
+        (
+            _insurance0,
+            _taxes0,
+            _utilities0,
+            _water_sewer0,
+            _pm0,
+            _rnm0,
+            _trash0,
+            _landscaping0,
+            _snow0,
+            _hoa0,
+            _reserves0,
+            _other0,
+        ) = _overrides.opex
     noi_y1 = goi_y1 - (
-        o_adj.insurance
-        + o_adj.taxes
-        + o_adj.utilities
-        + o_adj.water_sewer
-        + o_adj.property_management
-        + o_adj.repairs_maintenance
-        + o_adj.trash
-        + o_adj.landscaping
-        + o_adj.snow_removal
-        + o_adj.hoa_fees
-        + o_adj.reserves
-        + o_adj.other
+        _insurance0 + _taxes0 + _utilities0 + _water_sewer0 + _pm0 + _rnm0 + _trash0 + _landscaping0 + _snow0 + _hoa0 + _reserves0 + _other0
     )
-    cap_rate_purchase = (
-        mkt.cap_rate_purchase if mkt.cap_rate_purchase is not None else (noi_y1 / f.purchase_price if f.purchase_price else 0.0)
-    )
-    spread_vs_rate = cap_rate_purchase - f.interest_rate
+    cap_rate_purchase = mkt.cap_rate_purchase if mkt.cap_rate_purchase is not None else (noi_y1 / _price if _price else 0.0)
+    spread_vs_rate = cap_rate_purchase - _rate
 
     annual_debt_service = sched_payment[0] if sched_payment else 0.0
 
@@ -409,6 +673,7 @@ def _forecast_core(
     term_ending_balance = 0.0
     cap_base = cap_rate_purchase
     refi_event: RefiEvent | None = None
+    refi_cash_out = 0.0  # generic scalar twin of `refi_event.cash_out`; see the refi block
 
     # Loop-invariant: the rent roll does not change across forecast years, only the growth factor
     # does. Summing it inside the year loop made income projection O(units x years); hoisting it
@@ -433,18 +698,7 @@ def _forecast_core(
     _occ = inc_adj.occupancy or 1.0
     _bdf = inc_adj.bad_debt_factor or 1.0
     _drift = mkt.cap_rate_drift or 0.0
-    _insurance0 = o_adj.insurance
-    _taxes0 = o_adj.taxes
-    _utilities0 = o_adj.utilities
-    _water_sewer0 = o_adj.water_sewer
-    _pm0 = o_adj.property_management
-    _rnm0 = o_adj.repairs_maintenance
-    _trash0 = o_adj.trash
-    _landscaping0 = o_adj.landscaping
-    _snow0 = o_adj.snow_removal
-    _hoa0 = o_adj.hoa_fees
-    _reserves0 = o_adj.reserves
-    _other0 = o_adj.other
+    # (The 12 OPEX base amounts are hoisted further up, next to the Year-1 NOI sum -- Mission 5.)
 
     for y in range(1, horizon_years + 1):
         e = y - 1
@@ -545,15 +799,25 @@ def _forecast_core(
             refi_value = (noi / exit_cap) if exit_cap else 0.0
             new_loan = refi.refi_ltv * refi_value
             payoff = ending_bal
-            cash_out = max(0.0, new_loan - payoff)
-            refi_event = RefiEvent(year=y, value=refi_value, new_loan=new_loan, payoff=payoff, cash_out=cash_out)
+            # Kept as a LOCAL scalar (Mission 5, IA.1a): on a dual pass this carries the refi
+            # cash-out's tangents into the IRR cash-flow vector below, while `RefiEvent` -- a
+            # float-typed pydantic model -- is built from primals only. On the float path
+            # `_dual_primal` is the identity, so the event holds the very same floats as before.
+            refi_cash_out = max(0.0, new_loan - payoff)
+            refi_event = RefiEvent(
+                year=y,
+                value=_dual_primal(refi_value),
+                new_loan=_dual_primal(new_loan),
+                payoff=_dual_primal(payoff),
+                cash_out=_dual_primal(refi_cash_out),
+            )
 
             # Rebuild debt schedule for remaining years (starting next year) with the new loan.
             remaining_years = horizon_years - y
             if remaining_years > 0:
                 new_sched = schedule_columns(
                     new_loan,
-                    rate=f.interest_rate,
+                    rate=_rate,
                     amort_years=f.amort_years,
                     io_years=0,
                     horizon_years=remaining_years,
@@ -575,7 +839,9 @@ def _forecast_core(
     refi_year = refi_event.year if refi_event else 0
     for idx, cf in enumerate(year_cash_flows, start=1):
         if refi_event and idx == refi_year:
-            cf += refi_event.cash_out
+            # `refi_cash_out` is the same float `refi_event.cash_out` holds (pydantic stores the
+            # value it was given); the local keeps the tangents alive on a dual pass.
+            cf += refi_cash_out
         cashflows.append(cf)
 
     # Terminal equity at final year: 80% LTV value minus ending balance (proxy for sale proceeds
@@ -586,7 +852,16 @@ def _forecast_core(
     terminal_equity = max(0.0, EQUITY_LTV * term_est_value - term_ending_balance)
     cashflows[-1] += terminal_equity
 
-    irr_raw = irr(cashflows)
+    # IRR: the root-finder NEVER sees a dual number (D.1 §2 ruling -- differentiating Brent's
+    # iterations is structurally wrong: bisection-terminated runs would return tangents built
+    # from the theta-constant bracket endpoints' zeros). On a dual pass the primal amounts are
+    # extracted and the production `irr()` runs on them byte-for-byte as always; the derivative
+    # is recovered afterwards in `jacobian.py` via the implicit function theorem. On the float
+    # path this branch is not taken and the call is exactly what it always was.
+    if _overrides is None:
+        irr_raw = irr(cashflows)
+    else:
+        irr_raw = irr([_dual_primal(cf) for cf in cashflows])
     irr_10yr_val = irr_raw or 0.0  # <- coalesce None to 0.0
     equity_multiple_10yr = (sum(cf for cf in cashflows[1:]) / (-cashflows[0])) if cashflows[0] < 0 else 0.0
 
@@ -632,6 +907,8 @@ def _forecast_core(
         irr_10yr=irr_10yr_val,
         equity_multiple_10yr=equity_multiple_10yr,
         warnings=warnings,
+        irr_raw=irr_raw,
+        equity_cash_flows=cashflows,
     )
 
 
@@ -674,6 +951,7 @@ def forecast_metrics(
     horizon_years: int = DEFAULT_HORIZON_YEARS,
     insights: ListingInsights | None = None,
     precomputed_income: PrecomputedIncome | None = None,
+    income_shift: ShiftedIncome | None = None,
 ) -> ForecastMetrics:
     """The SEARCH path: the same forecast, returning only the numbers a guardrail test reads.
 
@@ -692,8 +970,21 @@ def forecast_metrics(
 
     Use it to SEARCH. Do not use it to REPORT: any number shown to an investor should come from
     `run_financial_model`, so that what is displayed and what was tested came off the same object.
+
+    `income_shift` (the aggregate-shift seam, `ShiftedIncome`) evaluates this same forecast at a
+    uniformly rent-shifted aggregate WITHOUT materialising a perturbed rent roll -- O(1) in roll
+    size instead of O(units) per probe. Search-only by construction: `run_financial_model` does
+    not accept it, so a shifted number can never be the one on the page. Mutually exclusive with
+    `precomputed_income` (the shift carries its own identity-checked base), loud error otherwise.
     """
-    core = _forecast_core(fi, horizon_years=horizon_years, insights=insights, precomputed_income=precomputed_income, want_rows=False)
+    core = _forecast_core(
+        fi,
+        horizon_years=horizon_years,
+        insights=insights,
+        precomputed_income=precomputed_income,
+        want_rows=False,
+        income_shift=income_shift,
+    )
     cash_flows = core.year_cash_flows
     return ForecastMetrics(
         cap_rate=core.cap_rate,

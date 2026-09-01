@@ -39,10 +39,10 @@
 
 | Model | Description |
 | --- | --- |
-| **FinancialInputs** | Root object containing financing, opex, income, refi plan, and market assumptions. Main input for `core/finance/engine.py`. Includes `income_is_estimated` and `capex_reserve_upfront`. |
-| **FinancingTerms** | Loan assumptions: `purchase_price`, `closing_costs`, `down_payment_rate`, `interest_rate`, `amort_years`, `io_years`, `mortgage_insurance_rate`. All rates in **fractions [0–1]**. |
-| **OperatingExpenses** | Yearly recurring costs: `insurance`, `taxes`, `utilities`, `water_sewer`, `property_management`, `repairs_maintenance`, `trash`, `landscaping`, `snow_removal`, `hoa_fees`, `reserves`, `other`, plus `expense_growth`. All non-negative. |
-| **IncomeModel** | **Per-unit** revenue model: `units: list[UnitIncome]` (monthly `rent_month` + `other_income_month`), `occupancy`, `bad_debt_factor`, `rent_growth`. Unit count = `len(units)`. |
+| **FinancialInputs** | Root object containing financing, opex, income, refi plan, and market assumptions. Main input for `core/finance/engine.py`. Includes `income_is_estimated` and `capex_reserve_upfront` (**`ge=0`** as of Mission 5 OI.1 — zero is the default and the common case). |
+| **FinancingTerms** | Loan assumptions: `purchase_price`, `closing_costs`, `down_payment_rate`, `interest_rate`, `amort_years`, `io_years`, `mortgage_insurance_rate`. All rates in **fractions [0–1]**. **`purchase_price` is `gt=0`** (Mission 5 OI.1) — it is the denominator of `cap_rate`/`coc`/`ltv` and the loan/down-payment/MIP base; an all-cash deal is modelled as `down_payment_rate=1.0`, never a zero price (see the `all_cash_deal` golden case). **`closing_costs` is `ge=0`** — zero is legitimate (seller pays all costs); model a seller credit as a lower purchase price, not as negative closing costs. |
+| **OperatingExpenses** | Yearly recurring costs: `insurance`, `taxes`, `utilities`, `water_sewer`, `property_management`, `repairs_maintenance`, `trash`, `landscaping`, `snow_removal`, `hoa_fees`, `reserves`, `other`, plus `expense_growth`. **All 12 line items are `ge=0`** (Mission 5 OI.1) — zero means the expense is absent from the model (self-managed, no HOA, ...), which is common and correct; `expense_growth` is a rate and is untouched by this floor (declining markets are real). |
+| **IncomeModel** | **Per-unit** revenue model: `units: list[UnitIncome]` (monthly `rent_month` + `other_income_month`, both **`ge=0`** as of Mission 5 OI.1 — zero is a vacant unit, a unit under renovation, or the owner-occupied unit in a house-hack), `occupancy`, `bad_debt_factor`, `rent_growth`. Unit count = `len(units)`. **Both `IncomeModel` and `UnitIncome` are `frozen=True`** (Mission 5 Gate V, N3 — the engine derives identity-checked income aggregates from them; derive changes with `model_copy(update=...)`, see the migration note below). |
 | **RefinancePlan** | Refi assumptions: `do_refi`, `year_to_refi` (refi at END of that year), `refi_ltv`, optional `exit_cap_rate`, and `market_cap_rate`. **`market_cap_rate` is inert — record-keeping only.** Its field description used to promise it was "also used for purchase if `cap_rate_purchase` is not provided"; the engine never did that (`engine.py` reads only `market.cap_rate_purchase`, then the computed NOI/P cap). Mission 2 task 3.2 dropped the false promise rather than implementing it: `market.cap_rate_purchase` is the documented purchase override, and letting a field in the *refinance* block silently set the purchase cap would also change what `market.cap_rate_floor` is tested against (F1). `exit_cap_rate`'s description was corrected in the same pass — the real fallback chain is `refi.exit_cap_rate -> market.cap_rate_purchase -> computed purchase cap`, never `market_cap_rate`. **No field was added, renamed, retyped or removed; the descriptions now match the engine, so no data migration is needed.** |
 | **MarketAssumptions** | Cap-rate context: `cap_rate_purchase`, `cap_rate_floor`, `cap_rate_spread_target`, `cap_rate_drift`. `cap_rate_floor` and `cap_rate_spread_target` are both **named in the report** since Mission 2 task 3.2 (thesis rationale + Run Provenance appendix); `cap_rate_drift` drives the NOI valuation table the report renders. |
 | **FinancialForecast** | Engine output: `years: list[YearBreakdown]`, `purchase: PurchaseMetrics`, optional `refi: RefiEvent`, returns, warnings. |
@@ -73,8 +73,36 @@
 | **MarketHypothesis** | Delta adjustments (absolute percentage points) applied to snapshot fields; includes rationale and prior weight. |
 | **HypothesisSet** | Collection of `MarketHypothesis` with metadata, prior normalization, and determinism guarantees. |
 | **RegionalIncomeTable** | Deterministic summary of income distributions for regional comps (p25/median/p75). Also carries `turnover_cost`/`str_multiplier` fields the schema still declares, but no production caller computes a real `str_multiplier` or renders either — see `src/market/README.md` "Gate 3 correction". |
-| **RecourseLever** (Mission 4) | One (lever, guardrail) row from an actionable-recourse search. Fields (verified against `RecourseLever.model_fields`): `guardrail` (`Literal["dscr","spread","irr","coc","cf_y1","cf_all","cap_floor"]` — which of the seven live `chief_strategist.py` guardrails this row targets); `lever` (`Literal["rent_per_unit_month","purchase_price","interest_rate","annual_opex"]` — which investor-movable input this row perturbs, holding all others fixed); `baseline_value: float` (the lever's current value before perturbation, in its own native unit); `target_value: float \| None` (the lever's value at the flip point, rounded and re-confirmed by one more engine re-run; `None` when no flip was found within the search bound — an honest null for this row); `delta: float \| None` (`target_value - baseline_value`, signed; `None` alongside `target_value`); `relative_change: float \| None` (`abs(delta) / abs(baseline_value)`, the cross-currency cheapness score; `None` when `delta` is `None` or `baseline_value` is 0); `closes_guardrail: bool` (`True` iff a flip point was found within this lever's search bound); `structurally_hopeless: bool` (`True` iff the reachability probe found this guardrail's underlying metric does not move at all with this lever for this deal, e.g. `interest_rate` vs. `cap_floor`); `plausible: bool` (`True` iff the plausibility check raised no flag; always `True` when `closes_guardrail` is `False`); `plausibility_reason: str \| None` (human-readable reason when `plausible` is `False`, else `None`); `also_closes: tuple[GuardrailName, ...]` (other currently-failing guardrails also closed by this same `target_value`, read off the same re-run at zero extra engine-call cost). |
+| **RecourseLever** (Mission 4) | One (lever, guardrail) row from an actionable-recourse search. Fields (verified against `RecourseLever.model_fields`): `guardrail` (`Literal["dscr","spread","irr","coc","cf_y1","cf_all","cap_floor"]` — which of the (up to) six *live* `chief_strategist.py` guardrails this row targets — `cf_all` is structurally dead under the shipped `REQUIRE_POSITIVE_CF_ALL = False`, `chief_strategist.py:56`, and `cap_floor` is live only when the deal's `market.cap_rate_floor` is set; see `_live_guardrails`, `recourse.py:191`); `lever` (`Literal["rent_per_unit_month","purchase_price","interest_rate","annual_opex"]` — which investor-movable input this row perturbs, holding all others fixed); `baseline_value: float` (the lever's current value before perturbation, in its own native unit); `target_value: float \| None` (the lever's value at the flip point, rounded and re-confirmed by one more engine re-run; `None` when no flip was found within the search bound — an honest null for this row); `delta: float \| None` (`target_value - baseline_value`, signed; `None` alongside `target_value`); `relative_change: float \| None` (`abs(delta) / abs(baseline_value)`, the cross-currency cheapness score; `None` when `delta` is `None` or `baseline_value` is 0); `closes_guardrail: bool` (`True` iff a flip point was found within this lever's search bound); `structurally_hopeless: bool` (`True` iff the reachability probe found this guardrail's underlying metric does not move at all with this lever for this deal, e.g. `interest_rate` vs. `cap_floor`); `plausible: bool` (`True` iff the plausibility check raised no flag; always `True` when `closes_guardrail` is `False`); `plausibility_reason: str \| None` (human-readable reason when `plausible` is `False`, else `None`); `also_closes: tuple[GuardrailName, ...]` (other currently-failing guardrails also closed by this same `target_value`, read off the same re-run at zero extra engine-call cost). |
 | **RecourseAnalysis** | Complete actionable-recourse answer, one per near-miss deal. Fields (verified against `RecourseAnalysis.model_fields`): `verdict: str` (the `InvestmentThesis.verdict` this analysis is attached to — BUY never gets one); `failing_guardrails: tuple[GuardrailName, ...]` (machine names of the guardrails that failed on this forecast, in fixed lexicographic order, for which recourse was attempted); `levers: tuple[RecourseLever, ...]` (every lever/guardrail row attempted, including structurally-hopeless and honest-null rows); `cheapest: RecourseLever \| None` (the single lead recommendation; `None` iff `honest_null` is `True`); `remaining_after_cheapest: tuple[GuardrailName, ...]` (`failing_guardrails` minus `{cheapest.guardrail}` minus `cheapest.also_closes`; empty when `cheapest` is `None` or fixes everything); `honest_null: bool` (`True` iff no row in `levers` has `closes_guardrail=True` — nothing realistic within the search bounds closes any failing guardrail). Always fully populated; *whether to render* is a report-layer decision, and *whether to compute at all* is `is_genuinely_close`'s (a verdict-independent fail-count gate on the baseline forecast — see `src/market/README.md`), not this model's. |
+
+### GD3 — the lever/assumption partition (Mission 5, guardian-mandated invariant)
+
+`RecourseLever.lever` is closed to `INVESTOR_LEVERS` — the four quantities an investor acts on in
+the world (rent per unit/month, purchase price, interest rate, annual opex) — and stays that way
+by ruling, not by omission: `docs/plans/mission-5-discovery/GD3_lever_assumption_invariant.md`
+("THE LEVER/ASSUMPTION PARTITION") holds that a `MODEL ASSUMPTION` (vacancy/occupancy/bad-debt,
+rent growth, expense growth, exit cap, cap drift, hold horizon — `IncomeModel.occupancy`,
+`IncomeModel.rent_growth`, `OperatingExpenses.expense_growth`, `MarketAssumptions.cap_rate_drift`,
+`RefinancePlan.exit_cap_rate`, `MarketSnapshot.vacancy_rate/rent_growth/expense_growth`, the
+`horizon_years` parameter) may never appear in `RecourseLever`, `RecourseAnalysis`, or any
+"what would have to change?" surface — presenting the boundary value of a *guess* as an action
+that closes a gap instructs the reader to fudge an input until the model returns PASS, a
+manufactured verdict. Computing an assumption's *sensitivity* or *breakeven* ("clears DSCR until
+vacancy hits 9.4%; you assumed 5%") is explicitly **permitted and encouraged** — the line falls at
+the *reading*, which is fixed by the *container*: a number shipped inside `RecourseLever` **is**
+the recourse reading by construction, so enforcement lives at this schema boundary, not in report
+copy. The single source of truth for `INVESTOR_LEVERS`/`MODEL_ASSUMPTIONS` and the lever→seed-target
+correspondence is `src/core/finance/partition.py`, which `src/core/finance/jacobian.py`
+import-time-drift-guards its own `SeedTarget` universe against. **The breakeven shape rule:** if
+and when an assumption-breakeven type ships, it must be a schema type of its own whose fields
+cannot express a recourse "ask" — no `target_value`/`delta`/`ask`/`target`-named field anywhere on
+it (fields read for the breakeven reading instead: assumed value, breakeven value, margin,
+direction of failure). `partition.assert_breakeven_shape(model_cls)` is the enforced check, not a
+comment; `tests/core/finance/test_partition.py` pins it RED against a synthetic `target_value`
+field. Growing `INVESTOR_LEVERS` (or moving a name between the two sets) is a **Founder Proxy
+escalation citing GD3** — never a self-approved edit; growing `MODEL_ASSUMPTIONS` is the safe,
+engineer-editable direction.
 
 ### Label Ontology (`labels.py`)
 
@@ -123,6 +151,124 @@ So contested entries are now routed here, kept out of `image_detections` (which 
 The fix carries the marker rather than teaching the consumer to guess, because **a consumer cannot decline to vouch for evidence it was never handed** — and because the marker then protects any *future* producer's records automatically, which a consumer-only rule could not. `DetectionSource` is declared in `schemas/models.py` (the schema layer may not import `core`) and re-exported by `core.cv.amenities_defects` under the same name, so existing importers are unaffected and there is exactly one definition.
 
 The default is `"pixels"`, matching the producer's documented contract that an absent marker means a provider emitted the label itself; the *unsafe* direction — an unrecognised filename state being promoted to a detector finding — is closed instead by `is_uncorroborated_filename_claim`, which tests "filename-derived AND NOT confirmed" so a fifth state added later lands in the cautious branch.
+
+### Migration note — money-field lower bounds on `FinancialInputs` (Mission 5 OI.1, narrows rejection surface only)
+
+Lower bounds were added to the 17 currency-denominated fields of `FinancialInputs`
+(`docs/plans/mission-5-discovery/PD1_product_calls.md` §(c)): `FinancingTerms.purchase_price` is
+now `gt=0`; `FinancingTerms.closing_costs`, all 12 `OperatingExpenses` line items,
+`UnitIncome.rent_month`/`other_income_month`, and `FinancialInputs.capex_reserve_upfront` are now
+`ge=0`. **No field was added, removed, renamed or retyped; the JSON wire shape and serialization
+are unchanged.** This narrows the *rejection surface* only — a payload that used to validate and
+now doesn't is the one user-visible change, which is why it is stamped here and in
+`CHANGELOG.md` rather than treated as routine.
+
+`purchase_price` is the one field with a strictly-positive floor rather than a `ge=0` one: it is
+the denominator of `cap_rate`/`coc`/`ltv` and the base of the loan, down payment and MIP, and there
+is no deal at a zero price. An all-cash purchase is `down_payment_rate=1.0`, never a zero price
+(see the `all_cash_deal` golden case in `tests/core/finance/golden_cases.py`). Every other bounded
+field is `ge=0` because zero is a legitimate, common value for it (self-managed, vacant unit,
+absent expense, no upfront capex) — not a mistake to reject.
+
+**Verified additive, not breaking:** all 34 golden cases (`tests/core/finance/golden_cases.py`) and
+both shipped sample bundles (`data/sample_listings/36_kelly_moncton/`,
+`data/sample_listings/82_champlain_dieppe/`) validate unchanged under the new floors, and the four
+`src/market/recourse.py` search levers (price cut capped at 40% of a strictly-positive price, opex
+cut capped at 40% spread proportionally across `ge=0` lines, rate lever floored at `max(0.0, ...)`,
+rent lever monotonically increasing) cannot construct a value the new bounds reject.
+
+**Explicitly NOT touched in this pass:** rates, ratios and year-counts (`expense_growth`,
+`rent_growth`, the cap-rate fields, `amort_years`, `io_years`, `year_to_refi`) — a different
+question, backlogged separately. `amort_years` in particular is **not** floored: the
+`all_cash_deal` golden case ships `amort_years=0` with `down_payment_rate=1.0`.
+
+**Known gap, unchanged by this pass:** `InputsLoader.load` does not format `FinancialInputs`
+validation errors the way `src/inputs/inputs.py`'s horizon-range errors are formatted (Mission 5
+OI.3) — a rejected `purchase_price` still surfaces as a raw pydantic dump at the CLI. Backlogged;
+see `PD1_product_calls.md` §(c) "Out of scope, noted".
+
+### Migration note — `UnitIncome` and `IncomeModel` are now frozen (Mission 5 Gate V, N3)
+
+`UnitIncome` and `IncomeModel` moved from `ConfigDict(validate_assignment=True)` (Mission 4
+PV.2) to `ConfigDict(frozen=True)`. **No field was added, removed, renamed or retyped; the JSON
+wire shape, construction-time validation and serialization are unchanged.** The one behavioral
+change: **attribute assignment on an existing instance now raises `pydantic.ValidationError`
+(`frozen_instance`) — including in-bound assignments that used to succeed.**
+
+Why: the deterministic core's income seams (`engine.PrecomputedIncome`, `engine.ShiftedIncome`)
+derive identity-checked income aggregates from these models and re-validate by object identity
+plus unit count. A post-derivation `unit.rent_month += x` passed both checks and silently
+repriced the deal — a silently-wrong dollar figure, the exact failure class those seams exist to
+make impossible. Freezing closes the field-edit half at the schema; the engine's `num_units`
+re-check still covers in-place *length* changes of the (still-mutable) `units` list. The known
+residual — same-length in-place element replacement (`units[0] = other`) — is documented on
+`IncomeModel` and covered by neither layer; nothing in the codebase does it.
+
+**Verified non-breaking in production code:** nothing in `src/` mutates these models in place —
+`src/market/adapter.py` and `src/market/recourse.py::_perturb` build new instances via
+`model_copy(update=...)` / `recourse._fast_unit_income` (both unaffected by `frozen`), and
+`src/inputs/` constructs fresh. Migration for any external caller that assigned in place: use
+`model_copy(update={...})` and thread the new instance through.
+
+The other five PV.2 models (`FinancingTerms`, `OperatingExpenses`, `RefinancePlan`,
+`MarketAssumptions`, `FinancialInputs`) keep `validate_assignment=True`, unchanged.
+
+### Migration note — `RecourseAnalysis.combinations` + the Half-B combination models (Mission 5 IB.1, additive)
+
+Five new models ship the multi-lever recourse section (`src/market/recourse.py`,
+`compute_combinations`): `CombinationLeverMove` (one lever's ask: baseline/target/delta,
+`relative_change`, `fraction_of_cap` — the own-axis unit), `GuardrailMargin` ((guardrail, bar,
+value) read off the combination's confirming engine re-run), `RecourseCombination` (≥ 2 moves in
+lever order, `closes_all_live_guardrails`, `confirmed_margins`, `rounded`,
+`total_fraction_of_caps`), `RejectedCombination` (the honest-null exemplar — a combination that
+cannot exist without its rejection `reason`), and `CombinationAnalysis` (the section: `attempted`,
+the **three-outcome** `outcome: Literal["found","proven_null","undetermined"] | None`, the
+propositions, the `cheapest_total_index` argmin label, `honest_null` — true **iff** the null is
+proven, never on an exhausted budget — the honest-null counters
+`subsets_searched/infeasible/edge_infeasible/gate_rejected/collapsed/exhausted`, `gate_reasons`,
+`confirm_failed`, `rejected_exemplar`, and the `max_iter` budget in force).
+
+`RecourseAnalysis` gains exactly one optional field: `combinations: CombinationAnalysis | None = None`
+(`None` = feature absent). **Additive, not breaking:** no existing field changed; old payloads
+validate unchanged. GD3 holds by shape: `CombinationLeverMove.lever` is closed to the same
+four-value `Literal` as `RecourseLever.lever` (pinned against `partition.INVESTOR_LEVERS` by
+`tests/core/finance/test_partition.py` and `tests/unit/test_recourse_combinations.py`), so a model
+assumption cannot be expressed as a combination ask. Rates remain fractions in [0–1]; `delta` is
+signed in the lever's native unit exactly as `RecourseLever.delta` is.
+
+### Migration note — `AssumptionBreakeven` + `BreakevenAnalysis` (Mission 5 breakeven, additive)
+
+Two new models ship the assumption breakeven / margin-of-safety analysis
+(`src/market/breakeven.py`, `compute_breakevens`) — the GD3 Ruling 2.4 "breakeven type of its
+own": the recourse reading is **inexpressible by shape** (no field name may contain
+`target`/`delta`/`ask`; enforced by `partition.assert_breakeven_shape` at `breakeven.py` import
+time and pinned RED by `tests/unit/test_breakeven.py`). Field vocabulary reads for the breakeven
+reading only.
+
+- **AssumptionBreakeven** — one (assumption × currently-PASSING live guardrail) row. Fields
+  (verified against `AssumptionBreakeven.model_fields`): `guardrail: GuardrailName`;
+  `assumption: Literal["occupancy","rent_growth","expense_growth"]` (closed — exit cap / cap
+  drift / horizon are barred by `partition.BARRED_ASSUMPTION_AXES` until a real terminal sale
+  model exists, GD3 Ruling 3); `assumed_value: float` (the user's guess, a fraction);
+  `adverse_direction: Literal["down","up"]` (an engine data-flow fact, not a per-deal fit);
+  `searched_to: float` (the adverse edge actually probed — every "never breaks" claim is scoped
+  to it); the **three-outcome**
+  `outcome: Literal["breakeven_found","never_breaks_in_range","undetermined"]`;
+  `breakeven_value: float | None` (first value a full `run_financial_model` re-run observed the
+  guardrail FAILING at — a fact about fragility, never a suggestion; `None` unless found);
+  `margin: float | None` (`abs(breakeven_value - assumed_value)` — the room the guess has);
+  `metric_at_breakeven: float | None` (read off THE confirming run); `bar: float`;
+  `metric_moves: bool` (`False` = structurally independent, e.g. Year-1 DSCR never reads
+  rent growth); `resolution: float` (bisection tolerance; display-round `margin` toward zero,
+  never overstate the room); `probes_used: int`.
+- **BreakevenAnalysis** — the section: `attempted` (`False` iff no live guardrail currently
+  passes), `passing_guardrails`/`failing_guardrails` (failing ones are recorded as **fact** and
+  get no row — they have no margin of safety; recourse owns them), `rows` (fixed
+  assumption-major order, byte-identical for identical inputs), `max_iter` (the per-row probe
+  budget in force — provenance for `undetermined`, which must never render as proven safety).
+
+**Additive, not breaking:** no existing field or model changed; old payloads validate unchanged.
+All values are fractions in [0–1]-style rate units, never percents.
 
 ## Usage Examples
 
@@ -204,4 +350,4 @@ print(hs.summary())
 
 ---
 
-_Last reconciled: 2026-08-29 against mission/4-actionable-recourse (doc-audit correction): the `RecourseLever`/`RecourseAnalysis` field lists added earlier in this same mission were fabricated — of eight documented `RecourseLever` fields (`lever_name`, `suggested_value`, `cost_to_investor`, `currency`, `plausibility_flag`, `reason_for_flag`, `is_cheapest`, plus `guardrail`) exactly one, `guardrail`, matched the real model; `RecourseAnalysis`'s `genuinely_close`/`baseline_guardrail_checks` fields do not exist either. Rewritten from `RecourseLever.model_fields`/`RecourseAnalysis.model_fields` (`python -c "from src.schemas.models import RecourseLever, RecourseAnalysis; ..."`, verified 2026-08-29). Earlier note: 2026-08-05 against mission/2-wiring-gaps (Gate 3 VETO remediation, B3/B4/BLOCKER 2): Usage Example 1 did not run — `OperatingExpenses(...)` omitted the required `utilities`/`water_sewer` fields, reproduced as `pydantic_core.ValidationError: 2 validation errors`; fixed and re-executed (all Usage Examples now executed and passing, see `tests/schemas/test_readme_usage_examples.py`). The `contested_hint_counts` note's `orchestrators/cv_tagging_orchestrator.py` line said it was unchanged by the contested/unconfirmed-routing pass; commit `06da901` changed exactly that, so the line is corrected to describe what it does today. Unrelated to this doc but fixed in the same pass: `is_uncorroborated_filename_claim` (referenced two paragraphs up) was a deny-list keyed on the closed three-element `FILENAME_SOURCES` set, so a `source` value the function had never seen matched neither "contested" nor "unconfirmed" and fell through to "trusted" — the opposite of the "cautious branch by default" property this file already claimed for it; flipped to an allow-list of the two values that positively mean a detector emitted the label (`pixels`, `filename_confirmed`), no schema change. Earlier note: 2026-08-05 against mission/2-wiring-gaps (Gate 3 remediation): noted `narrative_builder.py`'s deletion in the `contested_hint_counts` migration note's consumer list — no schema content changed (`RegionalIncomeTable`'s `turnover_cost`/`str_multiplier` fields also stay defined as-is; Gate 3 found their *values* fabricated, not the schema, and this project treats `models.py` as additive-only, so the field-removal question is left open — see `src/market/README.md`). Earlier note: 2026-08-05 against mission/2-wiring-gaps (task 3.2 / OPD-4: `RefinancePlan.market_cap_rate` + `.exit_cap_rate` descriptions corrected to match the engine — description-only, no migration; `MarketAssumptions` row notes where the guardrails now surface in the report). Earlier note: 2026-08-05 @ 615aaaf (corrected — the previous stamp cited `a626e9d`, a tree that does not contain the per-tag provenance content it claimed to have reconciled: `ObservationProvenance` appears 0 times there and 6 times at HEAD. A provenance stamp that names the wrong tree is the defect this file documents, applied to itself. Guardian M21.) (added `ObservationProvenance` + `ListingInsights.observations` — per-tag provenance, additive-only, with a migration note; documented `labels.find_amenities_in_text` / `find_defects_in_text`). Earlier note: 2026-08-04 @ d18ee1a (Gate 2 VETO remediation, finding V4: `YearBreakdown.notes` was described as annotating IO years/refi year — false, and verified false by running a forecast with `financing.io_years` set and a realized refi (empty `notes` in all 10 years); corrected to describe what `engine.py:212-215` actually writes. Earlier note: 2026-08-03 @ 74c985c, `ListingInsights` row now lists the stated-facts fields; `YearBreakdown` row now lists notes/valuation fields previously omitted)._
+_Last reconciled: 2026-08-31 against mission/5-forward-mode-differentiation (mission mid-flight, not yet merged; C4(b) guardian-directed correction sweep): corrected `RecourseLever.guardrail`'s description from "seven live" to "(up to) six live" — `cf_all` is pinned unfailable by the shipped `REQUIRE_POSITIVE_CF_ALL = False` (`src/agents/chief_strategist.py:56`) and `cap_floor` is live only when `market.cap_rate_floor` is set (verified against `_live_guardrails`, `src/market/recourse.py:191`). Earlier note: 2026-08-29 against mission/4-actionable-recourse (doc-audit correction): the `RecourseLever`/`RecourseAnalysis` field lists added earlier in this same mission were fabricated — of eight documented `RecourseLever` fields (`lever_name`, `suggested_value`, `cost_to_investor`, `currency`, `plausibility_flag`, `reason_for_flag`, `is_cheapest`, plus `guardrail`) exactly one, `guardrail`, matched the real model; `RecourseAnalysis`'s `genuinely_close`/`baseline_guardrail_checks` fields do not exist either. Rewritten from `RecourseLever.model_fields`/`RecourseAnalysis.model_fields` (`python -c "from src.schemas.models import RecourseLever, RecourseAnalysis; ..."`, verified 2026-08-29). Earlier note: 2026-08-05 against mission/2-wiring-gaps (Gate 3 VETO remediation, B3/B4/BLOCKER 2): Usage Example 1 did not run — `OperatingExpenses(...)` omitted the required `utilities`/`water_sewer` fields, reproduced as `pydantic_core.ValidationError: 2 validation errors`; fixed and re-executed (all Usage Examples now executed and passing, see `tests/schemas/test_readme_usage_examples.py`). The `contested_hint_counts` note's `orchestrators/cv_tagging_orchestrator.py` line said it was unchanged by the contested/unconfirmed-routing pass; commit `06da901` changed exactly that, so the line is corrected to describe what it does today. Unrelated to this doc but fixed in the same pass: `is_uncorroborated_filename_claim` (referenced two paragraphs up) was a deny-list keyed on the closed three-element `FILENAME_SOURCES` set, so a `source` value the function had never seen matched neither "contested" nor "unconfirmed" and fell through to "trusted" — the opposite of the "cautious branch by default" property this file already claimed for it; flipped to an allow-list of the two values that positively mean a detector emitted the label (`pixels`, `filename_confirmed`), no schema change. Earlier note: 2026-08-05 against mission/2-wiring-gaps (Gate 3 remediation): noted `narrative_builder.py`'s deletion in the `contested_hint_counts` migration note's consumer list — no schema content changed (`RegionalIncomeTable`'s `turnover_cost`/`str_multiplier` fields also stay defined as-is; Gate 3 found their *values* fabricated, not the schema, and this project treats `models.py` as additive-only, so the field-removal question is left open — see `src/market/README.md`). Earlier note: 2026-08-05 against mission/2-wiring-gaps (task 3.2 / OPD-4: `RefinancePlan.market_cap_rate` + `.exit_cap_rate` descriptions corrected to match the engine — description-only, no migration; `MarketAssumptions` row notes where the guardrails now surface in the report). Earlier note: 2026-08-05 @ 615aaaf (corrected — the previous stamp cited `a626e9d`, a tree that does not contain the per-tag provenance content it claimed to have reconciled: `ObservationProvenance` appears 0 times there and 6 times at HEAD. A provenance stamp that names the wrong tree is the defect this file documents, applied to itself. Guardian M21.) (added `ObservationProvenance` + `ListingInsights.observations` — per-tag provenance, additive-only, with a migration note; documented `labels.find_amenities_in_text` / `find_defects_in_text`). Earlier note: 2026-08-04 @ d18ee1a (Gate 2 VETO remediation, finding V4: `YearBreakdown.notes` was described as annotating IO years/refi year — false, and verified false by running a forecast with `financing.io_years` set and a realized refi (empty `notes` in all 10 years); corrected to describe what `engine.py:212-215` actually writes. Earlier note: 2026-08-03 @ 74c985c, `ListingInsights` row now lists the stated-facts fields; `YearBreakdown` row now lists notes/valuation fields previously omitted)._

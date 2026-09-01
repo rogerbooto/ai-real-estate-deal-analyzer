@@ -7,7 +7,7 @@ Standing ledger owned by the mission-planner. Read first, update last, every run
 ## 1. Current state (as-built)
 
 **Composite grade: B-** _(planner-derived 2026-07-23; to be confirmed by app-evaluator when spawnable)_
-**Current baseline (Mission 5 charter run, 2026-08-31): `main @ 7cfd449`, tree clean, in sync with `origin/main`** — Mission 4 merged (`7cfd449`, Roger-validated 9/9 2026-08-31); Mission 3 merged (`8b59399`, Roger-validated 9/9 2026-08-29). `git status` clean at charter time; charter planned read-only against `7cfd449`.
+**Current baseline (Mission 5 close, 2026-09-01): Mission 5 merged to `main`; `main` is AHEAD of `origin/main` and UNPUSHED (the merge, the Mission 5 work commit, and the still-unpushed charter commit `87efd22`) — Roger controls the push.** Mission 5 validated by Roger 17/17 PASS 2026-09-01. _Prior baseline (Mission 5 charter run, 2026-08-31): `main @ 7cfd449`, tree clean, in sync with `origin/main`_ — Mission 4 merged (`7cfd449`, Roger-validated 9/9 2026-08-31); Mission 3 merged (`8b59399`, Roger-validated 9/9 2026-08-29). `git status` clean at charter time; charter planned read-only against `7cfd449`.
 _Historical base (Mission 3 charter run, 2026-08-19): `main @ a00a265`, tree clean, **1 commit ahead of `origin/main @ 0ea42fd`**_ — the unpushed docs backfill `a00a265` ("docs(missions): backfill Roger-facing manual-test + plain-English docs; reconcile roadmap ledger to as-shipped v0.3.0"); Roger controls the push. _(Prior run's base was `main @ 8ed9397`, **in sync with `origin/main`** at that time; verified 2026-08-19: `git rev-list --left-right --count origin/main...main` = `0 0` then.)_ Mission 2 has since been merged AND pushed; the earlier "origin has never received Mission 1" divergence is closed — origin now carries everything through `8ed9397`. _(Historical: the dirty working tree the Mission 1 charter described as its baseline had landed as `6147839` — sample bundle restore, parsing regex fixes, report identity/glossary/provenance wiring, `PASS`→`DECLINE` rename, `.env.example` rewrite.)_ The tree is now clean. Planner-verified, orchestrator-reproduced in the real `airedeal` env (`/home/rtokime/anaconda3`, NOT `~/miniconda3`): `pytest` green, coverage 81.87%, `ruff` + `mypy` clean. Graph rebuilt against the working tree (1631 nodes / 4013 edges).
 
 | Axis | Grade | One-liner |
@@ -34,6 +34,7 @@ _Historical base (Mission 3 charter run, 2026-08-19): `main @ a00a265`, tree cle
 | 2 | Close the end-to-end wiring gaps (Tier 0 false-report fixes, Tier 1 silent-drop wiring + anti-regression guard, Tier 3 CLI honesty, T4/T5 wire-first disposition) | **Shipped, merged, released, pushed** — Gate 3 passed (principles-guardian VETO lifted, staff code review approved); merged `--no-ff` as `8b2acf8` ("Merge Mission 2: close the end-to-end wiring gaps"), released as v0.3.0 (`652acd7`), CI fixed and green at `66ffacd`, mission closed at `8ed9397`. **Merged AND pushed — local `main` in sync with `origin/main`** (verified 2026-08-19: `git rev-list --left-right --count origin/main...main` = `0 0`). 27/28 tasks done; the remainder (3.1c) is a threshold decision for Roger, not engineering work (branch `mission/2-wiring-gaps`) | 2026-08-03 → 2026-08-05 |
 | 3 | Bring-your-own ONNX photo provider (offering 1 of backlog #3: wire `register_onnx_provider` to a real `--onnx-model`/`--onnx-labels` CLI + env path; adjudicated 70/30 labels; docs) | **Shipped, merged, pushed** — all four gates cleared; **Roger's manual validation 9/9 PASS 2026-08-29**; merged `--no-ff` as **`8b59399`** and pushed (also carried the previously-unpushed Mission 2 validation record `6d9c000`); `origin/main...main` = `0 0`. Branch `mission/3-byo-onnx-provider` | 2026-08-19 → 2026-08-29 |
 | 4 | Actionable Recourse ("What would have to change?") — near-miss recourse via re-run-the-engine bisection (backlog #6); plus the finance-core perf work it forced (charter amendment: `engine.py`/`irr.py`/`amortization.py` rewritten for perf + a real solver-crash fix; golden re-baselined) | **Shipped, merged, pushed** — Gate D + Gate V cleared 2026-08-20; **Roger's manual validation 9/9 PASS 2026-08-31** (one defect found and fixed in-pass: Case 7 benchmark; `BUDGET_MS` re-baselined 120→250 ms, ratified); merged `--no-ff` as **`7cfd449`**. Branch `mission/4-actionable-recourse` | 2026-08-29 → 2026-08-31 |
+| 5 | Forward-Mode Differentiation & Optimized Recourse Search (backlog #9) — **Half A** the 1e-9 anchored tolerance rule + the digest-pinned anti-ratchet anchor, plus the recourse-loop acceleration (aggregate-income seam + scoped GC); **Half B** multi-lever recourse — 11 minimal-ask propositions, one per lever subset, unranked, smallest total ask labelled, behind a unified all-four-lever plausibility gate; plus a margin-of-safety report section (new scope) and the folded-in open items (#10 money-field bounds, #11 horizon 100 + clean CLI message, #12 `GENUINELY_CLOSE_MAX_FAILS`) | **Shipped, merged — NOT YET PUSHED** — **Roger's manual validation 17/17 PASS 2026-09-01**; merged `--no-ff` as **`MERGE_SHA_PLACEHOLDER`**. **Two charter premises were measured and retracted rather than kept:** AD-Newton was rejected on measurement (a dual pass costs ~4× a plain pass) and **the 30 ms target was not met** (71.4 ms, from 459.5 ms, via the seam + GC, neither of which is AD). AD ships as direction selection only. Branch `mission/5-forward-mode-differentiation` | 2026-08-31 → 2026-09-01 |
 
 ---
 
@@ -129,7 +130,7 @@ counter-examples that undermine the rule.
 | 5 | Live market data ingestion (comps, cap-rate drift) | Med | High (network, data licensing, freshness) | fetch/ policy | Market realism | Market | #1; compliance review |
 | 7 | **F3 "Adjustments Applied" note is unreachable on real data** (found in the 2026-08-19 manual-test pass; documented as Mission 2 case F3 / defect #4). The report renderer correctly ships whatever OPEX-adjustment notes the engine emits, but the engine's triggers test **pre-normalization** strings (`"old roof"`, `"water stain"`) that the CV/label layer normalizes away before the engine sees them (e.g. `"water stain"` → `water_leak_suspected`), so on any real pipeline run the notes are empty and the section never appears. **Real defect, survived Mission 2.** | Low-Med (report honesty — a shipped section that can never populate on real input misleads by omission) | Med (fixing the engine side is inside `src/core/finance/`; fixing the normalization map has CV/label blast — a product decision) | engine OPEX-modifier ↔ CV-label vocabulary | Reports/Finance honesty | Reports, CV/AI | Roger decides which side moves (trigger/label reconciliation) |
 | 8 | **Stale editable-install metadata** (found 2026-08-19): `pip show ai-real-estate-deal-analyzer` reports `Version: 0.1.0` while `pyproject.toml` reads `0.3.0`, because an earlier `pip install -e .` cached the old metadata. **Refreshed 2026-08-20** by re-running `pip install -e .`; `pip show` now reads `0.3.0`. Cosmetic; console scripts resolve and run correctly. | Very low (cosmetic; no functional impact) | Minimal (no source change; a re-install) | packaging | Packaging polish | Packaging | — |
-| 9 | **Adjoint (algorithmic) differentiation + optimized recourse search** — **(Half A)** replace Mission 4's ~10–20-probe bisection with exact derivatives + Newton on the guardrail (~3–4 probes), the remaining path to Roger's 30 ms target for 5,000u/100y, shipping a **tolerance rule first** (relax bit-exact golden to ~1e-9 relative, anchored to the ORIGINAL golden, catches ~9.4e-8); **(Half B, EXPANDED IN by Roger 2026-08-31)** the **multi-lever recourse optimizer** — a second "top-3 actionable combinations" report section via constrained optimization (Lagrangian/KKT + deterministic multi-start) consuming Half A's AD Jacobian, gated by a **unified all-four-lever combination-plausibility gate**. **CHARTERED as Mission 5, 2026-08-31; scope EXPANDED same day to include Half B (was previously slated for a separate Mission 6, now folded in).** | High (portfolio-scale speed; AAD credibility; + multi-lever recourse — richer, more actionable output) | **High — touches `src/core/finance/` (engine/irr AD) AND relaxes a values-level invariant** (bit-exact → tolerance); Half B adds a new optimizer + a unified plausibility gate. De-risked: tolerance rule ships first & is independently valuable; Gate D is a real go/no-go on the AD portion; **an internal AD go/no-go checkpoint gates Half B (NO-GO → Half B defers, Half A ships alone)**. | recourse search (`recourse.py` `_bisect`/`_rerun`/`_judge_plausibility`) + finance engine (`engine.py`, `irr.py` Brent) + golden harness + `rejector.py` (unified gate) | Finance/perf, Market, Reports, portfolio credibility | Finance core, Market, Reports, Tests | Guardian VETO on the invariant relaxation; perf go/no-go; **internal AD checkpoint before optimizer**; every number AND combination confirmed by a real engine re-run |
+| 9 | **Forward-mode (tangent-linear) differentiation + optimized recourse search** — **(Half A)** replace Mission 4's ~10–20-probe bisection with exact derivatives + Newton on the guardrail (~3–4 probes), shipping a **tolerance rule first** (relax bit-exact golden to ~1e-9 relative, anchored to the ORIGINAL golden, calibrated against the ~9.4e-8-relative shape of a `round(payment, 4)` defect — a **contract constant**, not a prior measurement, `git log --all -S"9.4e-8"` → only `87efd22`); **(Half B, EXPANDED IN by Roger 2026-08-31)** the **multi-lever recourse optimizer** — up to **11** minimal-ask propositions (one per lever subset), the cheapest labelled "cheapest total negotiation," gated by a **unified all-four-lever combination-plausibility gate**. **CHARTERED as Mission 5, 2026-08-31; scope EXPANDED same day to include Half B (was previously slated for a separate Mission 6, now folded in).** **⚠ CORRECTED 2026-08-31 (C4(b)):** the original rationale — AD as "the remaining path to Roger's 30 ms target" — was measured and refuted (Newton costs ~4× a plain evaluation per dual pass, 11–41 probes vs bisection's fixed ~11); the measured path to 30 ms is GC-threshold tuning + an aggregate-income seam that removes the rent-roll copy (74.5% of the budgeted row), neither touched by AD. AD ships as Half B's direction-selection/Jacobian enabler; **Half B — a product/capability gain — is now the mission's centre of gravity.** The original "top-3 actionable combinations" + Lagrangian/KKT design is likewise superseded (see `docs/plans/MISSION_5_SPRINT_TRACKER.md`, "FINAL HALF B ARCHITECTURE" / "ROGER'S GATE-D DECISION"). | High (portfolio-scale speed; algorithmic-differentiation credibility; + multi-lever recourse — richer, more actionable output) | **High — touches `src/core/finance/` (engine/irr AD) AND relaxes a values-level invariant** (bit-exact → tolerance); Half B adds a new optimizer + a unified plausibility gate. De-risked: tolerance rule ships first & is independently valuable; Gate D is a real go/no-go on the AD portion; **an internal AD go/no-go checkpoint gates Half B (NO-GO → Half B defers, Half A ships alone)**. | recourse search (`recourse.py` `_bisect`/`_rerun`/`_judge_plausibility`) + finance engine (`engine.py`, `irr.py` Brent) + golden harness + `rejector.py` (unified gate) | Finance/perf, Market, Reports, portfolio credibility | Finance core, Market, Reports, Tests | Guardian VETO on the invariant relaxation; perf go/no-go; **internal AD checkpoint before optimizer**; every number AND combination confirmed by a real engine re-run |
 | 10 | **Money-field lower bounds** — `purchase_price` (and peers) accept negative values today (`models.py:24`, no `ge=`; and see the "silently unenforceable constraint" note `inputs.py:210`). A deliberate money-field pass, not one patch. | Low-Med (input honesty; a negative price should not validate) | Low (additive field constraints + clean error messages) | schema validation | Input robustness | Schemas, Tests | Founder-proxy confirms field list + floor semantics. **Folded into Mission 5 as an open-item disposition.** |
 | 11 | **Raise horizon ceiling `le=50`→`le=100`** (`inputs.py:74`) — 99-year leases are real and work post-Mission-4. **CLI out-of-range-horizon also surfaces a raw pydantic traceback** with the useful message at the bottom (polish to one clean line). | Low (real leases fit; friendlier error) | Low (one constraint + one error-handling branch) | inputs validation + CLI | Usability | Inputs, CLI, Tests | Founder-ratified. **Folded into Mission 5 as open-item dispositions.** |
 | 12 | **`GENUINELY_CLOSE_MAX_FAILS = 3`** (`recourse.py:143`) — the near-miss threshold, chosen by necessity during Mission 4 rather than decided. Needs a real product decision. | Low (a threshold Roger should own explicitly) | Minimal (a constant + its test) | recourse gate | Product clarity | Market | **Founder-proxy call folded into Mission 5 Gate D** (the one near-miss threshold the mission may decide). |
@@ -287,38 +288,74 @@ inherits for free.
 
 ## 5. Current recommendation
 
-**Mission 5 — Adjoint Differentiation & Optimized Recourse Search — CHARTERED 2026-08-31; scope
-EXPANDED by Roger the same day; not yet built.** Baseline `main @ 7cfd449` (Mission 4 merged,
-Roger-validated 9/9 2026-08-31); branch `mission/5-adjoint-differentiation`. Backlog #9. **Two halves,
-run in sequence with a hard internal AD go/no-go checkpoint between them.** **Half A** replaces Mission
-4's ~10–20-probe bump-and-reprice bisection with **exact derivatives + Newton on the guardrail** (~3–4
-probes) — the remaining credible path to Roger's **30 ms** target for the 5,000u/100y analysis (honest
-baseline ~180 ms / ~150 probes today; the brief's "73 ms" is unverified and Discovery reconciles it).
-**Half B (EXPANDED IN, was to be a separate Mission 6)** adds a **multi-lever recourse optimizer** — a
-second "top-3 actionable combinations" report section alongside the single-lever menu, solved as a
-constrained optimization (Lagrangian/KKT + **deterministic** multi-start) over Half A's AD Jacobian, with
+> ## ✅ MISSION 5 SHIPPED — validated by Roger 17/17 PASS, 2026-09-01; merged `--no-ff` as `MERGE_SHA_PLACEHOLDER`; **not yet pushed.**
+>
+> **No mission is currently chartered.** Picking the next one is the mission-planner's next run — it is
+> deliberately not chosen here, because choosing it is a planning job (reconcile the docs to what Mission 5
+> actually shipped, then rank what is now highest-leverage), not a bookkeeping one.
+>
+> **What Mission 5 leaves on the table for whoever charters next**, stated plainly so it is not rediscovered:
+> the **30 ms perf target is still unmet** (71.4 ms on Roger's box; the perf gate sits at 250 ms because a
+> 30 ms gate would flake on a ±12% spread); **backlog #13, integer-cents money**, is the named successor and
+> is the thing that would make money arithmetic exact and unlock the vectorization Mission 4's summation-order
+> constraint blocked; and **this mission's own sprint tracker stopped being updated at Gate D**, which is a
+> process failure worth fixing before the next mission runs, not just a stale file.
+>
+> _The text below is the CHARTER-TIME recommendation, kept as history. It describes the mission as planned —
+> including the AD-Newton framing and the top-3 combination design, both of which were superseded during
+> execution. Read it against §2's Mission 5 row and the manual-testing document for what actually shipped._
+
+**Mission 5 — Forward-Mode Differentiation & Optimized Recourse Search — CHARTERED 2026-08-31; scope
+EXPANDED by Roger the same day; mid-flight (Discovery/Gate D in progress as of this entry).** Baseline
+`main @ 7cfd449` (Mission 4 merged, Roger-validated 9/9 2026-08-31); branch
+`mission/5-forward-mode-differentiation`. Backlog #9. **Two halves, run in sequence with a hard internal
+AD go/no-go checkpoint between them.** **Half A** replaces Mission 4's ~10–20-probe bump-and-reprice
+bisection with **exact derivatives + Newton on the guardrail** (~3–4 probes). **Half B (EXPANDED IN, was
+to be a separate Mission 6)** adds a **multi-lever recourse optimizer** — up to **11** minimal-ask
+propositions (one per surviving lever subset, gate-filtered, unranked), the smallest-total-ask one
+labelled "cheapest total negotiation," AD-gradient-seeded and solved by subset-restricted bisection, with
 feasibility from a **unified all-four-lever combination-plausibility gate** (the core new engineering:
 today `_judge_plausibility` `recourse.py:609` judges one lever at a time; rent/opex have no rejector
-axis). Top-3 is normalization-free (parsimony · within-axis magnitude · diversity); coordinates stay the
-interpretable real levers (no PCA/eigen/SVD/LDA, no learned surrogate — recorded one-reason rationale in
-the charter). **Neither half violates "re-run the engine, never invert a formula":** every single-lever
-answer AND every combination is confirmed by one real, un-differentiated engine re-run. **A tolerance
-rule ships FIRST and gates all AD work:** relax the bit-exact golden to ~1e-9 relative, **anchored to the
-ORIGINAL golden**, still catching the ~9.4e-8 injected rounding bug; approaching-tolerance demands
-written justification. Artifacts: `docs/plans/MISSION_5_adjoint_differentiation.md` (charter),
+axis). Coordinates stay the interpretable real levers (no PCA/eigen/SVD/LDA, no learned surrogate —
+recorded one-reason rationale in the charter). **Neither half violates "re-run the engine, never invert a
+formula":** every single-lever answer AND every proposition is confirmed by one real, un-differentiated
+engine re-run. **A tolerance rule ships FIRST and gates all AD work:** relax the bit-exact golden to
+~1e-9 relative, **anchored to the ORIGINAL golden**, calibrated against the ~9.4e-8-relative shape of a
+`round(payment, 4)` defect (a **contract constant** — `git log --all -S"9.4e-8"` finds no prior
+measurement of it, only this mission's own charter — not a claim it was previously caught in
+production); approaching-tolerance demands written justification.
+
+> **⚠ CORRECTED 2026-08-31 (C4(b) documentation sweep).** The paragraph above describes the CHARTERED
+> plan. Discovery has since measured that **AD is not the path to the honest current baseline's speed
+> target** (best 175–198 ms / median 181–203 ms quiet against `BUDGET_MS = 250.0`; "73 ms" is retracted
+> by Roger himself at `docs/manual testing/MISSION_4_MANUAL_TESTING.md:513`, and "30 ms" is Roger's
+> stated target, never a measurement) — Newton-on-guardrail measured 11–41 probes vs bisection's fixed
+> ~11 because a dual pass costs ~4× a plain evaluation. The dominant cost is the rent-roll copy (74.5%
+> of the row) and garbage collection (~35%, 183.5 ms → 117.7 ms tuned), neither of which AD touches.
+> **Roger's decision: rewrite the rationale, ship the full scope.** AD's real justification is Half B's
+> direction-seeding/sensitivity Jacobian (one forward pass yields all partials at ~4.1–4.4× an engine
+> pass vs 8 passes for central finite differences), not speed — **Half B, a product/capability gain, is
+> now the mission's centre of gravity.** The original "top-3 actionable combinations" + Lagrangian/KKT
+> design (in the paragraph above) is superseded by the "≤ 11 propositions, unranked, labelled cheapest"
+> design already folded into the paragraph above as of this correction. Full record:
+> `docs/plans/MISSION_5_SPRINT_TRACKER.md` ("FINAL HALF B ARCHITECTURE", "ROGER'S GATE-D DECISION").
+
+Artifacts: `docs/plans/MISSION_5_forward_mode_differentiation.md` (charter),
 `docs/plans/MISSION_5_SPRINT_TRACKER.md`, `docs/plans/MISSION_5_HANDOFF.md` (pasteable prompt),
 `docs/plans/MISSION_5_PLAIN_ENGLISH.md`, `docs/manual testing/MISSION_5_MANUAL_TESTING.md`.
 
 **Why now / why this one.** Highest strategic reward on the board after four wiring/feature missions: it
-closes the last perf gap on the institutional-scale analysis, adds real quant-desk credibility (AAD),
-and now also makes recourse output materially richer (bundles, not just single levers). Blast is **High
+adds real quant-desk credibility (algorithmic differentiation) and now, per the correction above,
+primarily makes recourse output materially richer (bundles, not just single levers) — that richness,
+not perf, is the mission's centre of gravity. Blast is **High
 and honestly flagged** — it touches `src/core/finance/` (engine/irr AD), relaxes a **values-level
 invariant** (bit-exact → tolerance), and Half B adds an optimizer + a unified plausibility gate — but
 Mission 4 already opened the finance-core door, and the mission is de-risked by **three** structural
 devices: the tolerance rule is **independently valuable and ships first**; **Gate D is a genuine go/no-go
 on the AD portion**; and an **internal AD go/no-go checkpoint gates Half B** so the optimizer builds only
-on a proven Jacobian (NO-GO → Half B defers, Half A ships alone; a wrong top-3 is then unambiguously an
-optimizer bug). Guardian VETO on the invariant relaxation is **mandatory** at Gate D. Three low-blast
+on a proven Jacobian (NO-GO → Half B defers, Half A ships alone; a wrong proposition is then
+unambiguously an optimizer bug, not an AD bug). Guardian VETO on the invariant relaxation is
+**mandatory** at Gate D. Three low-blast
 open items fold in with their own RED tests: money-field lower bounds (#10), horizon `le=50`→`le=100` +
 CLI clean-error (#11), and the `GENUINELY_CLOSE_MAX_FAILS` product call (#12). **Integer-cents money
 representation (#13) remains the named sibling/successor mission, explicitly NOT in scope.**
@@ -349,12 +386,75 @@ the parked media-intelligence refactor (`parked/media-intelligence-refactor`) st
 
 ## 6. Changelog
 
+* **2026-09-01 (Mission 5 CLOSED — Roger validated 17/17 PASS; merged `--no-ff`, NOT pushed).** Roger ran
+  all 17 cases of `docs/manual testing/MISSION_5_MANUAL_TESTING.md` by hand and every one passed; the
+  document-level box reads VALIDATED and each case row now carries his own measured output rather than the
+  orchestrator's. Two of his numbers differ from the recorded observations and **his were written into the
+  doc**: Case 5 measured 459.5 → 71.4 ms (against 65.5 from 438) and Case 16 took 50.85s (against 32.89s) —
+  timing only, on a slower box, with every conclusion unchanged. One procedural deviation, checked and
+  cleared by him: `$OUT` was `/tmp/m4` rather than a fresh `/tmp/m5`; he verified no stale file was read.
+  Mission 5's work was committed on `mission/5-forward-mode-differentiation` and merged `--no-ff` to `main`
+  as **`MERGE_SHA_PLACEHOLDER`**. **`main` is not pushed** — it carries the merge, the work commit, and the
+  charter commit `87efd22` that has been unpushed since 2026-08-31; Roger controls the push. **Also recorded,
+  because it is a process failure and not a detail:** `docs/plans/MISSION_5_SPRINT_TRACKER.md`'s status blocks
+  and task rows stopped being updated after Gate D and still read "0 / 26 DONE" mid-execution. They were
+  **not** retro-fitted with reconstructed statuses — a banner at the top of that file marks them stale and
+  points at the artifacts that were actually verified (the manual-testing doc, the CHANGELOG's Gate V entries,
+  the code and tests). Fixing the tracker discipline belongs to the next mission's charter.
+
+* **2026-08-31 (Mission 5 — C4(b) documentation correction sweep, docs-only, no code, no git ops).**
+  The guardian ruled four documented claims did not survive measurement and directed a correction sweep
+  (`staff-documentation-maintainer`, sonnet STANDARD) before Gate V. **(1)** The retracted "73 ms, down
+  from 13 s" figure struck everywhere found — it is Roger's own retraction at
+  `docs/manual testing/MISSION_4_MANUAL_TESTING.md:513`, from a superseded harness no longer in the
+  tree; honest baseline is **best 175–198 ms / median 181–203 ms** quiet against `BUDGET_MS = 250.0`,
+  and **30 ms is Roger's stated target, never a measurement.** **(2)** "~9.4e-8" relabelled everywhere
+  as a **contract calibration constant** bound to the reproducible `round(payment, 4)` recipe (real
+  measured signature **1.1325e-7** across 1,613 fields), not a prior measurement — `git log --all
+  -S"9.4e-8"` returns only this mission's own charter commit `87efd22`. **(3)** "Seven live guardrails"
+  corrected to "(up to) six" in every instance found (`README.md:291`, `CHANGELOG.md:10`/`:11`,
+  `src/market/README.md:28`/`:70`, `src/schemas/README.md:76`, plus one more found in this sweep,
+  `docs/manual testing/MISSION_5_MANUAL_TESTING.md:66`) — `cf_all_ok` is pinned `True` by the shipped
+  `REQUIRE_POSITIVE_CF_ALL = False` (`src/agents/chief_strategist.py:56`) and can never fail; the
+  seventh (`cap_floor`) is live only when `market.cap_rate_floor` is set. Two further instances left
+  **unedited, reported to their owning agents**: `src/market/recourse.py:135` (module docstring) and
+  `src/agents/chief_strategist.py:83` (`GuardrailChecks` docstring) — both `.py` files outside this
+  sweep's remit. **(4)** The mission rationale rewritten per Roger's decision: AD is **not** "the
+  remaining credible path to 30 ms" (Newton-on-guardrail measured 11–41 probes vs bisection's fixed
+  ~11, a wash or a loss at ~4× cost per dual pass); the measured path is GC-threshold tuning +
+  removing the rent-roll copy (74.5% of the row) via an aggregate-income seam. AD's justification is
+  Half B's direction-selection/sensitivity Jacobian, not speed. **Half B's original "top-3 actionable
+  combinations" + Lagrangian/KKT design is superseded** by Roger's settled architecture: **≤ 11
+  minimal-ask propositions** (one per lever subset), unranked, the smallest-total-ask one labelled
+  "cheapest total negotiation" (a computed `argmin`, not a search). Edited: charter, handoff,
+  plain-English brief, manual-testing doc, this ledger (§4 row 9, §5), `README.md`, `CHANGELOG.md`,
+  `src/market/README.md`, `src/schemas/README.md`. Full measured record:
+  `docs/plans/MISSION_5_SPRINT_TRACKER.md` (D.1, D.2, D.3, D.5 results; "FINAL HALF B ARCHITECTURE";
+  "ROGER'S GATE-D DECISION") — not edited (orchestrator-owned).
+* **2026-08-31 (Mission 5 RENAMED — "Adjoint" was technically wrong; caught by Roger).** The mission,
+  its branch, its charter filename and its docs all said **"Adjoint Differentiation."** **Adjoint
+  differentiation (AAD) means REVERSE mode**, whose whole value is **many inputs → few outputs.** This
+  problem is **inverted — 4 levers in, 8 metric rows out** — and Discovery measured accordingly:
+  **reverse-mode Wengert tape 6.9x an engine pass vs forward-mode `Dual4` 4.11x**, so **forward mode was
+  chosen** (D.1, re-confirmed by D.5). What `src/core/finance/dual.py` and `jacobian.py` actually
+  implement is **forward-mode (tangent-linear) AD** — the opposite of an adjoint. Roger: _"a quant
+  reviewer spots this in ten seconds."_ **Renamed before Gate V:** branch
+  `mission/5-adjoint-differentiation` -> **`mission/5-forward-mode-differentiation`**; charter
+  `MISSION_5_adjoint_differentiation.md` -> **`MISSION_5_forward_mode_differentiation.md`** (via
+  `git mv`, history preserved); title -> **"Mission 5 — Forward-Mode Differentiation & Optimized
+  Recourse Search"** across the charter, handoff, plain-English brief, sprint tracker, manual-testing
+  doc, this ledger, and two shipped docstrings in `tests/core/finance/`. **Deliberately KEPT:** the
+  passages that explain *what AAD is and why it was rejected* (handoff L71, charter L145) -- those uses
+  are correct and load-bearing; and the verbatim quote of commit `87efd22`'s message, which is immutable
+  history. Nothing about the implementation changed -- **only the label, which was describing the
+  algorithm we measured and did not build.**
+
 * **2026-08-31 (Mission 5 SCOPE EXPANDED by Roger — Half B multi-lever optimizer folded in; docs-only,
   no code, no git ops).** Roger decided to **expand Mission 5 to include the multi-lever recourse
   optimizer** (Half B) rather than defer it to a separate Mission 6, overriding the planner's
   split recommendation. Updated the five existing (uncommitted) Mission 5 artifacts **in place** (same
-  filenames, slug `adjoint_differentiation` kept for continuity; human title broadened to "Adjoint
-  Differentiation & Optimized Recourse Search") plus this ledger. **What Half B adds:** a **second report
+  filenames; human title broadened to "Adjoint Differentiation & Optimized Recourse Search" -- **a name
+  since CORRECTED, see the 2026-08-31 renaming entry below**) plus this ledger. **What Half B adds:** a **second report
   section, "top-3 actionable combinations",** alongside the existing single-lever menu (Roger: offer
   both — we don't know if the investor can move one lever or several). It is a **constrained optimization**
   (Lagrangian/KKT — augmented Lagrangian / SQP / projected-gradient / interior-point, chosen by
@@ -406,7 +506,7 @@ the parked media-intelligence refactor (`parked/media-intelligence-refactor`) st
   scope (no longer a separate mission) while keeping integer-cents money (#13) as the named
   sibling-successor; §5 → the **expanded** Mission 5. **No code, no git ops, no commit** — the five
   artifacts + this ledger left uncommitted for Roger.
-* **2026-08-31 (Mission 5 CHARTERED — Adjoint Differentiation for the Recourse Search; docs-only, no
+* **2026-08-31 (Mission 5 CHARTERED — Forward-Mode Differentiation for the Recourse Search; docs-only, no
   code, no git ops).** Baseline confirmed read-only: `main @ 7cfd449` (Mission 4 merged, "validated by
   Roger 2026-08-31, 9/9 PASS"), tree clean, in sync with `origin/main` (gate pre-verified by the
   orchestrator). Verified every design anchor against the tree at `7cfd449`: the recourse search
@@ -437,7 +537,7 @@ the parked media-intelligence refactor (`parked/media-intelligence-refactor`) st
   STANDARD, not haiku** (Mission 4 routed doc-vs-code verification cheap and got fabricated API docs).
   Wrote all five artifacts (charter, sprint tracker, handoff with the GRAPHIFY CONTRACT verbatim,
   plain-English brief, manual-testing acceptance plan with unchecked VALIDATED boxes). Branch:
-  `mission/5-adjoint-differentiation`. Reconciled the ledger: §1 baseline → `main @ 7cfd449` in sync with
+  `mission/5-forward-mode-differentiation`. Reconciled the ledger: §1 baseline → `main @ 7cfd449` in sync with
   origin; §2 added Mission 3 (`8b59399`) and Mission 4 (`7cfd449`) as SHIPPED; §4 added backlog rows
   #9–#13; §5 → Mission 5 recommendation. Files left uncommitted for Roger; **no state-mutating git ops
   performed** (no commit, no branch, no push).

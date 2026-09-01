@@ -52,7 +52,7 @@ from src.core.media.insights import analyze_media
 from src.core.media.local import collect_local_assets
 from src.core.reports.photo_report import build_media_report
 from src.core.reports.report_models import MediaReport
-from src.orchestrators.crew import OrchestrationResult, build_baseline_outlook, build_recourse
+from src.orchestrators.crew import OrchestrationResult, build_baseline_outlook, build_breakevens, build_recourse
 from src.schemas.models import FinancialInputs, MediaInsights
 
 
@@ -122,6 +122,11 @@ def run_orchestration(
     # analyst's insights, so it is unaffected by which mode produced `thesis` above.
     recourse = build_recourse(inputs, horizon_years=horizon_years)
 
+    # "How wrong can these guesses be?" (Mission 5). Same sharing argument as the line above, and
+    # the same independence from `thesis`: it reads `inputs` only, so both engines reach the same
+    # margins of safety on the same deal.
+    breakeven = build_breakevens(inputs, horizon_years=horizon_years)
+
     # Note: there is deliberately no single Crew spanning all three agents. Only the analyst
     # may reason, and it owns its own one-agent Crew inside `ListingAnalystAgent._run_llm`.
     # Building a shared sequential Crew over all three Agent shells here would put the
@@ -156,4 +161,5 @@ def run_orchestration(
         media_report=media_report,
         baseline=baseline,
         recourse=recourse,
+        breakeven=breakeven,
     )
